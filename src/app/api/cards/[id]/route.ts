@@ -40,6 +40,7 @@ export async function PUT(
 
   const data: any = {
     name: (body.name || "").toString().trim() || existing.name,
+    shopkeeperName: body.shopkeeperName != null ? String(body.shopkeeperName).trim() || null : existing.shopkeeperName,
     phone: body.phone != null ? String(body.phone).trim() || null : existing.phone,
     address: body.address != null ? String(body.address).trim() || null : existing.address,
     type: body.type === "WHOLESALE" ? "WHOLESALE" : "REGULAR",

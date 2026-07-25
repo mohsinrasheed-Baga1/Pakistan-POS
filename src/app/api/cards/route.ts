@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
     data: {
       cardNumber,
       name,
+      shopkeeperName: body.shopkeeperName ? String(body.shopkeeperName).trim() : null,
       phone: body.phone ? String(body.phone).trim() : null,
       address: body.address ? String(body.address).trim() : null,
       type: body.type === "WHOLESALE" ? "WHOLESALE" : "REGULAR",

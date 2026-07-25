@@ -150,6 +150,7 @@ export interface CustomerCard {
   id: string;
   cardNumber: string;
   name: string;
+  shopkeeperName: string | null;
   phone: string | null;
   address: string | null;
   type: CardType;

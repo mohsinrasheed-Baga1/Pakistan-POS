@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS CustomerCard (
   id TEXT PRIMARY KEY NOT NULL,
   cardNumber TEXT NOT NULL,
   name TEXT NOT NULL,
+  shopkeeperName TEXT,
   phone TEXT,
   address TEXT,
   type TEXT NOT NULL DEFAULT 'REGULAR',
@@ -229,6 +230,9 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["cardId", "TEXT"],
     ["saleType", "TEXT NOT NULL DEFAULT 'RETAIL'"],
     ["originalSaleId", "TEXT"],
+  ],
+  CustomerCard: [
+    ["shopkeeperName", "TEXT"],
   ],
   Settings: [
     ["printerWidth", "INTEGER NOT NULL DEFAULT 58"],

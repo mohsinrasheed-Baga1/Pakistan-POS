@@ -144,6 +144,7 @@ model CustomerCard {
   id             String   @id @default(cuid())
   cardNumber     String   @unique
   name           String
+  shopkeeperName String?
   phone          String?
   address        String?
   type           String   @default("REGULAR")

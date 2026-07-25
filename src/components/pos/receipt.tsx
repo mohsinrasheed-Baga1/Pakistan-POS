@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatMoney, unitLabel } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
 
@@ -76,18 +77,19 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
+      <DialogContent className="max-w-sm flex flex-col max-h-[90vh] p-0 gap-0">
+        <DialogHeader className="p-4 pb-2 shrink-0">
           <DialogTitle className="flex items-center gap-2 text-emerald-700">
             <CheckCircle2 className="w-5 h-5" />
             Sale Successful
           </DialogTitle>
         </DialogHeader>
-        <div
-          ref={printRef}
-          className="bg-white text-black p-3 rounded-lg space-y-1"
-          style={{ maxWidth, margin: "0 auto", fontFamily: "'Consolas', 'Courier New', monospace", color: "#000", fontWeight: "bold" }}
-        >
+        <ScrollArea className="flex-1 min-h-0 px-4">
+          <div
+            ref={printRef}
+            className="bg-white text-black p-3 rounded-lg space-y-1"
+            style={{ maxWidth, margin: "0 auto", fontFamily: "'Consolas', 'Courier New', monospace", color: "#000", fontWeight: "bold" }}
+          >
           {/* Header */}
           <div className="center" style={{ textAlign: "center" }}>
             {logo && (
@@ -227,8 +229,9 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
           <div className="center" style={{ fontSize: tableFontSize, marginTop: "4px" }}>
             {settings?.receiptFooter || "Thank you! Please come again."}
           </div>
-        </div>
-        <div className="flex gap-2">
+          </div>
+        </ScrollArea>
+        <div className="flex gap-2 p-4 pt-2 shrink-0 border-t">
           <Button
             variant="outline"
             className="flex-1"

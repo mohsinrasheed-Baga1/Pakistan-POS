@@ -55,6 +55,7 @@ import { toast } from "sonner";
 import { formatMoney, unitLabel } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
 import { ImageUpload } from "@/components/pos/image-upload";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Product, Category, Vendor } from "@/types";
 
 interface ProductsViewProps {
@@ -906,11 +907,11 @@ function BarcodePrintDialog({
 
   return (
     <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
+      <DialogContent className="max-w-md flex flex-col max-h-[90vh] p-0 gap-0">
+        <DialogHeader className="p-4 pb-2 shrink-0">
           <DialogTitle>Print Barcode Sticker</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="px-4 pb-2 shrink-0 space-y-3">
           <div className="text-center text-xs text-muted-foreground">
             Sticker size: 50mm × 25mm. Shop name (top) — Barcode (middle) —
             Product name (bottom).
@@ -930,9 +931,11 @@ function BarcodePrintDialog({
               className="text-left w-24"
             />
           </div>
+        </div>
+        <ScrollArea className="flex-1 min-h-0 px-4">
           <div
             ref={labelRef}
-            className="bg-white border rounded p-2 flex flex-wrap gap-1 justify-center"
+            className="bg-white border rounded p-2 flex flex-wrap gap-1 justify-center mb-3"
           >
             {Array.from({ length: count }).map((_, i) => (
               <div key={i} className="sticker" style={stickerStyle}>
@@ -986,8 +989,8 @@ function BarcodePrintDialog({
               </div>
             ))}
           </div>
-        </div>
-        <DialogFooter>
+        </ScrollArea>
+        <DialogFooter className="p-4 pt-2 shrink-0 border-t">
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>

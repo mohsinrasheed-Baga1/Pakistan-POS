@@ -63,6 +63,7 @@ interface CardsViewProps {
 
 const emptyForm = {
   name: "",
+  shopkeeperName: "",
   phone: "",
   address: "",
   type: "REGULAR" as "REGULAR" | "WHOLESALE",
@@ -121,6 +122,7 @@ export function CardsView({ userRole }: CardsViewProps) {
   function openEdit(c: CustomerCard) {
     setForm({
       name: c.name,
+      shopkeeperName: c.shopkeeperName || "",
       phone: c.phone || "",
       address: c.address || "",
       type: c.type,
@@ -140,6 +142,7 @@ export function CardsView({ userRole }: CardsViewProps) {
     try {
       const body = {
         name: form.name.trim(),
+        shopkeeperName: form.shopkeeperName.trim(),
         phone: form.phone.trim(),
         address: form.address.trim(),
         type: form.type,
@@ -245,6 +248,7 @@ export function CardsView({ userRole }: CardsViewProps) {
                   <TableRow>
                     <TableHead>Card Number</TableHead>
                     <TableHead>Cardholder</TableHead>
+                    <TableHead>Shopkeeper</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
@@ -259,6 +263,7 @@ export function CardsView({ userRole }: CardsViewProps) {
                         {c.cardNumber}
                       </TableCell>
                       <TableCell className="font-medium">{c.name}</TableCell>
+                      <TableCell className="text-xs">{c.shopkeeperName || "-"}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {c.phone || "-"}
                       </TableCell>
@@ -346,6 +351,14 @@ export function CardsView({ userRole }: CardsViewProps) {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="Customer name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Shopkeeper Name</Label>
+              <Input
+                value={form.shopkeeperName}
+                onChange={(e) => setForm({ ...form, shopkeeperName: e.target.value })}
+                placeholder="Shopkeeper / reference name (optional)"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -564,6 +577,27 @@ export function CardVisual({
           </span>
         </div>
 
+        {card.shopkeeperName && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "1mm",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "7px",
+                color: "#333",
+                textTransform: "uppercase",
+                letterSpacing: "0.3px",
+              }}
+            >
+              Shopkeeper: <strong style={{ color: "#000" }}>{card.shopkeeperName}</strong>
+            </span>
+          </div>
+        )}
+
         <div
           style={{
             fontSize: "12px",
@@ -752,6 +786,7 @@ function CardPrintDialog({
               <span style="font-size:10px;">&#9635;</span>
               <span class="holder-name">${escapeHtml(card.name)}</span>
             </div>
+            ${card.shopkeeperName ? `<div class="shopkeeper"><span style="font-size:7px;color:#333;text-transform:uppercase;letter-spacing:0.3px;">Shopkeeper: <strong style="color:#000;">${escapeHtml(card.shopkeeperName)}</strong></span></div>` : ""}
             <div class="card-number">${escapeHtml(card.cardNumber)}</div>
             <div class="type-row">
               <span class="type-badge">${escapeHtml(cardTypeLabel)}</span>

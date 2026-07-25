@@ -537,70 +537,74 @@ export function PosView({ settings }: PosViewProps) {
                         return (
                         <div
                           key={item.product.id + (isBoxItem ? "-box" : "")}
-                          className={`flex items-center gap-2 rounded-lg border p-2 bg-background ${isBoxItem ? "border-amber-300 bg-amber-50/40" : ""}`}
+                          className={`rounded-lg border p-2 bg-background ${isBoxItem ? "border-amber-300 bg-amber-50/40" : ""}`}
                         >
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate flex items-center gap-1">
-                              {item.product.name}
+                          {/* Row 1: product name (truncated) + line total (always visible) */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="text-sm font-medium truncate flex items-center gap-1 flex-1 min-w-0">
+                              <span className="truncate">{item.product.name}</span>
                               {isBoxItem && (
-                                <Badge variant="outline" className="text-[10px] bg-amber-100 border-amber-400 text-amber-800">BOX</Badge>
+                                <Badge variant="outline" className="text-[10px] bg-amber-100 border-amber-400 text-amber-800 shrink-0">BOX</Badge>
                               )}
                             </div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-sm font-bold text-emerald-700 whitespace-nowrap shrink-0">
+                              {formatMoney(itemPrice * item.quantity, currency)}
+                            </div>
+                          </div>
+                          {/* Row 2: unit price + qty controls + remove */}
+                          <div className="flex items-center justify-between gap-2 mt-1">
+                            <div className="text-xs text-muted-foreground truncate">
                               {formatMoney(itemPrice, currency)} /{" "}
                               {isBoxItem ? `box (${item.product.packQuantity} pcs)` : unitLabel(item.product.unit)}
                             </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-7 w-7"
+                                onClick={() =>
+                                  cart.setQty(
+                                    item.product.id,
+                                    item.quantity - (isLooseUnit(item.product.unit) && !isBoxItem ? 0.5 : 1),
+                                    item.isBox
+                                  )
+                                }
+                              >
+                                <Minus className="w-3 h-3" />
+                              </Button>
+                              <Input
+                                className="h-7 w-14 text-center px-1"
+                                value={item.quantity}
+                                onChange={(e) => {
+                                  const v = Number(e.target.value);
+                                  if (!isNaN(v))
+                                    cart.setQty(item.product.id, v, item.isBox);
+                                }}
+                              />
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-7 w-7"
+                                onClick={() =>
+                                  cart.setQty(
+                                    item.product.id,
+                                    item.quantity + (isLooseUnit(item.product.unit) && !isBoxItem ? 0.5 : 1),
+                                    item.isBox
+                                  )
+                                }
+                              >
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-red-600 hover:bg-red-50"
+                                onClick={() => cart.removeItem(item.product.id, item.isBox)}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() =>
-                                cart.setQty(
-                                  item.product.id,
-                                  item.quantity - (isLooseUnit(item.product.unit) && !isBoxItem ? 0.5 : 1),
-                                  item.isBox
-                                )
-                              }
-                            >
-                              <Minus className="w-3 h-3" />
-                            </Button>
-                            <Input
-                              className="h-7 w-14 text-center px-1"
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const v = Number(e.target.value);
-                                if (!isNaN(v))
-                                  cart.setQty(item.product.id, v, item.isBox);
-                              }}
-                            />
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() =>
-                                cart.setQty(
-                                  item.product.id,
-                                  item.quantity + (isLooseUnit(item.product.unit) && !isBoxItem ? 0.5 : 1),
-                                  item.isBox
-                                )
-                              }
-                            >
-                              <Plus className="w-3 h-3" />
-                            </Button>
-                          </div>
-                          <div className="text-sm font-bold text-emerald-700 w-16 text-right">
-                            {formatMoney(itemPrice * item.quantity, currency)}
-                          </div>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-red-600 hover:bg-red-50"
-                            onClick={() => cart.removeItem(item.product.id, item.isBox)}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
                         </div>
                         );
                       })}
@@ -1152,6 +1156,58 @@ function CalculatorDialog({ open, onOpenChange }: CalculatorDialogProps) {
     setOperation(null);
     setWaitingForOperand(true);
   }
+
+  // Keyboard support: digits, operators, Enter (=), Escape (C), Backspace
+  React.useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      const k = e.key;
+      // digits 0-9
+      if (/^[0-9]$/.test(k)) {
+        e.preventDefault();
+        inputDigit(k);
+        return;
+      }
+      if (k === "." || k === ",") {
+        e.preventDefault();
+        inputDecimal();
+        return;
+      }
+      if (k === "+" || k === "-") {
+        e.preventDefault();
+        performOperation(k);
+        return;
+      }
+      if (k === "*" || k === "x" || k === "X") {
+        e.preventDefault();
+        performOperation("*");
+        return;
+      }
+      if (k === "/") {
+        e.preventDefault();
+        performOperation("/");
+        return;
+      }
+      if (k === "Enter" || k === "=") {
+        e.preventDefault();
+        calculate();
+        return;
+      }
+      if (k === "Escape") {
+        e.preventDefault();
+        clearAll();
+        return;
+      }
+      if (k === "Backspace") {
+        e.preventDefault();
+        backspace();
+        return;
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, display, previousValue, operation, waitingForOperand]);
 
   const btnBase = "h-12 text-xl font-medium";
 
