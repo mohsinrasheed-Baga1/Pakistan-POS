@@ -90,7 +90,7 @@ import { useAppStore } from "@/stores/use-pos-store";
 // ============================================================
 // In-app auto-update constants
 // ============================================================
-const CURRENT_VERSION = "2.7.12";
+const CURRENT_VERSION = "2.7.13";
 const UPDATE_URL =
   "https://raw.githubusercontent.com/mohsinrasheed-Baga1/shop-pos-system/main/public/update.json";
 // The installer is split into 11 parts (~20 MB each) on the repo dist/ folder.

@@ -452,13 +452,18 @@ export function PosView({ settings }: PosViewProps) {
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-emerald-700 font-bold text-sm">
                       {formatMoney(
-                        cart.saleType === "WHOLESALE" && p.wholesalePrice > 0 ? p.wholesalePrice : cart.saleType === "SHOPKEEPER" && p.shopkeeperPrice > 0 ? p.shopkeeperPrice : p.salePrice
+                        cart.saleType === "WHOLESALE" && p.wholesalePrice > 0
                           ? p.wholesalePrice
+                          : cart.saleType === "SHOPKEEPER" && p.shopkeeperPrice > 0
+                          ? p.shopkeeperPrice
                           : p.salePrice,
                         currency
                       )}
-                      {cart.saleType === "WHOLESALE" && p.wholesalePrice > 0 ? p.wholesalePrice : cart.saleType === "SHOPKEEPER" && p.shopkeeperPrice > 0 ? p.shopkeeperPrice : p.salePrice && (
+                      {cart.saleType === "WHOLESALE" && p.wholesalePrice > 0 && (
                         <span className="ml-1 text-[10px] text-amber-600">W</span>
+                      )}
+                      {cart.saleType === "SHOPKEEPER" && p.shopkeeperPrice > 0 && (
+                        <span className="ml-1 text-[10px] text-purple-600">S</span>
                       )}
                     </span>
                     <span
@@ -524,8 +529,10 @@ export function PosView({ settings }: PosViewProps) {
                             </div>
                             <div className="text-xs text-muted-foreground">
                               {formatMoney(
-                                cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0 ? item.product.wholesalePrice : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0 ? item.product.shopkeeperPrice : item.product.salePrice
+                                cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
                                   ? item.product.wholesalePrice
+                                  : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
+                                  ? item.product.shopkeeperPrice
                                   : item.product.salePrice,
                                 currency
                               )} /{" "}
@@ -571,8 +578,10 @@ export function PosView({ settings }: PosViewProps) {
                           </div>
                           <div className="text-sm font-bold text-emerald-700 w-16 text-right">
                             {formatMoney(
-                              (cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0 ? item.product.wholesalePrice : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0 ? item.product.shopkeeperPrice : item.product.salePrice
+                              (cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
                                 ? item.product.wholesalePrice
+                                : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
+                                ? item.product.shopkeeperPrice
                                 : item.product.salePrice) * item.quantity,
                               currency
                             )}

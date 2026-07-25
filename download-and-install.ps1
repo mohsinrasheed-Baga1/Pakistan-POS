@@ -15,14 +15,14 @@ foreach ($part in $parts) {
         exit 1
     }
 }
-$out = Join-Path $tempDir "Shop-POS-System-Setup-2.7.12.exe"
+$out = Join-Path $tempDir "Shop-POS-System-Setup-2.7.13.exe"
 $stream = [System.IO.File]::Create($out)
 foreach ($part in $parts) {
     $bytes = [System.IO.File]::ReadAllBytes((Join-Path $tempDir $part))
     $stream.Write($bytes, 0, $bytes.Length)
 }
 $stream.Close()
-$desktopPath = Join-Path $env:USERPROFILE "Desktop\Shop-POS-System-Setup-2.7.12.exe"
+$desktopPath = Join-Path $env:USERPROFILE "Desktop\Shop-POS-System-Setup-2.7.13.exe"
 Copy-Item $out $desktopPath -Force
 Write-Host "Saved to Desktop" -ForegroundColor Green
 Start-Process $desktopPath

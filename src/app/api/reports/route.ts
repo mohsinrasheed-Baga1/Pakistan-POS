@@ -83,6 +83,42 @@ export async function GET(req: NextRequest) {
   const productCount = await db.product.count({ where: { active: true } });
   const categoryCount = await db.category.count();
 
+  // Total stock value (shop + store)
+  const allProducts = await db.product.findMany({
+    where: { active: true },
+    select: { stock: true, storeStock: true, costPrice: true, salePrice: true, name: true },
+  });
+  const totalStockValue = allProducts.reduce(
+    (sum, p) => sum + (p.stock + p.storeStock) * p.costPrice,
+    0
+  );
+  const totalRetailValue = allProducts.reduce(
+    (sum, p) => sum + (p.stock + p.storeStock) * p.salePrice,
+    0
+  );
+  const totalShopStock = allProducts.reduce((sum, p) => sum + p.stock, 0);
+  const totalStoreStock = allProducts.reduce((sum, p) => sum + p.storeStock, 0);
+
+  // Detailed profit breakdown
+  const profitByProduct: { name: string; revenue: number; cost: number; profit: number; qtySold: number }[] = [];
+  sales.forEach((s) => {
+    s.items.forEach((it) => {
+      const existing = profitByProduct.find((p) => p.name === it.name);
+      const revenue = it.price * it.quantity;
+      const cost = it.costPrice * it.quantity;
+      const profit = revenue - cost;
+      if (existing) {
+        existing.revenue += revenue;
+        existing.cost += cost;
+        existing.profit += profit;
+        existing.qtySold += it.quantity;
+      } else {
+        profitByProduct.push({ name: it.name, revenue, cost, profit, qtySold: it.quantity });
+      }
+    });
+  });
+  profitByProduct.sort((a, b) => b.profit - a.profit);
+
   return NextResponse.json({
     range,
     totalSales,
@@ -95,5 +131,10 @@ export async function GET(req: NextRequest) {
     lowStock,
     productCount,
     categoryCount,
+    totalStockValue,
+    totalRetailValue,
+    totalShopStock,
+    totalStoreStock,
+    profitByProduct: profitByProduct.slice(0, 20),
   });
 }
