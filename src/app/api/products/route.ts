@@ -17,12 +17,27 @@ export async function GET(req: NextRequest) {
     where.OR = [
       { name: { contains: q } },
       { barcode: { contains: q } },
+      { packBarcode: { contains: q } },
     ];
   }
   if (categoryId) where.categoryId = categoryId;
   if (barcode) where.barcode = barcode;
   if (lowStock) {
     where.stock = { lte: db.product.fields.minStock };
+  }
+
+  // Expiry filter: products with an expiry date within 30 days OR already expired
+  const expiringSoon = searchParams.get("expiringSoon") === "true";
+  if (expiringSoon) {
+    const now = new Date();
+    const future = new Date();
+    future.setDate(now.getDate() + 30);
+    where.expiryDate = { gte: now, lte: future };
+  }
+
+  const expiredOnly = searchParams.get("expired") === "true";
+  if (expiredOnly) {
+    where.expiryDate = { lt: new Date() };
   }
 
   const products = await db.product.findMany({
@@ -60,6 +75,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Box/pack fields — optional. If packBarcode provided, ensure it's unique.
+  const packBarcode = body.packBarcode?.trim() || null;
+  const packQuantity = Number(body.packQuantity) || 0;
+  const packPrice = Number(body.packPrice) || 0;
+  if (packBarcode) {
+    const dupPack = await db.product.findUnique({ where: { packBarcode } });
+    if (dupPack) {
+      return NextResponse.json(
+        { error: "This box barcode already exists" },
+        { status: 400 }
+      );
+    }
+  }
+
   const product = await db.product.create({
     data: {
       name: body.name,
@@ -81,6 +110,9 @@ export async function POST(req: NextRequest) {
       hasBarcode,
       image: body.image || null,
       active: body.active !== false,
+      packBarcode,
+      packQuantity,
+      packPrice,
     },
     include: { category: true, vendor: true },
   });

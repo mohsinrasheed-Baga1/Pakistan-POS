@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
   let subtotal = 0;
   let taxTotal = 0;
   const saleItemsData: any[] = [];
+  const boxSaleFlags: Record<string, boolean> = {};
   for (const it of items) {
     const product = await db.product.findUnique({ where: { id: it.productId } });
     if (!product) {
@@ -59,15 +60,19 @@ export async function POST(req: NextRequest) {
     if (qty <= 0) {
       return NextResponse.json({ error: "Invalid quantity" }, { status: 400 });
     }
-    // stock check for non-loose items handled loosely; deduct anyway
+    // Determine if this is a whole-box sale.
+    // A box sale is signalled either by an explicit isBox flag from the POS,
+    // or by the price matching the product's packPrice.
+    const isBoxSale = !!it.isBox || (product.packPrice > 0 && Number(it.price) === product.packPrice);
     const price = Number(it.price ?? product.salePrice);
     const lineTotal = price * qty;
     subtotal += lineTotal;
     taxTotal += lineTotal * (product.taxRate / 100);
 
+    boxSaleFlags[product.id] = isBoxSale;
     saleItemsData.push({
       productId: product.id,
-      name: product.name,
+      name: product.name + (isBoxSale ? " (Box)" : ""),
       barcode: product.barcode,
       price,
       costPrice: product.costPrice,
@@ -105,10 +110,13 @@ export async function POST(req: NextRequest) {
 
   // deduct stock + log
   for (const it of saleItemsData) {
-    // If item was sold at packPrice (box sale), deduct packQuantity pieces from stock
     const product = await db.product.findUnique({ where: { id: it.productId } });
-    const isBoxSale = product && product.packPrice > 0 && it.price === product.packPrice;
-    const stockDeduction = isBoxSale ? (product?.packQuantity || 1) * it.quantity : it.quantity;
+    const isBoxSale = !!boxSaleFlags[it.productId];
+    // Box sale: deduct packQuantity pieces per box sold.
+    // Piece sale: deduct 1 piece per unit sold.
+    const stockDeduction = isBoxSale
+      ? (product?.packQuantity || 1) * it.quantity
+      : it.quantity;
 
     await db.product.update({
       where: { id: it.productId },
@@ -119,7 +127,9 @@ export async function POST(req: NextRequest) {
         productId: it.productId,
         type: "SALE",
         quantity: -stockDeduction,
-        note: isBoxSale ? `Box sale ${invoiceNo} (${it.quantity} box × ${product?.packQuantity} pcs = ${stockDeduction} pcs)` : `Sale ${invoiceNo}`,
+        note: isBoxSale
+          ? `Box sale ${invoiceNo} (${it.quantity} box × ${product?.packQuantity} pcs = ${stockDeduction} pcs)`
+          : `Sale ${invoiceNo} (${it.quantity} pcs)`,
       },
     });
   }

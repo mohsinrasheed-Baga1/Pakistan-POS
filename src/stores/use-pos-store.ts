@@ -34,7 +34,11 @@ export const useAppStore = create<AppState>((set) => ({
 export type SaleType = "RETAIL" | "WHOLESALE" | "SHOPKEEPER";
 
 // Helper: get effective price for a product based on sale type
-export function effectivePrice(product: Product, saleType: SaleType): number {
+export function effectivePrice(product: Product, saleType: SaleType, isBox?: boolean): number {
+  // Box sale always uses packPrice (the whole-box price)
+  if (isBox && product.packPrice > 0) {
+    return product.packPrice;
+  }
   if (saleType === "WHOLESALE" && product.wholesalePrice > 0) {
     return product.wholesalePrice;
   }
@@ -51,7 +55,7 @@ interface CartState {
   customerPhone: string;
   paymentMethod: "CASH" | "CARD" | "MOBILE";
   saleType: SaleType;
-  addItem: (product: Product, qty?: number) => void;
+  addItem: (product: Product, qty?: number, isBox?: boolean) => void;
   removeItem: (productId: string) => void;
   setQty: (productId: string, qty: number) => void;
   setDiscount: (v: number) => void;
@@ -75,31 +79,40 @@ export const useCartStore = create<CartState>((set, get) => ({
   customerPhone: "",
   paymentMethod: "CASH",
   saleType: "RETAIL",
-  addItem: (product, qty = 1) =>
+  addItem: (product, qty = 1, isBox = false) =>
     set((state) => {
-      const existing = state.items.find((i) => i.product.id === product.id);
+      // Box and piece entries are tracked separately (different isBox flag)
+      const existing = state.items.find(
+        (i) => i.product.id === product.id && !!i.isBox === !!isBox
+      );
       if (existing) {
         return {
           items: state.items.map((i) =>
-            i.product.id === product.id
+            i.product.id === product.id && !!i.isBox === !!isBox
               ? { ...i, quantity: i.quantity + qty }
               : i
           ),
         };
       }
-      return { items: [...state.items, { product, quantity: qty }] };
+      return { items: [...state.items, { product, quantity: qty, isBox }] };
     }),
-  removeItem: (productId) =>
+  removeItem: (productId: string, isBox?: boolean) =>
     set((state) => ({
-      items: state.items.filter((i) => i.product.id !== productId),
+      items: state.items.filter(
+        (i) => !(i.product.id === productId && !!i.isBox === !!isBox)
+      ),
     })),
-  setQty: (productId, qty) =>
+  setQty: (productId: string, qty: number, isBox?: boolean) =>
     set((state) => ({
       items:
         qty <= 0
-          ? state.items.filter((i) => i.product.id !== productId)
+          ? state.items.filter(
+              (i) => !(i.product.id === productId && !!i.isBox === !!isBox)
+            )
           : state.items.map((i) =>
-              i.product.id === productId ? { ...i, quantity: qty } : i
+              i.product.id === productId && !!i.isBox === !!isBox
+                ? { ...i, quantity: qty }
+                : i
             ),
     })),
   setDiscount: (discount) => set({ discount }),
@@ -121,7 +134,7 @@ export const useCartStore = create<CartState>((set, get) => ({
     let subtotal = 0;
     let taxTotal = 0;
     items.forEach((i) => {
-      const price = effectivePrice(i.product, saleType);
+      const price = effectivePrice(i.product, saleType, i.isBox);
       const line = price * i.quantity;
       subtotal += line;
       if (taxEnabled) {

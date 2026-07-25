@@ -35,7 +35,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { useCartStore, useAppStore } from "@/stores/use-pos-store";
+import { useCartStore, useAppStore, effectivePrice } from "@/stores/use-pos-store";
 import { formatMoney, unitLabel, isLooseUnit } from "@/lib/pos-utils";
 import type { Product, Category } from "@/types";
 import { Receipt } from "@/components/pos/receipt";
@@ -104,20 +104,29 @@ export function PosView({ settings }: PosViewProps) {
     return () => clearTimeout(t);
   }, [loadProducts]);
 
-  function addToCart(product: Product, qty: number = 1) {
+  function addToCart(product: Product, qty: number = 1, isBox: boolean = false) {
     if (!product.active) {
       toast.error("This product is inactive");
       return;
     }
-    const existingItem = cart.items.find((i) => i.product.id === product.id);
+    // For box sales, each unit = packQuantity pieces of stock.
+    // For piece sales, each unit = 1 piece of stock.
+    const stockPerUnit = isBox ? (product.packQuantity || 1) : 1;
+    const existingItem = cart.items.find(
+      (i) => i.product.id === product.id && !!i.isBox === isBox
+    );
     const currentInCart = existingItem ? existingItem.quantity : 0;
-    const isPack = product.packPrice > 0 && product.salePrice === product.packPrice;
-    const effectiveQty = isPack ? qty * (product.packQuantity || 1) : qty;
-    if (!isLooseUnit(product.unit) && currentInCart + effectiveQty > product.stock) {
-      toast.error(`Low stock! Only ${product.stock} ${unitLabel(product.unit)} available`);
+    const effectiveQty = (currentInCart + qty) * stockPerUnit;
+    if (!isLooseUnit(product.unit) && effectiveQty > product.stock) {
+      const availBoxes = product.packQuantity > 0 ? Math.floor(product.stock / product.packQuantity) : 0;
+      toast.error(
+        isBox
+          ? `Low stock! Only ${availBoxes} box(es) / ${product.stock} pcs available`
+          : `Low stock! Only ${product.stock} ${unitLabel(product.unit)} available`
+      );
       return;
     }
-    cart.addItem(product, qty);
+    cart.addItem(product, qty, isBox);
     // After adding, clear search and refocus for next product
     setQ("");
     setHighlightedIndex(0);
@@ -143,13 +152,11 @@ export function PosView({ settings }: PosViewProps) {
       if (data.found && data.kind === "product" && data.product) {
         const product = data.product as Product;
         if (data.isPack && product.packQuantity > 0) {
-          // Box scan: add 1 box = deduct packQuantity pieces from stock
-          // Use packPrice as the price, add as 1 unit
-          const boxProduct = { ...product, salePrice: product.packPrice };
-          cart.addItem(boxProduct, 1);
+          // Box scan: sell 1 whole box at packPrice. Stock deducts packQuantity pieces.
+          addToCart(product, 1, true);
           toast.success(`Box: ${product.name} (${product.packQuantity} pcs)`);
         } else {
-          addToCart(product);
+          addToCart(product, 1, false);
           toast.success(`Scanned: ${product.name}`);
         }
       } else if (data.found && data.kind === "card" && data.card) {
@@ -254,11 +261,8 @@ export function PosView({ settings }: PosViewProps) {
         items: cart.items.map((i) => ({
           productId: i.product.id,
           quantity: i.quantity,
-          price: cart.saleType === "WHOLESALE" && i.product.wholesalePrice > 0
-            ? i.product.wholesalePrice
-            : cart.saleType === "SHOPKEEPER" && i.product.shopkeeperPrice > 0
-            ? i.product.shopkeeperPrice
-            : i.product.salePrice,
+          isBox: !!i.isBox,
+          price: effectivePrice(i.product, cart.saleType, i.isBox),
         })),
         discount: cart.discount,
         paidAmount: Number(paidAmount) || totals.total,
@@ -527,25 +531,24 @@ export function PosView({ settings }: PosViewProps) {
                 <>
                   <ScrollArea className="h-[40vh] pr-2">
                     <div className="space-y-2">
-                      {cart.items.map((item) => (
+                      {cart.items.map((item) => {
+                        const itemPrice = effectivePrice(item.product, cart.saleType, item.isBox);
+                        const isBoxItem = !!item.isBox;
+                        return (
                         <div
-                          key={item.product.id}
-                          className="flex items-center gap-2 rounded-lg border p-2 bg-background"
+                          key={item.product.id + (isBoxItem ? "-box" : "")}
+                          className={`flex items-center gap-2 rounded-lg border p-2 bg-background ${isBoxItem ? "border-amber-300 bg-amber-50/40" : ""}`}
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">
+                            <div className="text-sm font-medium truncate flex items-center gap-1">
                               {item.product.name}
+                              {isBoxItem && (
+                                <Badge variant="outline" className="text-[10px] bg-amber-100 border-amber-400 text-amber-800">BOX</Badge>
+                              )}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {formatMoney(
-                                cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
-                                  ? item.product.wholesalePrice
-                                  : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
-                                  ? item.product.shopkeeperPrice
-                                  : item.product.salePrice,
-                                currency
-                              )} /{" "}
-                              {unitLabel(item.product.unit)}
+                              {formatMoney(itemPrice, currency)} /{" "}
+                              {isBoxItem ? `box (${item.product.packQuantity} pcs)` : unitLabel(item.product.unit)}
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
@@ -556,7 +559,8 @@ export function PosView({ settings }: PosViewProps) {
                               onClick={() =>
                                 cart.setQty(
                                   item.product.id,
-                                  item.quantity - (isLooseUnit(item.product.unit) ? 0.5 : 1)
+                                  item.quantity - (isLooseUnit(item.product.unit) && !isBoxItem ? 0.5 : 1),
+                                  item.isBox
                                 )
                               }
                             >
@@ -568,7 +572,7 @@ export function PosView({ settings }: PosViewProps) {
                               onChange={(e) => {
                                 const v = Number(e.target.value);
                                 if (!isNaN(v))
-                                  cart.setQty(item.product.id, v);
+                                  cart.setQty(item.product.id, v, item.isBox);
                               }}
                             />
                             <Button
@@ -578,7 +582,8 @@ export function PosView({ settings }: PosViewProps) {
                               onClick={() =>
                                 cart.setQty(
                                   item.product.id,
-                                  item.quantity + (isLooseUnit(item.product.unit) ? 0.5 : 1)
+                                  item.quantity + (isLooseUnit(item.product.unit) && !isBoxItem ? 0.5 : 1),
+                                  item.isBox
                                 )
                               }
                             >
@@ -586,25 +591,19 @@ export function PosView({ settings }: PosViewProps) {
                             </Button>
                           </div>
                           <div className="text-sm font-bold text-emerald-700 w-16 text-right">
-                            {formatMoney(
-                              (cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
-                                ? item.product.wholesalePrice
-                                : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
-                                ? item.product.shopkeeperPrice
-                                : item.product.salePrice) * item.quantity,
-                              currency
-                            )}
+                            {formatMoney(itemPrice * item.quantity, currency)}
                           </div>
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7 text-red-600 hover:bg-red-50"
-                            onClick={() => cart.removeItem(item.product.id)}
+                            onClick={() => cart.removeItem(item.product.id, item.isBox)}
                           >
                             <X className="w-4 h-4" />
                           </Button>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </ScrollArea>
 

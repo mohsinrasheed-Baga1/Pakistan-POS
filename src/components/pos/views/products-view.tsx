@@ -116,6 +116,7 @@ export function ProductsView({ userRole }: ProductsViewProps) {
   const [vendors, setVendors] = React.useState<Vendor[]>([]);
   const [q, setQ] = React.useState("");
   const [activeCat, setActiveCat] = React.useState("all");
+  const [quickFilter, setQuickFilter] = React.useState<"none" | "lowStock" | "expiry">("none");
   const [loading, setLoading] = React.useState(true);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editId, setEditId] = React.useState<string | null>(null);
@@ -136,13 +137,28 @@ export function ProductsView({ userRole }: ProductsViewProps) {
         cache: "no-store",
       });
       const data = await res.json();
-      setProducts(data.products || []);
+      let list: Product[] = data.products || [];
+      // Apply quick filters client-side so the buttons always work
+      if (quickFilter === "lowStock") {
+        list = list.filter((p) => p.stock <= p.minStock);
+      } else if (quickFilter === "expiry") {
+        const now = Date.now();
+        list = list.filter((p) => {
+          if (!p.expiryDate) return false;
+          const d = new Date(p.expiryDate).getTime();
+          if (Number.isNaN(d)) return false;
+          const days = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+          // show expired + expiring within 30 days
+          return days <= 30;
+        });
+      }
+      setProducts(list);
     } catch {
       toast.error("Failed to load products");
     } finally {
       setLoading(false);
     }
-  }, [q, activeCat]);
+  }, [q, activeCat, quickFilter]);
 
   const loadCategories = React.useCallback(async () => {
     try {
@@ -177,37 +193,10 @@ export function ProductsView({ userRole }: ProductsViewProps) {
   }
 
   function openEdit(p: Product) {
-    // If product has packBarcode (box product), open in wizard edit mode
-    if (p.packBarcode) {
-      setEditProduct(p);
-      setWizardOpen(true);
-      return;
-    }
-    setForm({
-      name: p.name,
-      barcode: p.barcodeType === "COMPANY" ? p.barcode : "",
-      categoryId: p.categoryId || "",
-      vendorId: p.vendorId || "",
-      costPrice: p.costPrice.toString(),
-      salePrice: p.salePrice.toString(),
-      wholesalePrice: (p.wholesalePrice || 0).toString(),
-      shopkeeperPrice: (p.shopkeeperPrice || 0).toString(),
-      unit: p.unit,
-      stock: p.stock.toString(),
-      minStock: p.minStock.toString(),
-      taxRate: p.taxRate.toString(),
-      manufacturingDate: p.manufacturingDate
-        ? new Date(p.manufacturingDate).toISOString().slice(0, 10)
-        : "",
-      expiryDate: p.expiryDate
-        ? new Date(p.expiryDate).toISOString().slice(0, 10)
-        : "",
-      hasBarcode: p.hasBarcode,
-      active: p.active,
-      image: p.image || null,
-    });
-    setEditId(p.id);
-    setDialogOpen(true);
+    // All products (box or simple piece) are edited through the unified wizard.
+    // The wizard pre-fills box fields when the product has a packBarcode.
+    setEditProduct(p);
+    setWizardOpen(true);
   }
 
   async function handleSave() {
@@ -301,16 +290,29 @@ export function ProductsView({ userRole }: ProductsViewProps) {
             Manage all items in your shop
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={loadProducts}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button variant="outline" className="border-amber-300 text-amber-700" onClick={() => { setActiveCat("all"); setQ(""); }}>
+          <Button
+            variant={quickFilter === "lowStock" ? "default" : "outline"}
+            className={quickFilter === "lowStock" ? "bg-amber-600 hover:bg-amber-700 text-white border-amber-600" : "border-amber-300 text-amber-700"}
+            onClick={() => setQuickFilter(quickFilter === "lowStock" ? "none" : "lowStock")}
+          >
             <AlertTriangle className="w-4 h-4 mr-2" /> Low Stock
           </Button>
-          <Button variant="outline" className="border-rose-300 text-rose-700" onClick={() => { setActiveCat("all"); setQ(""); }}>
+          <Button
+            variant={quickFilter === "expiry" ? "default" : "outline"}
+            className={quickFilter === "expiry" ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-600" : "border-rose-300 text-rose-700"}
+            onClick={() => setQuickFilter(quickFilter === "expiry" ? "none" : "expiry")}
+          >
             <Calendar className="w-4 h-4 mr-2" /> Expiry
           </Button>
+          {quickFilter !== "none" && (
+            <Button variant="ghost" size="sm" onClick={() => setQuickFilter("none")}>
+              Clear filter
+            </Button>
+          )}
           {canManage && (
             <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setWizardOpen(true)}>
               <Plus className="w-4 h-4 mr-2" /> Add Product
@@ -415,6 +417,11 @@ export function ProductsView({ userRole }: ProductsViewProps) {
                         >
                           {p.stock}
                         </span>
+                        {p.packBarcode && p.packQuantity > 0 && (
+                          <span className="ml-1 text-[10px] text-amber-700">
+                            ({p.packQuantity}/box)
+                          </span>
+                        )}
                         {p.stock <= p.minStock && (
                           <AlertTriangle className="w-3 h-3 inline mr-1 text-amber-500" />
                         )}
@@ -997,7 +1004,11 @@ function BarcodePrintDialog({
 }
 
 // ============================================================
-// Product Wizard — Box/Bag + Piece dual entry
+// Product Wizard — Unified Box-based product entry
+// A single product record stores BOTH the piece barcode (primary,
+// required) and the box barcode (optional, for products sold in
+// boxes). Stock is always tracked in pieces. Scanning the box
+// barcode sells one whole box (deducts packQuantity pieces).
 // ============================================================
 interface ProductWizardProps {
   open: boolean;
@@ -1009,27 +1020,23 @@ interface ProductWizardProps {
 
 function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: ProductWizardProps) {
   const [step, setStep] = React.useState(1);
-  const [productType, setProductType] = React.useState<"piece" | "box">("piece");
   const [saving, setSaving] = React.useState(false);
   const [editId, setEditId] = React.useState<string | null>(null);
 
-  // Shared
+  // Shared / piece-level
   const [name, setName] = React.useState("");
   const [categoryId, setCategoryId] = React.useState("");
   const [image, setImage] = React.useState<string | null>(null);
   const [expiryDate, setExpiryDate] = React.useState("");
   const [manufacturingDate, setManufacturingDate] = React.useState("");
-
-  // Piece info
   const [pieceBarcode, setPieceBarcode] = React.useState("");
   const [pieceCostPrice, setPieceCostPrice] = React.useState("");
   const [pieceSalePrice, setPieceSalePrice] = React.useState("");
   const [pieceWholesalePrice, setPieceWholesalePrice] = React.useState("");
   const [pieceShopkeeperPrice, setPieceShopkeeperPrice] = React.useState("");
-  const [pieceStock, setPieceStock] = React.useState("");
   const [pieceMinStock, setPieceMinStock] = React.useState("");
 
-  // Box info
+  // Box-level (optional — filled when the product is purchased/sold by box)
   const [boxBarcode, setBoxBarcode] = React.useState("");
   const [piecesPerBox, setPiecesPerBox] = React.useState("");
   const [boxQty, setBoxQty] = React.useState("");
@@ -1038,138 +1045,156 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const [boxWholesalePrice, setBoxWholesalePrice] = React.useState("");
   const [boxShopkeeperPrice, setBoxShopkeeperPrice] = React.useState("");
 
-  // Auto-calculated
+  // Derived values.
+  // CRITICAL: cost/piece = boxCost / piecesPerBox (NOT divided by total pieces).
+  // The previous implementation divided by (piecesPerBox * boxQty) which
+  // under-calculated the per-piece cost by a factor of boxQty.
+  const hasBox = boxBarcode.trim().length > 0;
   const totalPieces = (Number(piecesPerBox) || 0) * (Number(boxQty) || 0);
-  const autoPieceCost = totalPieces > 0 ? (Number(boxCostPrice) || 0) / totalPieces : 0;
+  const autoPieceCost = (Number(piecesPerBox) || 0) > 0 ? (Number(boxCostPrice) || 0) / (Number(piecesPerBox) || 0) : 0;
   const autoPieceSale = (Number(piecesPerBox) || 0) > 0 ? (Number(boxSalePrice) || 0) / (Number(piecesPerBox) || 0) : 0;
   const autoPieceWholesale = (Number(piecesPerBox) || 0) > 0 ? (Number(boxWholesalePrice) || 0) / (Number(piecesPerBox) || 0) : 0;
   const autoPieceShopkeeper = (Number(piecesPerBox) || 0) > 0 ? (Number(boxShopkeeperPrice) || 0) / (Number(piecesPerBox) || 0) : 0;
 
   function reset() {
-    setStep(1); setProductType("piece"); setName(""); setCategoryId("");
+    setStep(1);
+    setName(""); setCategoryId("");
     setImage(null); setExpiryDate(""); setManufacturingDate("");
-    setPieceBarcode(""); setPieceCostPrice(""); setPieceSalePrice(""); setPieceWholesalePrice(""); setPieceShopkeeperPrice("");
-    setPieceStock(""); setPieceMinStock("");
+    setPieceBarcode(""); setPieceCostPrice(""); setPieceSalePrice("");
+    setPieceWholesalePrice(""); setPieceShopkeeperPrice(""); setPieceMinStock("");
     setBoxBarcode(""); setPiecesPerBox(""); setBoxQty("");
     setBoxCostPrice(""); setBoxSalePrice(""); setBoxWholesalePrice(""); setBoxShopkeeperPrice("");
     setEditId(null);
   }
 
+  // Pre-fill for edit mode. We treat EVERY product uniformly: the piece
+  // barcode is the primary barcode, and the box barcode (packBarcode) is
+  // optional. When editing a product that has a packBarcode, we restore
+  // the box fields too.
   React.useEffect(() => {
     if (!open) { const t = setTimeout(reset, 200); return () => clearTimeout(t); }
     if (open && editProduct) {
-      // Pre-fill for editing
       setEditId(editProduct.id);
       setName(editProduct.name);
       setCategoryId(editProduct.categoryId || "");
       setImage(editProduct.image || null);
       setExpiryDate(editProduct.expiryDate ? new Date(editProduct.expiryDate).toISOString().slice(0, 10) : "");
       setManufacturingDate(editProduct.manufacturingDate ? new Date(editProduct.manufacturingDate).toISOString().slice(0, 10) : "");
+      setStep(2);
+
+      // Piece-level fields (always present)
+      setPieceBarcode(editProduct.barcode || "");
+      setPieceCostPrice(editProduct.costPrice ? editProduct.costPrice.toString() : "");
+      setPieceSalePrice(editProduct.salePrice ? editProduct.salePrice.toString() : "");
+      setPieceWholesalePrice((editProduct.wholesalePrice || 0).toString());
+      setPieceShopkeeperPrice((editProduct.shopkeeperPrice || 0).toString());
+      setPieceMinStock((editProduct.minStock || 0).toString());
+
+      // Box-level fields (only if the product was saved with a packBarcode)
       if (editProduct.packBarcode) {
-        // Box product
-        setProductType("box");
-        setStep(2);
-        setBoxBarcode(editProduct.barcode);
-        setBoxCostPrice(editProduct.costPrice.toString());
-        setBoxSalePrice(editProduct.salePrice.toString());
-        setBoxWholesalePrice((editProduct.wholesalePrice || 0).toString());
-        setBoxShopkeeperPrice((editProduct.shopkeeperPrice || 0).toString());
+        setBoxBarcode(editProduct.packBarcode);
         setPiecesPerBox((editProduct.packQuantity || 0).toString());
-        setBoxQty(editProduct.stock > 0 && editProduct.packQuantity > 0 ? Math.floor(editProduct.stock / editProduct.packQuantity).toString() : "");
-        setPieceBarcode(editProduct.packBarcode || "");
-        setPieceSalePrice(autoPieceSale ? autoPieceSale.toFixed(2) : "");
+        setBoxQty(
+          editProduct.stock > 0 && editProduct.packQuantity > 0
+            ? Math.floor(editProduct.stock / editProduct.packQuantity).toString()
+            : ""
+        );
+        // Reconstruct box prices from per-piece prices * piecesPerBox.
+        // (We only stored piece-level cost/sale/wholesale/shopkeeper on the
+        // product, so the box price is the packPrice if set, else derived.)
+        const ppq = editProduct.packQuantity || 1;
+        setBoxCostPrice((editProduct.costPrice * ppq).toFixed(2));
+        setBoxSalePrice((editProduct.packPrice || editProduct.salePrice * ppq).toFixed(2));
+        setBoxWholesalePrice((editProduct.wholesalePrice * ppq).toFixed(2));
+        setBoxShopkeeperPrice((editProduct.shopkeeperPrice * ppq).toFixed(2));
       } else {
-        // Piece product
-        setProductType("piece");
-        setStep(2);
-        setPieceBarcode(editProduct.barcode);
-        setPieceCostPrice(editProduct.costPrice.toString());
-        setPieceSalePrice(editProduct.salePrice.toString());
-        setPieceWholesalePrice((editProduct.wholesalePrice || 0).toString());
-        setPieceShopkeeperPrice((editProduct.shopkeeperPrice || 0).toString());
-        setPieceStock(editProduct.stock.toString());
-        setPieceMinStock(editProduct.minStock.toString());
+        // Simple piece product (no box). Leave box fields empty.
+        setBoxBarcode("");
+        setPiecesPerBox("");
+        setBoxQty("");
+        setBoxCostPrice("");
+        setBoxSalePrice("");
+        setBoxWholesalePrice("");
+        setBoxShopkeeperPrice("");
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editProduct]);
 
-  // Auto-fill piece prices when box prices change
+  // Auto-fill piece prices from box prices. Only fires while box fields
+  // are being edited (hasBox = true). We track a ref so we don't clobber
+  // the user's manual overrides on every keystroke of unrelated fields.
+  const lastBoxSig = React.useRef("");
   React.useEffect(() => {
-    if (productType === "box" && step >= 2) {
-      setPieceSalePrice(autoPieceSale ? autoPieceSale.toFixed(2) : "");
-      setPieceWholesalePrice(autoPieceWholesale ? autoPieceWholesale.toFixed(2) : "");
-      setPieceShopkeeperPrice(autoPieceShopkeeper ? autoPieceShopkeeper.toFixed(2) : "");
-      setPieceCostPrice(autoPieceCost ? autoPieceCost.toFixed(2) : "");
-    }
-  }, [boxSalePrice, boxWholesalePrice, boxShopkeeperPrice, boxCostPrice, piecesPerBox]);
+    if (!hasBox) return;
+    const sig = `${boxCostPrice}|${boxSalePrice}|${boxWholesalePrice}|${boxShopkeeperPrice}|${piecesPerBox}`;
+    if (sig === lastBoxSig.current) return;
+    lastBoxSig.current = sig;
+    if (autoPieceCost > 0) setPieceCostPrice(autoPieceCost.toFixed(2));
+    if (autoPieceSale > 0) setPieceSalePrice(autoPieceSale.toFixed(2));
+    if (autoPieceWholesale > 0) setPieceWholesalePrice(autoPieceWholesale.toFixed(2));
+    if (autoPieceShopkeeper > 0) setPieceShopkeeperPrice(autoPieceShopkeeper.toFixed(2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boxCostPrice, boxSalePrice, boxWholesalePrice, boxShopkeeperPrice, piecesPerBox, hasBox]);
 
   async function saveProducts() {
+    if (!pieceBarcode.trim()) {
+      toast.error("Piece barcode is required");
+      return;
+    }
+    if (Number(pieceSalePrice) <= 0 && !(hasBox && Number(boxSalePrice) > 0)) {
+      toast.error("Sale price is required");
+      return;
+    }
     setSaving(true);
     try {
-      if (productType === "piece") {
-        const body = {
-          name, barcode: pieceBarcode, categoryId: categoryId || null,
-          costPrice: Number(pieceCostPrice) || 0,
-          salePrice: Number(pieceSalePrice) || 0,
-          wholesalePrice: Number(pieceWholesalePrice) || 0,
-          shopkeeperPrice: Number(pieceShopkeeperPrice) || 0,
-          unit: "piece", stock: Number(pieceStock) || 0,
-          minStock: Number(pieceMinStock) || 0,
-          expiryDate: expiryDate || null,
-          manufacturingDate: manufacturingDate || null,
-          hasBarcode: true, active: true, image,
-        };
-        const url = editId ? `/api/products/${editId}` : "/api/products";
-        const method = editId ? "PUT" : "POST";
-        const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const data = await res.json();
-        if (!res.ok) {
-          const msg = data.error || "Failed";
-          toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
-          setSaving(false); return;
-        }
-        toast.success(editId ? "Product updated!" : `${name} added!`);
-      } else {
-        const boxBody = {
-          name: editId ? name : `${name} (Box)`, barcode: boxBarcode, categoryId: categoryId || null,
-          costPrice: Number(boxCostPrice) || 0, salePrice: Number(boxSalePrice) || 0,
-          wholesalePrice: Number(boxWholesalePrice) || 0, shopkeeperPrice: Number(boxShopkeeperPrice) || 0,
-          unit: "piece", stock: totalPieces || Number(pieceStock) || 0,
-          minStock: Number(pieceMinStock) || 0,
-          expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
-          hasBarcode: true, active: true, image,
-          packBarcode: pieceBarcode, packQuantity: Number(piecesPerBox) || 0, packPrice: Number(boxSalePrice) || 0,
-        };
-        const boxUrl = editId ? `/api/products/${editId}` : "/api/products";
-        const boxMethod = editId ? "PUT" : "POST";
-        const boxRes = await fetch(boxUrl, { method: boxMethod, headers: { "Content-Type": "application/json" }, body: JSON.stringify(boxBody) });
-        const boxData = await boxRes.json();
-        if (!boxRes.ok) {
-          const msg = boxData.error || "Box save failed";
-          toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
-          setSaving(false); return;
-        }
+      // Determine the effective per-piece prices.
+      // If the user filled box prices, auto-calc provides defaults; the user
+      // can still override by typing into the piece price fields.
+      const effPieceCost = Number(pieceCostPrice) || autoPieceCost || 0;
+      const effPieceSale = Number(pieceSalePrice) || autoPieceSale || 0;
+      const effPieceWholesale = Number(pieceWholesalePrice) || autoPieceWholesale || 0;
+      const effPieceShopkeeper = Number(pieceShopkeeperPrice) || autoPieceShopkeeper || 0;
+      // Stock is always in pieces.
+      const stockPieces = totalPieces > 0 ? totalPieces : 0;
 
-        // Save/update piece product
-        const pieceBody = {
-          name, barcode: pieceBarcode, categoryId: categoryId || null,
-          costPrice: Number(pieceCostPrice) || autoPieceCost,
-          salePrice: Number(pieceSalePrice) || autoPieceSale,
-          wholesalePrice: Number(pieceWholesalePrice) || autoPieceWholesale,
-          shopkeeperPrice: Number(pieceShopkeeperPrice) || autoPieceShopkeeper,
-          unit: "piece", stock: totalPieces || Number(pieceStock) || 0,
-          minStock: Number(pieceMinStock) || 0,
-          expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
-          hasBarcode: true, active: true, image,
-        };
-        const pieceRes = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pieceBody) });
-        if (!pieceRes.ok) {
-          const pieceData = await pieceRes.json();
-          toast.warning(`Box saved! Piece: ${pieceData.error}`);
+      const body = {
+        name: name.trim(),
+        barcode: pieceBarcode.trim(),
+        categoryId: categoryId || null,
+        costPrice: effPieceCost,
+        salePrice: effPieceSale,
+        wholesalePrice: effPieceWholesale,
+        shopkeeperPrice: effPieceShopkeeper,
+        unit: "piece",
+        stock: stockPieces,
+        minStock: Number(pieceMinStock) || 0,
+        expiryDate: expiryDate || null,
+        manufacturingDate: manufacturingDate || null,
+        hasBarcode: true,
+        active: true,
+        image,
+        // Box fields — only meaningful when boxBarcode is provided.
+        packBarcode: boxBarcode.trim() || null,
+        packQuantity: Number(piecesPerBox) || 0,
+        packPrice: Number(boxSalePrice) || 0,
+      };
+      const url = editId ? `/api/products/${editId}` : "/api/products";
+      const method = editId ? "PUT" : "POST";
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.error || "Failed to save";
+        if (msg.toLowerCase().includes("box barcode")) {
+          toast.error("This box barcode already exists! Use a different barcode.");
+        } else if (msg.toLowerCase().includes("barcode")) {
+          toast.error("This barcode already exists! Use a different barcode.");
         } else {
-          toast.success(editId ? "Product updated!" : `${name} added! Box + Piece saved.`);
+          toast.error(msg);
         }
+        setSaving(false); return;
       }
+      toast.success(editId ? "Product updated!" : `${name} added!`);
       onDone();
       onOpenChange(false);
     } catch { toast.error("Network error"); } finally { setSaving(false); }
@@ -1179,15 +1204,15 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{editId ? "Edit Product" : "Add Product"} — Step {step}/2</DialogTitle>
+          <DialogTitle>{editId ? "Edit Product" : "Add Product"} {step === 2 && `— Step ${step}/2`}</DialogTitle>
         </DialogHeader>
 
-        {/* STEP 1 */}
+        {/* STEP 1 — basic info */}
         {step === 1 && (
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Product Name *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Biscuit, Sugar" autoFocus />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Biscuit, Sugar, Oil" autoFocus />
             </div>
             <div className="space-y-2">
               <Label>Category</Label>
@@ -1199,99 +1224,83 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>What are you saving? *</Label>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setProductType("piece")} className={`rounded-lg border-2 p-4 text-center transition-all ${productType === "piece" ? "border-emerald-500 bg-emerald-50" : "border-border hover:bg-muted"}`}>
-                  <Package className="w-6 h-6 mx-auto mb-1 text-emerald-600" />
-                  <div className="font-bold">Piece</div>
-                  <div className="text-xs text-muted-foreground">Single item</div>
-                </button>
-                <button onClick={() => setProductType("box")} className={`rounded-lg border-2 p-4 text-center transition-all ${productType === "box" ? "border-amber-500 bg-amber-50" : "border-border hover:bg-muted"}`}>
-                  <Package className="w-6 h-6 mx-auto mb-1 text-amber-600" />
-                  <div className="font-bold">Box / Bag</div>
-                  <div className="text-xs text-muted-foreground">Contains pieces</div>
-                </button>
-              </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-sm text-emerald-800 space-y-1">
+              <div className="font-bold flex items-center gap-1"><Package className="w-4 h-4" /> How it works</div>
+              <ul className="list-disc pl-5 space-y-0.5 text-xs">
+                <li>Enter the product name and category here.</li>
+                <li>On the next step, fill the <b>Piece</b> section (always required).</li>
+                <li>If the product comes in a box/bag, also fill the <b>Box</b> section — piece prices auto-calculate from box ÷ pieces.</li>
+                <li>Stock is tracked in pieces. Selling a box deducts the pieces inside it.</li>
+              </ul>
             </div>
             <Button className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={!name.trim()} onClick={() => setStep(2)}>Next →</Button>
           </div>
         )}
 
-        {/* STEP 2 */}
+        {/* STEP 2 — full details */}
         {step === 2 && (
           <div className="space-y-4">
-            {/* PIECE form — full details */}
-            {productType === "piece" && (
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label>Barcode *</Label>
-                  <Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan or type barcode" data-barcode-input="true" className="text-left" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2"><Label>Cost Price</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                  <div className="space-y-2"><Label>Sale Price (Regular) *</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2"><Label>Wholesale Price</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                  <div className="space-y-2"><Label>Shopkeeper Price</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2"><Label>Stock Quantity</Label><Input type="number" value={pieceStock} onChange={(e) => setPieceStock(e.target.value)} placeholder="0" className="text-left" /></div>
-                  <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2"><Label>Manufacturing Date</Label><Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} className="text-left" /></div>
-                  <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
-                </div>
-                <ImageUpload value={image} onChange={setImage} label="Product Image" />
+            {/* BOX section (optional) */}
+            <div className="rounded-lg border-2 border-amber-200 bg-amber-50/40 p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-amber-600" />
+                <Label className="font-bold text-amber-800">Box Details (optional)</Label>
               </div>
-            )}
+              <div className="text-xs text-amber-700">Fill this only if the product comes in a box/bag. Leave empty for simple piece products.</div>
+              <div className="space-y-2">
+                <Label>Box Barcode</Label>
+                <Input value={boxBarcode} onChange={(e) => setBoxBarcode(e.target.value)} placeholder="Scan box barcode (leave empty if no box)" data-barcode-input="true" className="text-left" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Pieces per Box</Label><Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 12" className="text-left" /></div>
+                <div className="space-y-2"><Label>Number of Boxes</Label><Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Box Cost Price</Label><Input type="number" value={boxCostPrice} onChange={(e) => setBoxCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2"><Label>Box Sale Price</Label><Input type="number" value={boxSalePrice} onChange={(e) => setBoxSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Box Wholesale</Label><Input type="number" value={boxWholesalePrice} onChange={(e) => setBoxWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2"><Label>Box Shopkeeper</Label><Input type="number" value={boxShopkeeperPrice} onChange={(e) => setBoxShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+              </div>
+              {totalPieces > 0 && (
+                <div className="rounded bg-amber-100 p-2 text-center text-sm font-bold text-amber-900">
+                  Total Stock: {boxQty || 0} boxes × {piecesPerBox || 0} pcs = {totalPieces} pieces
+                </div>
+              )}
+            </div>
 
-            {/* BOX form */}
-            {productType === "box" && (
-              <>
-                <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-3 space-y-3">
-                  <div className="flex items-center gap-2"><Package className="w-4 h-4 text-amber-600" /><Label className="font-bold text-amber-800">Box Details</Label></div>
-                  <div className="space-y-2"><Label>Box Barcode *</Label><Input value={boxBarcode} onChange={(e) => setBoxBarcode(e.target.value)} placeholder="Scan box barcode" data-barcode-input="true" className="text-left" /></div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Pieces per Box *</Label><Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 80" className="text-left" /></div>
-                    <div className="space-y-2"><Label>Number of Boxes</Label><Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Box Cost Price</Label><Input type="number" value={boxCostPrice} onChange={(e) => setBoxCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                    <div className="space-y-2"><Label>Box Sale Price</Label><Input type="number" value={boxSalePrice} onChange={(e) => setBoxSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Box Wholesale</Label><Input type="number" value={boxWholesalePrice} onChange={(e) => setBoxWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                    <div className="space-y-2"><Label>Box Shopkeeper</Label><Input type="number" value={boxShopkeeperPrice} onChange={(e) => setBoxShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                  </div>
-                  {totalPieces > 0 && <div className="rounded bg-amber-100 p-2 text-center text-sm font-bold text-amber-800">Total: {boxQty || 0} boxes × {piecesPerBox || 0} pcs = {totalPieces} pieces</div>}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
-                    <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
-                  </div>
-                </div>
-                <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-3 space-y-3">
-                  <div className="flex items-center gap-2"><Package className="w-4 h-4 text-emerald-600" /><Label className="font-bold text-emerald-800">Piece Details (auto-calculated)</Label></div>
-                  <div className="space-y-2"><Label>Piece Barcode *</Label><Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan piece barcode" data-barcode-input="true" className="text-left" /></div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Cost/Pc</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder={autoPieceCost ? autoPieceCost.toFixed(2) : "0"} className="text-left" /></div>
-                    <div className="space-y-2"><Label>Regular/Pc</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder={autoPieceSale ? autoPieceSale.toFixed(2) : "0"} className="text-left" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Wholesale/Pc</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder={autoPieceWholesale ? autoPieceWholesale.toFixed(2) : "0"} className="text-left" /></div>
-                    <div className="space-y-2"><Label>Shopkeeper/Pc</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder={autoPieceShopkeeper ? autoPieceShopkeeper.toFixed(2) : "0"} className="text-left" /></div>
-                  </div>
-                  <div className="text-xs text-emerald-600">Prices auto-calculated from box ÷ pieces. Override allowed.</div>
-                </div>
-                <ImageUpload value={image} onChange={setImage} label="Product Image" />
-              </>
-            )}
+            {/* PIECE section (always required) */}
+            <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/40 p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-emerald-600" />
+                <Label className="font-bold text-emerald-800">Piece Details {hasBox ? "(auto-calculated)" : ""}</Label>
+              </div>
+              <div className="space-y-2">
+                <Label>Piece Barcode *</Label>
+                <Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan or type piece barcode" data-barcode-input="true" className="text-left" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Cost / Piece</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder={autoPieceCost ? autoPieceCost.toFixed(2) : "0"} className="text-left" /></div>
+                <div className="space-y-2"><Label>Sale Price / Piece *</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder={autoPieceSale ? autoPieceSale.toFixed(2) : "0"} className="text-left" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Wholesale / Piece</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder={autoPieceWholesale ? autoPieceWholesale.toFixed(2) : "0"} className="text-left" /></div>
+                <div className="space-y-2"><Label>Shopkeeper / Piece</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder={autoPieceShopkeeper ? autoPieceShopkeeper.toFixed(2) : "0"} className="text-left" /></div>
+              </div>
+              {hasBox && <div className="text-xs text-emerald-700">Piece prices auto-calculated from box ÷ pieces. You can override by typing your own value.</div>}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2"><Label>Manufacturing Date</Label><Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} className="text-left" /></div>
+              </div>
+              <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
+            </div>
+
+            <ImageUpload value={image} onChange={setImage} label="Product Image (optional)" />
 
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>← Back</Button>
-              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving || (productType === "piece" ? !pieceBarcode.trim() : !boxBarcode.trim() || !pieceBarcode.trim())} onClick={saveProducts}>
+              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving || !pieceBarcode.trim()} onClick={saveProducts}>
                 {saving ? "Saving..." : editId ? "Update Product" : "Save Product"}
               </Button>
             </div>

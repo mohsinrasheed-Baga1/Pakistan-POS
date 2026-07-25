@@ -1,0 +1,1304 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import * as React from "react";
+     4→     4→import {
+     5→     5→  Plus,
+     6→     6→  Search,
+     7→     7→  Pencil,
+     8→     8→  Trash2,
+     9→     9→  Package,
+    10→    10→  Printer,
+    11→    11→  Barcode as BarcodeIcon,
+    12→    12→  AlertTriangle,
+    13→    13→  RefreshCw,
+    14→    14→  Calendar,
+    15→    15→} from "lucide-react";
+    16→    16→import { Button } from "@/components/ui/button";
+    17→    17→import { Input } from "@/components/ui/input";
+    18→    18→import { Label } from "@/components/ui/label";
+    19→    19→import { Card, CardContent } from "@/components/ui/card";
+    20→    20→import { Badge } from "@/components/ui/badge";
+    21→    21→import { Switch } from "@/components/ui/switch";
+    22→    22→import {
+    23→    23→  Table,
+    24→    24→  TableBody,
+    25→    25→  TableCell,
+    26→    26→  TableHead,
+    27→    27→  TableHeader,
+    28→    28→  TableRow,
+    29→    29→} from "@/components/ui/table";
+    30→    30→import {
+    31→    31→  Dialog,
+    32→    32→  DialogContent,
+    33→    33→  DialogHeader,
+    34→    34→  DialogTitle,
+    35→    35→  DialogFooter,
+    36→    36→} from "@/components/ui/dialog";
+    37→    37→import {
+    38→    38→  Select,
+    39→    39→  SelectContent,
+    40→    40→  SelectItem,
+    41→    41→  SelectTrigger,
+    42→    42→  SelectValue,
+    43→    43→} from "@/components/ui/select";
+    44→    44→import {
+    45→    45→  AlertDialog,
+    46→    46→  AlertDialogAction,
+    47→    47→  AlertDialogCancel,
+    48→    48→  AlertDialogContent,
+    49→    49→  AlertDialogDescription,
+    50→    50→  AlertDialogFooter,
+    51→    51→  AlertDialogHeader,
+    52→    52→  AlertDialogTitle,
+    53→    53→} from "@/components/ui/alert-dialog";
+    54→    54→import { toast } from "sonner";
+    55→    55→import { formatMoney, unitLabel } from "@/lib/pos-utils";
+    56→    56→import { BarcodeDisplay } from "@/components/barcode/barcode-display";
+    57→    57→import { ImageUpload } from "@/components/pos/image-upload";
+    58→    58→import type { Product, Category, Vendor } from "@/types";
+    59→    59→
+    60→    60→interface ProductsViewProps {
+    61→    61→  userRole: string;
+    62→    62→}
+    63→    63→
+    64→    64→const UNITS = [
+    65→    65→  { v: "piece", l: "Piece" },
+    66→    66→  { v: "kg", l: "Kg" },
+    67→    67→  { v: "gram", l: "Gram" },
+    68→    68→  { v: "litre", l: "Litre" },
+    69→    69→  { v: "ml", l: "Millilitre" },
+    70→    70→  { v: "dozen", l: "Dozen" },
+    71→    71→  { v: "metre", l: "Metre" },
+    72→    72→  { v: "feet", l: "Feet" },
+    73→    73→];
+    74→    74→
+    75→    75→const emptyForm = {
+    76→    76→  name: "",
+    77→    77→  barcode: "",
+    78→    78→  categoryId: "",
+    79→    79→  vendorId: "",
+    80→    80→  costPrice: "",
+    81→    81→  salePrice: "",
+    82→    82→  wholesalePrice: "",
+    83→    83→  shopkeeperPrice: "",
+    84→    84→  unit: "piece",
+    85→    85→  stock: "",
+    86→    86→  minStock: "",
+    87→    87→  taxRate: "",
+    88→    88→  manufacturingDate: "",
+    89→    89→  expiryDate: "",
+    90→    90→  hasBarcode: true,
+    91→    91→  active: true,
+    92→    92→  image: null as string | null,
+    93→    93→};
+    94→    94→
+    95→    95→function formatExpiryBadge(expiry: string | null) {
+    96→    96→  if (!expiry) return null;
+    97→    97→  const d = new Date(expiry);
+    98→    98→  if (Number.isNaN(d.getTime())) return null;
+    99→    99→  const now = new Date();
+   100→   100→  const diffMs = d.getTime() - now.getTime();
+   101→   101→  const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+   102→   102→  const label = d.toISOString().slice(0, 10);
+   103→   103→  if (days < 0) {
+   104→   104→    return { label, tone: "red" as const, days };
+   105→   105→  }
+   106→   106→  if (days <= 30) {
+   107→   107→    return { label, tone: "amber" as const, days };
+   108→   108→  }
+   109→   109→  return { label, tone: "default" as const, days };
+   110→   110→}
+   111→   111→
+   112→   112→export function ProductsView({ userRole }: ProductsViewProps) {
+   113→   113→  const canManage = userRole !== "CASHIER";
+   114→   114→  const [products, setProducts] = React.useState<Product[]>([]);
+   115→   115→  const [categories, setCategories] = React.useState<Category[]>([]);
+   116→   116→  const [vendors, setVendors] = React.useState<Vendor[]>([]);
+   117→   117→  const [q, setQ] = React.useState("");
+   118→   118→  const [activeCat, setActiveCat] = React.useState("all");
+   119→   119→  const [loading, setLoading] = React.useState(true);
+   120→   120→  const [dialogOpen, setDialogOpen] = React.useState(false);
+   121→   121→  const [editId, setEditId] = React.useState<string | null>(null);
+   122→   122→  const [form, setForm] = React.useState<any>(emptyForm);
+   123→   123→  const [saving, setSaving] = React.useState(false);
+   124→   124→  const [deleteId, setDeleteId] = React.useState<string | null>(null);
+   125→   125→  const [printProduct, setPrintProduct] = React.useState<Product | null>(null);
+   126→   126→  const [wizardOpen, setWizardOpen] = React.useState(false);
+   127→   127→  const [editProduct, setEditProduct] = React.useState<Product | null>(null);
+   128→   128→
+   129→   129→  const loadProducts = React.useCallback(async () => {
+   130→   130→    setLoading(true);
+   131→   131→    try {
+   132→   132→      const params = new URLSearchParams();
+   133→   133→      if (q) params.set("q", q);
+   134→   134→      if (activeCat !== "all") params.set("categoryId", activeCat);
+   135→   135→      const res = await fetch(`/api/products?${params.toString()}`, {
+   136→   136→        cache: "no-store",
+   137→   137→      });
+   138→   138→      const data = await res.json();
+   139→   139→      setProducts(data.products || []);
+   140→   140→    } catch {
+   141→   141→      toast.error("Failed to load products");
+   142→   142→    } finally {
+   143→   143→      setLoading(false);
+   144→   144→    }
+   145→   145→  }, [q, activeCat]);
+   146→   146→
+   147→   147→  const loadCategories = React.useCallback(async () => {
+   148→   148→    try {
+   149→   149→      const res = await fetch("/api/categories", { cache: "no-store" });
+   150→   150→      const data = await res.json();
+   151→   151→      setCategories(data.categories || []);
+   152→   152→    } catch {}
+   153→   153→  }, []);
+   154→   154→
+   155→   155→  const loadVendors = React.useCallback(async () => {
+   156→   156→    try {
+   157→   157→      const res = await fetch("/api/vendors", { cache: "no-store" });
+   158→   158→      const data = await res.json();
+   159→   159→      setVendors(data.vendors || []);
+   160→   160→    } catch {}
+   161→   161→  }, []);
+   162→   162→
+   163→   163→  React.useEffect(() => {
+   164→   164→    loadCategories();
+   165→   165→    loadVendors();
+   166→   166→  }, [loadCategories, loadVendors]);
+   167→   167→
+   168→   168→  React.useEffect(() => {
+   169→   169→    const t = setTimeout(loadProducts, 200);
+   170→   170→    return () => clearTimeout(t);
+   171→   171→  }, [loadProducts]);
+   172→   172→
+   173→   173→  function openAdd() {
+   174→   174→    setForm(emptyForm);
+   175→   175→    setEditId(null);
+   176→   176→    setDialogOpen(true);
+   177→   177→  }
+   178→   178→
+   179→   179→  function openEdit(p: Product) {
+   180→   180→    // If product has packBarcode (box product), open in wizard edit mode
+   181→   181→    if (p.packBarcode) {
+   182→   182→      setEditProduct(p);
+   183→   183→      setWizardOpen(true);
+   184→   184→      return;
+   185→   185→    }
+   186→   186→    setForm({
+   187→   187→      name: p.name,
+   188→   188→      barcode: p.barcodeType === "COMPANY" ? p.barcode : "",
+   189→   189→      categoryId: p.categoryId || "",
+   190→   190→      vendorId: p.vendorId || "",
+   191→   191→      costPrice: p.costPrice.toString(),
+   192→   192→      salePrice: p.salePrice.toString(),
+   193→   193→      wholesalePrice: (p.wholesalePrice || 0).toString(),
+   194→   194→      shopkeeperPrice: (p.shopkeeperPrice || 0).toString(),
+   195→   195→      unit: p.unit,
+   196→   196→      stock: p.stock.toString(),
+   197→   197→      minStock: p.minStock.toString(),
+   198→   198→      taxRate: p.taxRate.toString(),
+   199→   199→      manufacturingDate: p.manufacturingDate
+   200→   200→        ? new Date(p.manufacturingDate).toISOString().slice(0, 10)
+   201→   201→        : "",
+   202→   202→      expiryDate: p.expiryDate
+   203→   203→        ? new Date(p.expiryDate).toISOString().slice(0, 10)
+   204→   204→        : "",
+   205→   205→      hasBarcode: p.hasBarcode,
+   206→   206→      active: p.active,
+   207→   207→      image: p.image || null,
+   208→   208→    });
+   209→   209→    setEditId(p.id);
+   210→   210→    setDialogOpen(true);
+   211→   211→  }
+   212→   212→
+   213→   213→  async function handleSave() {
+   214→   214→    if (!form.name.trim()) {
+   215→   215→      toast.error("Name is required");
+   216→   216→      return;
+   217→   217→    }
+   218→   218→    if (Number(form.salePrice) <= 0) {
+   219→   219→      toast.error("Sale price is required");
+   220→   220→      return;
+   221→   221→    }
+   222→   222→    setSaving(true);
+   223→   223→    try {
+   224→   224→      const body = {
+   225→   225→        name: form.name.trim(),
+   226→   226→        barcode: form.barcode.trim(),
+   227→   227→        categoryId: form.categoryId || null,
+   228→   228→        vendorId: form.vendorId || null,
+   229→   229→        costPrice: Number(form.costPrice) || 0,
+   230→   230→        salePrice: Number(form.salePrice) || 0,
+   231→   231→        wholesalePrice: Number(form.wholesalePrice) || 0,
+   232→   232→        shopkeeperPrice: Number(form.shopkeeperPrice) || 0,
+   233→   233→        unit: form.unit,
+   234→   234→        stock: Number(form.stock) || 0,
+   235→   235→        minStock: Number(form.minStock) || 0,
+   236→   236→        taxRate: Number(form.taxRate) || 0,
+   237→   237→        manufacturingDate: form.manufacturingDate || null,
+   238→   238→        expiryDate: form.expiryDate || null,
+   239→   239→        hasBarcode: form.hasBarcode,
+   240→   240→        active: form.active,
+   241→   241→        image: form.image || null,
+   242→   242→      };
+   243→   243→      const url = editId
+   244→   244→        ? `/api/products/${editId}`
+   245→   245→        : "/api/products";
+   246→   246→      const method = editId ? "PUT" : "POST";
+   247→   247→      const res = await fetch(url, {
+   248→   248→        method,
+   249→   249→        headers: { "Content-Type": "application/json" },
+   250→   250→        body: JSON.stringify(body),
+   251→   251→      });
+   252→   252→      const data = await res.json();
+   253→   253→      if (!res.ok) {
+   254→   254→        const msg = data.error || "Failed to save";
+   255→   255→        if (msg.includes("barcode") || msg.includes("already")) {
+   256→   256→          toast.error("This barcode already exists! Use a different barcode or edit the existing product.");
+   257→   257→        } else {
+   258→   258→          toast.error(msg);
+   259→   259→        }
+   260→   260→        setSaving(false);
+   261→   261→        return;
+   262→   262→      }
+   263→   263→      toast.success(editId ? "Product updated" : "Product added");
+   264→   264→      setDialogOpen(false);
+   265→   265→      loadProducts();
+   266→   266→    } catch {
+   267→   267→      toast.error("Network error");
+   268→   268→    } finally {
+   269→   269→      setSaving(false);
+   270→   270→    }
+   271→   271→  }
+   272→   272→
+   273→   273→  async function handleDelete() {
+   274→   274→    if (!deleteId) return;
+   275→   275→    try {
+   276→   276→      const res = await fetch(`/api/products/${deleteId}`, {
+   277→   277→        method: "DELETE",
+   278→   278→      });
+   279→   279→      if (!res.ok) {
+   280→   280→        const d = await res.json();
+   281→   281→        toast.error(d.error || "Failed to delete");
+   282→   282→        return;
+   283→   283→      }
+   284→   284→      toast.success("Product deleted");
+   285→   285→      setDeleteId(null);
+   286→   286→      loadProducts();
+   287→   287→    } catch {
+   288→   288→      toast.error("Network error");
+   289→   289→    }
+   290→   290→  }
+   291→   291→
+   292→   292→  return (
+   293→   293→    <div className="space-y-4">
+   294→   294→      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+   295→   295→        <div>
+   296→   296→          <h1 className="text-2xl font-bold flex items-center gap-2">
+   297→   297→            <Package className="w-6 h-6 text-emerald-600" />
+   298→   298→            Products
+   299→   299→          </h1>
+   300→   300→          <p className="text-sm text-muted-foreground mt-1">
+   301→   301→            Manage all items in your shop
+   302→   302→          </p>
+   303→   303→        </div>
+   304→   304→        <div className="flex gap-2">
+   305→   305→          <Button variant="outline" onClick={loadProducts}>
+   306→   306→            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+   307→   307→          </Button>
+   308→   308→          <Button variant="outline" className="border-amber-300 text-amber-700" onClick={() => { setActiveCat("all"); setQ(""); }}>
+   309→   309→            <AlertTriangle className="w-4 h-4 mr-2" /> Low Stock
+   310→   310→          </Button>
+   311→   311→          <Button variant="outline" className="border-rose-300 text-rose-700" onClick={() => { setActiveCat("all"); setQ(""); }}>
+   312→   312→            <Calendar className="w-4 h-4 mr-2" /> Expiry
+   313→   313→          </Button>
+   314→   314→          {canManage && (
+   315→   315→            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setWizardOpen(true)}>
+   316→   316→              <Plus className="w-4 h-4 mr-2" /> Add Product
+   317→   317→            </Button>
+   318→   318→          )}
+   319→   319→        </div>
+   320→   320→      </div>
+   321→   321→
+   322→   322→      <div className="flex flex-col sm:flex-row gap-2">
+   323→   323→        <div className="relative flex-1">
+   324→   324→          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   325→   325→          <Input
+   326→   326→            placeholder="Search by name or barcode..."
+   327→   327→            value={q}
+   328→   328→            onChange={(e) => setQ(e.target.value)}
+   329→   329→            className="pl-10"
+   330→   330→          />
+   331→   331→        </div>
+   332→   332→        <Select value={activeCat} onValueChange={setActiveCat}>
+   333→   333→          <SelectTrigger className="sm:w-56">
+   334→   334→            <SelectValue placeholder="Category" />
+   335→   335→          </SelectTrigger>
+   336→   336→          <SelectContent>
+   337→   337→            <SelectItem value="all">All</SelectItem>
+   338→   338→            {categories.map((c) => (
+   339→   339→              <SelectItem key={c.id} value={c.id}>
+   340→   340→                {c.name}
+   341→   341→              </SelectItem>
+   342→   342→            ))}
+   343→   343→          </SelectContent>
+   344→   344→        </Select>
+   345→   345→      </div>
+   346→   346→
+   347→   347→      <Card>
+   348→   348→        <CardContent className="p-0">
+   349→   349→          {loading ? (
+   350→   350→            <div className="p-8 space-y-2">
+   351→   351→              {Array.from({ length: 5 }).map((_, i) => (
+   352→   352→                <div key={i} className="h-12 rounded bg-muted animate-pulse" />
+   353→   353→              ))}
+   354→   354→            </div>
+   355→   355→          ) : products.length === 0 ? (
+   356→   356→            <div className="py-12 text-center text-muted-foreground">
+   357→   357→              <Package className="w-10 h-10 mx-auto mb-2 opacity-50" />
+   358→   358→              No products found
+   359→   359→            </div>
+   360→   360→          ) : (
+   361→   361→            <div className="overflow-x-auto">
+   362→   362→              <Table>
+   363→   363→                <TableHeader>
+   364→   364→                  <TableRow>
+   365→   365→                    <TableHead>Name</TableHead>
+   366→   366→                    <TableHead>Barcode</TableHead>
+   367→   367→                    <TableHead>Category</TableHead>
+   368→   368→                    <TableHead className="text-right">Cost</TableHead>
+   369→   369→                    <TableHead className="text-right">Sale</TableHead>
+   370→   370→                    <TableHead className="text-right">Stock</TableHead>
+   371→   371→                    <TableHead>Expiry</TableHead>
+   372→   372→                    <TableHead className="text-right">Actions</TableHead>
+   373→   373→                  </TableRow>
+   374→   374→                </TableHeader>
+   375→   375→                <TableBody>
+   376→   376→                  {products.map((p) => (
+   377→   377→                    <TableRow key={p.id}>
+   378→   378→                      <TableCell className="font-medium">
+   379→   379→                        <div className="flex items-center gap-2">
+   380→   380→                          <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+   381→   381→                            <Package className="w-4 h-4 text-emerald-600" />
+   382→   382→                          </div>
+   383→   383→                          <div>
+   384→   384→                            <div>{p.name}</div>
+   385→   385→                            <div className="text-xs text-muted-foreground">
+   386→   386→                              {unitLabel(p.unit)}
+   387→   387→                            </div>
+   388→   388→                          </div>
+   389→   389→                        </div>
+   390→   390→                      </TableCell>
+   391→   391→                      <TableCell className="text-xs font-mono">
+   392→   392→                        {p.barcode}
+   393→   393→                        {p.barcodeType !== "COMPANY" && (
+   394→   394→                          <Badge variant="outline" className="ml-1 text-[10px]">
+   395→   395→                            Auto
+   396→   396→                          </Badge>
+   397→   397→                        )}
+   398→   398→                      </TableCell>
+   399→   399→                      <TableCell>{p.category?.name || "-"}</TableCell>
+   400→   400→                      <TableCell className="text-right text-muted-foreground">
+   401→   401→                        {formatMoney(p.costPrice)}
+   402→   402→                      </TableCell>
+   403→   403→                      <TableCell className="text-right font-bold text-emerald-700">
+   404→   404→                        {formatMoney(p.salePrice)}
+   405→   405→                      </TableCell>
+   406→   406→                      <TableCell className="text-right">
+   407→   407→                        <span
+   408→   408→                          className={`font-medium ${
+   409→   409→                            p.stock <= 0
+   410→   410→                              ? "text-red-600"
+   411→   411→                              : p.stock <= p.minStock
+   412→   412→                              ? "text-amber-600"
+   413→   413→                              : ""
+   414→   414→                          }`}
+   415→   415→                        >
+   416→   416→                          {p.stock}
+   417→   417→                        </span>
+   418→   418→                        {p.stock <= p.minStock && (
+   419→   419→                          <AlertTriangle className="w-3 h-3 inline mr-1 text-amber-500" />
+   420→   420→                        )}
+   421→   421→                      </TableCell>
+   422→   422→                      <TableCell>
+   423→   423→                        {(() => {
+   424→   424→                          const exp = formatExpiryBadge(p.expiryDate);
+   425→   425→                          if (!exp) {
+   426→   426→                            return (
+   427→   427→                              <span className="text-muted-foreground text-xs">
+   428→   428→                                -
+   429→   429→                              </span>
+   430→   430→                            );
+   431→   431→                          }
+   432→   432→                          if (exp.tone === "red") {
+   433→   433→                            return (
+   434→   434→                              <Badge
+   435→   435→                                variant="outline"
+   436→   436→                                className="text-red-700 border-red-300 bg-red-50"
+   437→   437→                              >
+   438→   438→                                {exp.label} · Expired
+   439→   439→                              </Badge>
+   440→   440→                            );
+   441→   441→                          }
+   442→   442→                          if (exp.tone === "amber") {
+   443→   443→                            return (
+   444→   444→                              <Badge
+   445→   445→                                variant="outline"
+   446→   446→                                className="text-amber-700 border-amber-300 bg-amber-50"
+   447→   447→                              >
+   448→   448→                                {exp.label} · {exp.days}d
+   449→   449→                              </Badge>
+   450→   450→                            );
+   451→   451→                          }
+   452→   452→                          return (
+   453→   453→                            <Badge variant="outline" className="font-mono">
+   454→   454→                              {exp.label}
+   455→   455→                            </Badge>
+   456→   456→                          );
+   457→   457→                        })()}
+   458→   458→                      </TableCell>
+   459→   459→                      <TableCell className="text-right">
+   460→   460→                        <div className="flex gap-1 justify-end">
+   461→   461→                          <Button
+   462→   462→                            size="icon"
+   463→   463→                            variant="ghost"
+   464→   464→                            className="h-8 w-8"
+   465→   465→                            onClick={() => setPrintProduct(p)}
+   466→   466→                            title="Print Barcode"
+   467→   467→                          >
+   468→   468→                            <BarcodeIcon className="w-4 h-4 text-emerald-600" />
+   469→   469→                          </Button>
+   470→   470→                          {canManage && (
+   471→   471→                            <>
+   472→   472→                              <Button
+   473→   473→                                size="icon"
+   474→   474→                                variant="ghost"
+   475→   475→                                className="h-8 w-8"
+   476→   476→                                onClick={() => openEdit(p)}
+   477→   477→                              >
+   478→   478→                                <Pencil className="w-4 h-4" />
+   479→   479→                              </Button>
+   480→   480→                              <Button
+   481→   481→                                size="icon"
+   482→   482→                                variant="ghost"
+   483→   483→                                className="h-8 w-8 text-red-600 hover:bg-red-50"
+   484→   484→                                onClick={() => setDeleteId(p.id)}
+   485→   485→                              >
+   486→   486→                                <Trash2 className="w-4 h-4" />
+   487→   487→                              </Button>
+   488→   488→                            </>
+   489→   489→                          )}
+   490→   490→                        </div>
+   491→   491→                      </TableCell>
+   492→   492→                    </TableRow>
+   493→   493→                  ))}
+   494→   494→                </TableBody>
+   495→   495→              </Table>
+   496→   496→            </div>
+   497→   497→          )}
+   498→   498→        </CardContent>
+   499→   499→      </Card>
+   500→   500→
+   501→   501→      {/* Add/Edit dialog */}
+   502→   502→      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+   503→   503→        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+   504→   504→          <DialogHeader>
+   505→   505→            <DialogTitle>
+   506→   506→              {editId ? "Edit Product" : "Add New Product"}
+   507→   507→            </DialogTitle>
+   508→   508→          </DialogHeader>
+   509→   509→          <div className="space-y-4">
+   510→   510→            <div className="space-y-2">
+   511→   511→              <Label>Product Name *</Label>
+   512→   512→              <Input
+   513→   513→                value={form.name}
+   514→   514→                onChange={(e) => setForm({ ...form, name: e.target.value })}
+   515→   515→                placeholder="e.g. Sugar, Ghee, Rice"
+   516→   516→              />
+   517→   517→            </div>
+   518→   518→
+   519→   519→            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-2">
+   520→   520→              <div className="flex items-center justify-between">
+   521→   521→                <Label className="flex items-center gap-2">
+   522→   522→                  <BarcodeIcon className="w-4 h-4 text-emerald-600" />
+   523→   523→                  Has company barcode?
+   524→   524→                </Label>
+   525→   525→                <Switch
+   526→   526→                  checked={form.hasBarcode}
+   527→   527→                  onCheckedChange={(c) => setForm({ ...form, hasBarcode: c })}
+   528→   528→                />
+   529→   529→              </div>
+   530→   530→              {form.hasBarcode ? (
+   531→   531→                <Input
+   532→   532→                  value={form.barcode}
+   533→   533→                  onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+   534→   534→                  placeholder="Scan or type the barcode..."
+   535→   535→                  className="text-left"
+   536→   536→                />
+   537→   537→              ) : (
+   538→   538→                <p className="text-xs text-emerald-700">
+   539→   539→                  ✓ A barcode will be auto-generated for this product (best for
+   540→   540→                  loose items like sugar, ghee, etc.)
+   541→   541→                </p>
+   542→   542→              )}
+   543→   543→              {form.barcode && (
+   544→   544→                <div className="bg-white rounded p-2 flex justify-center">
+   545→   545→                  <BarcodeDisplay
+   546→   546→                    value={form.barcode}
+   547→   547→                    format="EAN13"
+   548→   548→                    height={50}
+   549→   549→                  />
+   550→   550→                </div>
+   551→   551→              )}
+   552→   552→            </div>
+   553→   553→
+   554→   554→            <div className="grid grid-cols-2 gap-3">
+   555→   555→              <div className="space-y-2">
+   556→   556→                <Label>Category</Label>
+   557→   557→                <Select
+   558→   558→                  value={form.categoryId || "none"}
+   559→   559→                  onValueChange={(v) =>
+   560→   560→                    setForm({ ...form, categoryId: v === "none" ? "" : v })
+   561→   561→                  }
+   562→   562→                >
+   563→   563→                  <SelectTrigger>
+   564→   564→                    <SelectValue placeholder="Select" />
+   565→   565→                  </SelectTrigger>
+   566→   566→                  <SelectContent>
+   567→   567→                    <SelectItem value="none">No category</SelectItem>
+   568→   568→                    {categories.map((c) => (
+   569→   569→                      <SelectItem key={c.id} value={c.id}>
+   570→   570→                        {c.name}
+   571→   571→                      </SelectItem>
+   572→   572→                    ))}
+   573→   573→                  </SelectContent>
+   574→   574→                </Select>
+   575→   575→              </div>
+   576→   576→              <div className="space-y-2">
+   577→   577→                <Label>Unit</Label>
+   578→   578→                <Select
+   579→   579→                  value={form.unit}
+   580→   580→                  onValueChange={(v) => setForm({ ...form, unit: v })}
+   581→   581→                >
+   582→   582→                  <SelectTrigger>
+   583→   583→                    <SelectValue />
+   584→   584→                  </SelectTrigger>
+   585→   585→                  <SelectContent>
+   586→   586→                    {UNITS.map((u) => (
+   587→   587→                      <SelectItem key={u.v} value={u.v}>
+   588→   588→                        {u.l}
+   589→   589→                      </SelectItem>
+   590→   590→                    ))}
+   591→   591→                  </SelectContent>
+   592→   592→                </Select>
+   593→   593→              </div>
+   594→   594→            </div>
+   595→   595→
+   596→   596→            <div className="grid grid-cols-2 gap-3">
+   597→   597→              <div className="space-y-2">
+   598→   598→                <Label>Cost Price</Label>
+   599→   599→                <Input
+   600→   600→                  type="number"
+   601→   601→                  value={form.costPrice}
+   602→   602→                  onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
+   603→   603→                  className="text-left"
+   604→   604→                />
+   605→   605→              </div>
+   606→   606→              <div className="space-y-2">
+   607→   607→                <Label>Sale Price *</Label>
+   608→   608→                <Input
+   609→   609→                  type="number"
+   610→   610→                  value={form.salePrice}
+   611→   611→                  onChange={(e) => setForm({ ...form, salePrice: e.target.value })}
+   612→   612→                  className="text-left"
+   613→   613→                />
+   614→   614→              </div>
+   615→   615→              <div className="space-y-2">
+   616→   616→                <Label>Wholesale Price</Label>
+   617→   617→                <Input
+   618→   618→                  type="number"
+   619→   619→                  value={form.wholesalePrice}
+   620→   620→                  onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })}
+   621→   621→                  className="text-left"
+   622→   622→                  placeholder="0"
+   623→   623→                />
+   624→   624→              </div>
+   625→   625→              <div className="space-y-2">
+   626→   626→                <Label>Shopkeeper Price</Label>
+   627→   627→                <Input
+   628→   628→                  type="number"
+   629→   629→                  value={form.shopkeeperPrice}
+   630→   630→                  onChange={(e) => setForm({ ...form, shopkeeperPrice: e.target.value })}
+   631→   631→                  className="text-left"
+   632→   632→                  placeholder="0"
+   633→   633→                />
+   634→   634→              </div>
+   635→   635→            </div>
+   636→   636→
+   637→   637→            <div className="grid grid-cols-3 gap-3">
+   638→   638→              <div className="space-y-2">
+   639→   639→                <Label>Stock</Label>
+   640→   640→                <Input
+   641→   641→                  type="number"
+   642→   642→                  value={form.stock}
+   643→   643→                  onChange={(e) => setForm({ ...form, stock: e.target.value })}
+   644→   644→                  className="text-left"
+   645→   645→                />
+   646→   646→              </div>
+   647→   647→              <div className="space-y-2">
+   648→   648→                <Label>Low Stock Alert</Label>
+   649→   649→                <Input
+   650→   650→                  type="number"
+   651→   651→                  value={form.minStock}
+   652→   652→                  onChange={(e) => setForm({ ...form, minStock: e.target.value })}
+   653→   653→                  className="text-left"
+   654→   654→                />
+   655→   655→              </div>
+   656→   656→              <div className="space-y-2">
+   657→   657→                <Label>Tax %</Label>
+   658→   658→                <Input
+   659→   659→                  type="number"
+   660→   660→                  value={form.taxRate}
+   661→   661→                  onChange={(e) => setForm({ ...form, taxRate: e.target.value })}
+   662→   662→                  className="text-left"
+   663→   663→                />
+   664→   664→              </div>
+   665→   665→            </div>
+   666→   666→
+   667→   667→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   668→   668→              <div className="space-y-2">
+   669→   669→                <Label>Manufacturing Date</Label>
+   670→   670→                <Input
+   671→   671→                  type="date"
+   672→   672→                  value={form.manufacturingDate}
+   673→   673→                  onChange={(e) =>
+   674→   674→                    setForm({ ...form, manufacturingDate: e.target.value })
+   675→   675→                  }
+   676→   676→                  className="text-left"
+   677→   677→                />
+   678→   678→              </div>
+   679→   679→              <div className="space-y-2">
+   680→   680→                <Label>Expiry Date</Label>
+   681→   681→                <Input
+   682→   682→                  type="date"
+   683→   683→                  value={form.expiryDate}
+   684→   684→                  onChange={(e) =>
+   685→   685→                    setForm({ ...form, expiryDate: e.target.value })
+   686→   686→                  }
+   687→   687→                  className="text-left"
+   688→   688→                />
+   689→   689→              </div>
+   690→   690→            </div>
+   691→   691→
+   692→   692→            <div className="space-y-2">
+   693→   693→              <Label>Vendor</Label>
+   694→   694→              <Select
+   695→   695→                value={form.vendorId || "none"}
+   696→   696→                onValueChange={(v) =>
+   697→   697→                  setForm({ ...form, vendorId: v === "none" ? "" : v })
+   698→   698→                }
+   699→   699→              >
+   700→   700→                <SelectTrigger>
+   701→   701→                  <SelectValue placeholder="No vendor" />
+   702→   702→                </SelectTrigger>
+   703→   703→                <SelectContent>
+   704→   704→                  <SelectItem value="none">No vendor</SelectItem>
+   705→   705→                  {vendors.map((v) => (
+   706→   706→                    <SelectItem key={v.id} value={v.id}>
+   707→   707→                      {v.name}
+   708→   708→                      {v.companyName ? ` — ${v.companyName}` : ""}
+   709→   709→                    </SelectItem>
+   710→   710→                  ))}
+   711→   711→                </SelectContent>
+   712→   712→              </Select>
+   713→   713→            </div>
+   714→   714→
+   715→   715→            <div className="flex items-center justify-between rounded-lg border p-3">
+   716→   716→              <Label>Product is active</Label>
+   717→   717→              <Switch
+   718→   718→                checked={form.active}
+   719→   719→                onCheckedChange={(c) => setForm({ ...form, active: c })}
+   720→   720→              />
+   721→   721→            </div>
+   722→   722→
+   723→   723→            {/* Product Image */}
+   724→   724→            <ImageUpload
+   725→   725→              value={form.image}
+   726→   726→              onChange={(img) => setForm({ ...form, image: img })}
+   727→   727→              label="Product Image"
+   728→   728→            />
+   729→   729→          </div>
+   730→   730→          <DialogFooter>
+   731→   731→            <Button
+   732→   732→              variant="outline"
+   733→   733→              onClick={() => setDialogOpen(false)}
+   734→   734→              disabled={saving}
+   735→   735→            >
+   736→   736→              Cancel
+   737→   737→            </Button>
+   738→   738→            <Button
+   739→   739→              className="bg-emerald-600 hover:bg-emerald-700"
+   740→   740→              onClick={handleSave}
+   741→   741→              disabled={saving}
+   742→   742→            >
+   743→   743→              {saving ? "Saving..." : "Save"}
+   744→   744→            </Button>
+   745→   745→          </DialogFooter>
+   746→   746→        </DialogContent>
+   747→   747→      </Dialog>
+   748→   748→
+   749→   749→      {/* delete confirm */}
+   750→   750→      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
+   751→   751→        <AlertDialogContent>
+   752→   752→          <AlertDialogHeader>
+   753→   753→            <AlertDialogTitle>Delete product?</AlertDialogTitle>
+   754→   754→            <AlertDialogDescription>
+   755→   755→              This action cannot be undone.
+   756→   756→            </AlertDialogDescription>
+   757→   757→          </AlertDialogHeader>
+   758→   758→          <AlertDialogFooter>
+   759→   759→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   760→   760→            <AlertDialogAction
+   761→   761→              className="bg-red-600 hover:bg-red-700"
+   762→   762→              onClick={handleDelete}
+   763→   763→            >
+   764→   764→              Delete
+   765→   765→            </AlertDialogAction>
+   766→   766→          </AlertDialogFooter>
+   767→   767→        </AlertDialogContent>
+   768→   768→      </AlertDialog>
+   769→   769→
+   770→   770→      {/* print barcode dialog */}
+   771→   771→      <BarcodePrintDialog
+   772→   772→        product={printProduct}
+   773→   773→        onClose={() => setPrintProduct(null)}
+   774→   774→      />
+   775→   775→
+   776→   776→      {/* Quick Add Wizard */}
+   777→   777→      <ProductWizard
+   778→   778→        open={wizardOpen}
+   779→   779→        onOpenChange={(o) => { setWizardOpen(o); if (!o) setEditProduct(null); }}
+   780→   780→        categories={categories}
+   781→   781→        onDone={loadProducts}
+   782→   782→        editProduct={editProduct}
+   783→   783→      />
+   784→   784→    </div>
+   785→   785→  );
+   786→   786→}
+   787→   787→
+   788→   788→function BarcodePrintDialog({
+   789→   789→  product,
+   790→   790→  onClose,
+   791→   791→}: {
+   792→   792→  product: Product | null;
+   793→   793→  onClose: () => void;
+   794→   794→}) {
+   795→   795→  const [count, setCount] = React.useState(1);
+   796→   796→  const [shopName, setShopName] = React.useState<string>("");
+   797→   797→  const labelRef = React.useRef<HTMLDivElement>(null);
+   798→   798→
+   799→   799→  // Fetch shop name from settings (used at the top of the sticker)
+   800→   800→  React.useEffect(() => {
+   801→   801→    if (!product) return;
+   802→   802→    let active = true;
+   803→   803→    fetch("/api/settings", { cache: "no-store" })
+   804→   804→      .then((r) => r.json())
+   805→   805→      .then((d) => {
+   806→   806→        if (!active) return;
+   807→   807→        const s = d?.settings;
+   808→   808→        setShopName(s?.shopName?.trim() || "My Shop");
+   809→   809→      })
+   810→   810→      .catch(() => {
+   811→   811→        if (active) setShopName("My Shop");
+   812→   812→      });
+   813→   813→    return () => {
+   814→   814→      active = false;
+   815→   815→    };
+   816→   816→  }, [product]);
+   817→   817→
+   818→   818→  if (!product) return null;
+   819→   819→
+   820→   820→  function handlePrint() {
+   821→   821→    const content = labelRef.current;
+   822→   822→    if (!content) return;
+   823→   823→    const win = window.open("", "_blank", "width=400,height=400");
+   824→   824→    if (!win) {
+   825→   825→      toast.error("Pop-up blocked. Please allow pop-ups to print.");
+   826→   826→      return;
+   827→   827→    }
+   828→   828→    win.document.write(`
+   829→   829→      <html dir="ltr"><head><title>Sticker ${product!.name}</title>
+   830→   830→      <style>
+   831→   831→        @page { size: 50mm 25mm; margin: 0; }
+   832→   832→        html, body { margin: 0; padding: 0; }
+   833→   833→        body { width: 50mm; }
+   834→   834→        * { box-sizing: border-box; }
+   835→   835→        .sticker {
+   836→   836→          width: 50mm;
+   837→   837→          height: 25mm;
+   838→   838→          border: 1px dashed #999;
+   839→   839→          padding: 1mm 1.5mm;
+   840→   840→          display: flex;
+   841→   841→          flex-direction: column;
+   842→   842→          align-items: center;
+   843→   843→          justify-content: space-between;
+   844→   844→          font-family: Tahoma, Arial, sans-serif;
+   845→   845→          color: #000;
+   846→   846→          background: #fff;
+   847→   847→          text-align: center;
+   848→   848→          overflow: hidden;
+   849→   849→          page-break-inside: avoid;
+   850→   850→        }
+   851→   851→        .shop-name {
+   852→   852→          font-size: 8px;
+   853→   853→          font-weight: bold;
+   854→   854→          line-height: 1;
+   855→   855→          width: 100%;
+   856→   856→          margin-bottom: 1px;
+   857→   857→        }
+   858→   858→        .barcode {
+   859→   859→          flex: 1;
+   860→   860→          display: flex;
+   861→   861→          align-items: center;
+   862→   862→          justify-content: center;
+   863→   863→          width: 100%;
+   864→   864→          overflow: hidden;
+   865→   865→          margin: 1px 0;
+   866→   866→        }
+   867→   867→        .product-name {
+   868→   868→          font-size: 9px;
+   869→   869→          font-weight: bold;
+   870→   870→          line-height: 1;
+   871→   871→          width: 100%;
+   872→   872→          margin-top: 1px;
+   873→   873→        }
+   874→   874→      </style></head><body>${content.innerHTML}</body></html>
+   875→   875→    `);
+   876→   876→    win.document.close();
+   877→   877→    win.focus();
+   878→   878→    setTimeout(() => {
+   879→   879→      win.print();
+   880→   880→      setTimeout(() => win.close(), 250);
+   881→   881→    }, 350);
+   882→   882→  }
+   883→   883→
+   884→   884→  // Inline sticker style — matches the printed layout exactly (50mm × 25mm).
+   885→   885→  const stickerStyle: React.CSSProperties = {
+   886→   886→    width: "50mm",
+   887→   887→    height: "25mm",
+   888→   888→    border: "1px dashed #d1d5db",
+   889→   889→    padding: "1mm 1.5mm",
+   890→   890→    display: "flex",
+   891→   891→    flexDirection: "column",
+   892→   892→    alignItems: "center",
+   893→   893→    justifyContent: "space-between",
+   894→   894→    color: "#000",
+   895→   895→    background: "#fff",
+   896→   896→    textAlign: "center",
+   897→   897→    overflow: "hidden",
+   898→   898→  };
+   899→   899→
+   900→   900→  return (
+   901→   901→    <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
+   902→   902→      <DialogContent className="max-w-md">
+   903→   903→        <DialogHeader>
+   904→   904→          <DialogTitle>Print Barcode Sticker</DialogTitle>
+   905→   905→        </DialogHeader>
+   906→   906→        <div className="space-y-3">
+   907→   907→          <div className="text-center text-xs text-muted-foreground">
+   908→   908→            Sticker size: 50mm × 25mm. Shop name (top) — Barcode (middle) —
+   909→   909→            Product name (bottom).
+   910→   910→          </div>
+   911→   911→          <div className="flex items-center gap-2">
+   912→   912→            <Label className="whitespace-nowrap">Quantity</Label>
+   913→   913→            <Input
+   914→   914→              type="number"
+   915→   915→              min={1}
+   916→   916→              max={100}
+   917→   917→              value={count}
+   918→   918→              onChange={(e) =>
+   919→   919→                setCount(
+   920→   920→                  Math.min(100, Math.max(1, Number(e.target.value) || 1))
+   921→   921→                )
+   922→   922→              }
+   923→   923→              className="text-left w-24"
+   924→   924→            />
+   925→   925→          </div>
+   926→   926→          <div
+   927→   927→            ref={labelRef}
+   928→   928→            className="bg-white border rounded p-2 flex flex-wrap gap-1 justify-center"
+   929→   929→          >
+   930→   930→            {Array.from({ length: count }).map((_, i) => (
+   931→   931→              <div key={i} className="sticker" style={stickerStyle}>
+   932→   932→                {/* TOP — shop name */}
+   933→   933→                <div
+   934→   934→                  className="shop-name"
+   935→   935→                  style={{
+   936→   936→                    fontSize: "7px",
+   937→   937→                    fontWeight: "bold",
+   938→   938→                    lineHeight: 1.05,
+   939→   939→                    width: "100%",
+   940→   940→                  }}
+   941→   941→                >
+   942→   942→                  {shopName || "My Shop"}
+   943→   943→                </div>
+   944→   944→                {/* MIDDLE — barcode */}
+   945→   945→                <div
+   946→   946→                  className="barcode"
+   947→   947→                  style={{
+   948→   948→                    flex: 1,
+   949→   949→                    display: "flex",
+   950→   950→                    alignItems: "center",
+   951→   951→                    justifyContent: "center",
+   952→   952→                    width: "100%",
+   953→   953→                    overflow: "hidden",
+   954→   954→                  }}
+   955→   955→                >
+   956→   956→                  <BarcodeDisplay
+   957→   957→                    value={product.barcode}
+   958→   958→                    format={product.barcodeType === "EAN13" ? "EAN13" : "CODE128"}
+   959→   959→                    height={28}
+   960→   960→                    width={1}
+   961→   961→                    displayValue={false}
+   962→   962→                  />
+   963→   963→                </div>
+   964→   964→                {/* BOTTOM — product name */}
+   965→   965→                <div
+   966→   966→                  className="product-name"
+   967→   967→                  style={{
+   968→   968→                    fontSize: "7px",
+   969→   969→                    fontWeight: 600,
+   970→   970→                    lineHeight: 1.05,
+   971→   971→                    width: "100%",
+   972→   972→                    overflow: "hidden",
+   973→   973→                    textOverflow: "ellipsis",
+   974→   974→                    whiteSpace: "nowrap",
+   975→   975→                  }}
+   976→   976→                >
+   977→   977→                  {product.name}
+   978→   978→                </div>
+   979→   979→              </div>
+   980→   980→            ))}
+   981→   981→          </div>
+   982→   982→        </div>
+   983→   983→        <DialogFooter>
+   984→   984→          <Button variant="outline" onClick={onClose}>
+   985→   985→            Close
+   986→   986→          </Button>
+   987→   987→          <Button
+   988→   988→            className="bg-emerald-600 hover:bg-emerald-700"
+   989→   989→            onClick={handlePrint}
+   990→   990→          >
+   991→   991→            <Printer className="w-4 h-4 mr-2" /> Print
+   992→   992→          </Button>
+   993→   993→        </DialogFooter>
+   994→   994→      </DialogContent>
+   995→   995→    </Dialog>
+   996→   996→  );
+   997→   997→}
+   998→   998→
+   999→   999→// ============================================================
+  1000→  1000→// Product Wizard — Box/Bag + Piece dual entry
+  1001→  1001→// ============================================================
+  1002→  1002→interface ProductWizardProps {
+  1003→  1003→  open: boolean;
+  1004→  1004→  onOpenChange: (o: boolean) => void;
+  1005→  1005→  categories: Category[];
+  1006→  1006→  onDone: () => void;
+  1007→  1007→  editProduct?: Product | null;
+  1008→  1008→}
+  1009→  1009→
+  1010→  1010→function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: ProductWizardProps) {
+  1011→  1011→  const [step, setStep] = React.useState(1);
+  1012→  1012→  const [productType, setProductType] = React.useState<"piece" | "box">("piece");
+  1013→  1013→  const [saving, setSaving] = React.useState(false);
+  1014→  1014→  const [editId, setEditId] = React.useState<string | null>(null);
+  1015→  1015→
+  1016→  1016→  // Shared
+  1017→  1017→  const [name, setName] = React.useState("");
+  1018→  1018→  const [categoryId, setCategoryId] = React.useState("");
+  1019→  1019→  const [image, setImage] = React.useState<string | null>(null);
+  1020→  1020→  const [expiryDate, setExpiryDate] = React.useState("");
+  1021→  1021→  const [manufacturingDate, setManufacturingDate] = React.useState("");
+  1022→  1022→
+  1023→  1023→  // Piece info
+  1024→  1024→  const [pieceBarcode, setPieceBarcode] = React.useState("");
+  1025→  1025→  const [pieceCostPrice, setPieceCostPrice] = React.useState("");
+  1026→  1026→  const [pieceSalePrice, setPieceSalePrice] = React.useState("");
+  1027→  1027→  const [pieceWholesalePrice, setPieceWholesalePrice] = React.useState("");
+  1028→  1028→  const [pieceShopkeeperPrice, setPieceShopkeeperPrice] = React.useState("");
+  1029→  1029→  const [pieceStock, setPieceStock] = React.useState("");
+  1030→  1030→  const [pieceMinStock, setPieceMinStock] = React.useState("");
+  1031→  1031→
+  1032→  1032→  // Box info
+  1033→  1033→  const [boxBarcode, setBoxBarcode] = React.useState("");
+  1034→  1034→  const [piecesPerBox, setPiecesPerBox] = React.useState("");
+  1035→  1035→  const [boxQty, setBoxQty] = React.useState("");
+  1036→  1036→  const [boxCostPrice, setBoxCostPrice] = React.useState("");
+  1037→  1037→  const [boxSalePrice, setBoxSalePrice] = React.useState("");
+  1038→  1038→  const [boxWholesalePrice, setBoxWholesalePrice] = React.useState("");
+  1039→  1039→  const [boxShopkeeperPrice, setBoxShopkeeperPrice] = React.useState("");
+  1040→  1040→
+  1041→  1041→  // Auto-calculated
+  1042→  1042→  const totalPieces = (Number(piecesPerBox) || 0) * (Number(boxQty) || 0);
+  1043→  1043→  const autoPieceCost = totalPieces > 0 ? (Number(boxCostPrice) || 0) / totalPieces : 0;
+  1044→  1044→  const autoPieceSale = (Number(piecesPerBox) || 0) > 0 ? (Number(boxSalePrice) || 0) / (Number(piecesPerBox) || 0) : 0;
+  1045→  1045→  const autoPieceWholesale = (Number(piecesPerBox) || 0) > 0 ? (Number(boxWholesalePrice) || 0) / (Number(piecesPerBox) || 0) : 0;
+  1046→  1046→  const autoPieceShopkeeper = (Number(piecesPerBox) || 0) > 0 ? (Number(boxShopkeeperPrice) || 0) / (Number(piecesPerBox) || 0) : 0;
+  1047→  1047→
+  1048→  1048→  function reset() {
+  1049→  1049→    setStep(1); setProductType("piece"); setName(""); setCategoryId("");
+  1050→  1050→    setImage(null); setExpiryDate(""); setManufacturingDate("");
+  1051→  1051→    setPieceBarcode(""); setPieceCostPrice(""); setPieceSalePrice(""); setPieceWholesalePrice(""); setPieceShopkeeperPrice("");
+  1052→  1052→    setPieceStock(""); setPieceMinStock("");
+  1053→  1053→    setBoxBarcode(""); setPiecesPerBox(""); setBoxQty("");
+  1054→  1054→    setBoxCostPrice(""); setBoxSalePrice(""); setBoxWholesalePrice(""); setBoxShopkeeperPrice("");
+  1055→  1055→    setEditId(null);
+  1056→  1056→  }
+  1057→  1057→
+  1058→  1058→  React.useEffect(() => {
+  1059→  1059→    if (!open) { const t = setTimeout(reset, 200); return () => clearTimeout(t); }
+  1060→  1060→    if (open && editProduct) {
+  1061→  1061→      // Pre-fill for editing
+  1062→  1062→      setEditId(editProduct.id);
+  1063→  1063→      setName(editProduct.name);
+  1064→  1064→      setCategoryId(editProduct.categoryId || "");
+  1065→  1065→      setImage(editProduct.image || null);
+  1066→  1066→      setExpiryDate(editProduct.expiryDate ? new Date(editProduct.expiryDate).toISOString().slice(0, 10) : "");
+  1067→  1067→      setManufacturingDate(editProduct.manufacturingDate ? new Date(editProduct.manufacturingDate).toISOString().slice(0, 10) : "");
+  1068→  1068→      if (editProduct.packBarcode) {
+  1069→  1069→        // Box product
+  1070→  1070→        setProductType("box");
+  1071→  1071→        setStep(2);
+  1072→  1072→        setBoxBarcode(editProduct.barcode);
+  1073→  1073→        setBoxCostPrice(editProduct.costPrice.toString());
+  1074→  1074→        setBoxSalePrice(editProduct.salePrice.toString());
+  1075→  1075→        setBoxWholesalePrice((editProduct.wholesalePrice || 0).toString());
+  1076→  1076→        setBoxShopkeeperPrice((editProduct.shopkeeperPrice || 0).toString());
+  1077→  1077→        setPiecesPerBox((editProduct.packQuantity || 0).toString());
+  1078→  1078→        setBoxQty(editProduct.stock > 0 && editProduct.packQuantity > 0 ? Math.floor(editProduct.stock / editProduct.packQuantity).toString() : "");
+  1079→  1079→        setPieceBarcode(editProduct.packBarcode || "");
+  1080→  1080→        setPieceSalePrice(autoPieceSale ? autoPieceSale.toFixed(2) : "");
+  1081→  1081→      } else {
+  1082→  1082→        // Piece product
+  1083→  1083→        setProductType("piece");
+  1084→  1084→        setStep(2);
+  1085→  1085→        setPieceBarcode(editProduct.barcode);
+  1086→  1086→        setPieceCostPrice(editProduct.costPrice.toString());
+  1087→  1087→        setPieceSalePrice(editProduct.salePrice.toString());
+  1088→  1088→        setPieceWholesalePrice((editProduct.wholesalePrice || 0).toString());
+  1089→  1089→        setPieceShopkeeperPrice((editProduct.shopkeeperPrice || 0).toString());
+  1090→  1090→        setPieceStock(editProduct.stock.toString());
+  1091→  1091→        setPieceMinStock(editProduct.minStock.toString());
+  1092→  1092→      }
+  1093→  1093→    }
+  1094→  1094→  }, [open, editProduct]);
+  1095→  1095→
+  1096→  1096→  // Auto-fill piece prices when box prices change
+  1097→  1097→  React.useEffect(() => {
+  1098→  1098→    if (productType === "box" && step >= 2) {
+  1099→  1099→      setPieceSalePrice(autoPieceSale ? autoPieceSale.toFixed(2) : "");
+  1100→  1100→      setPieceWholesalePrice(autoPieceWholesale ? autoPieceWholesale.toFixed(2) : "");
+  1101→  1101→      setPieceShopkeeperPrice(autoPieceShopkeeper ? autoPieceShopkeeper.toFixed(2) : "");
+  1102→  1102→      setPieceCostPrice(autoPieceCost ? autoPieceCost.toFixed(2) : "");
+  1103→  1103→    }
+  1104→  1104→  }, [boxSalePrice, boxWholesalePrice, boxShopkeeperPrice, boxCostPrice, piecesPerBox]);
+  1105→  1105→
+  1106→  1106→  async function saveProducts() {
+  1107→  1107→    setSaving(true);
+  1108→  1108→    try {
+  1109→  1109→      if (productType === "piece") {
+  1110→  1110→        const body = {
+  1111→  1111→          name, barcode: pieceBarcode, categoryId: categoryId || null,
+  1112→  1112→          costPrice: Number(pieceCostPrice) || 0,
+  1113→  1113→          salePrice: Number(pieceSalePrice) || 0,
+  1114→  1114→          wholesalePrice: Number(pieceWholesalePrice) || 0,
+  1115→  1115→          shopkeeperPrice: Number(pieceShopkeeperPrice) || 0,
+  1116→  1116→          unit: "piece", stock: Number(pieceStock) || 0,
+  1117→  1117→          minStock: Number(pieceMinStock) || 0,
+  1118→  1118→          expiryDate: expiryDate || null,
+  1119→  1119→          manufacturingDate: manufacturingDate || null,
+  1120→  1120→          hasBarcode: true, active: true, image,
+  1121→  1121→        };
+  1122→  1122→        const url = editId ? `/api/products/${editId}` : "/api/products";
+  1123→  1123→        const method = editId ? "PUT" : "POST";
+  1124→  1124→        const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  1125→  1125→        const data = await res.json();
+  1126→  1126→        if (!res.ok) {
+  1127→  1127→          const msg = data.error || "Failed";
+  1128→  1128→          toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
+  1129→  1129→          setSaving(false); return;
+  1130→  1130→        }
+  1131→  1131→        toast.success(editId ? "Product updated!" : `${name} added!`);
+  1132→  1132→      } else {
+  1133→  1133→        const boxBody = {
+  1134→  1134→          name: editId ? name : `${name} (Box)`, barcode: boxBarcode, categoryId: categoryId || null,
+  1135→  1135→          costPrice: Number(boxCostPrice) || 0, salePrice: Number(boxSalePrice) || 0,
+  1136→  1136→          wholesalePrice: Number(boxWholesalePrice) || 0, shopkeeperPrice: Number(boxShopkeeperPrice) || 0,
+  1137→  1137→          unit: "piece", stock: totalPieces || Number(pieceStock) || 0,
+  1138→  1138→          minStock: Number(pieceMinStock) || 0,
+  1139→  1139→          expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
+  1140→  1140→          hasBarcode: true, active: true, image,
+  1141→  1141→          packBarcode: pieceBarcode, packQuantity: Number(piecesPerBox) || 0, packPrice: Number(boxSalePrice) || 0,
+  1142→  1142→        };
+  1143→  1143→        const boxUrl = editId ? `/api/products/${editId}` : "/api/products";
+  1144→  1144→        const boxMethod = editId ? "PUT" : "POST";
+  1145→  1145→        const boxRes = await fetch(boxUrl, { method: boxMethod, headers: { "Content-Type": "application/json" }, body: JSON.stringify(boxBody) });
+  1146→  1146→        const boxData = await boxRes.json();
+  1147→  1147→        if (!boxRes.ok) {
+  1148→  1148→          const msg = boxData.error || "Box save failed";
+  1149→  1149→          toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
+  1150→  1150→          setSaving(false); return;
+  1151→  1151→        }
+  1152→  1152→
+  1153→  1153→        // Save/update piece product
+  1154→  1154→        const pieceBody = {
+  1155→  1155→          name, barcode: pieceBarcode, categoryId: categoryId || null,
+  1156→  1156→          costPrice: Number(pieceCostPrice) || autoPieceCost,
+  1157→  1157→          salePrice: Number(pieceSalePrice) || autoPieceSale,
+  1158→  1158→          wholesalePrice: Number(pieceWholesalePrice) || autoPieceWholesale,
+  1159→  1159→          shopkeeperPrice: Number(pieceShopkeeperPrice) || autoPieceShopkeeper,
+  1160→  1160→          unit: "piece", stock: totalPieces || Number(pieceStock) || 0,
+  1161→  1161→          minStock: Number(pieceMinStock) || 0,
+  1162→  1162→          expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
+  1163→  1163→          hasBarcode: true, active: true, image,
+  1164→  1164→        };
+  1165→  1165→        const pieceRes = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pieceBody) });
+  1166→  1166→        if (!pieceRes.ok) {
+  1167→  1167→          const pieceData = await pieceRes.json();
+  1168→  1168→          toast.warning(`Box saved! Piece: ${pieceData.error}`);
+  1169→  1169→        } else {
+  1170→  1170→          toast.success(editId ? "Product updated!" : `${name} added! Box + Piece saved.`);
+  1171→  1171→        }
+  1172→  1172→      }
+  1173→  1173→      onDone();
+  1174→  1174→      onOpenChange(false);
+  1175→  1175→    } catch { toast.error("Network error"); } finally { setSaving(false); }
+  1176→  1176→  }
+  1177→  1177→
+  1178→  1178→  return (
+  1179→  1179→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1180→  1180→      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+  1181→  1181→        <DialogHeader>
+  1182→  1182→          <DialogTitle>{editId ? "Edit Product" : "Add Product"} — Step {step}/2</DialogTitle>
+  1183→  1183→        </DialogHeader>
+  1184→  1184→
+  1185→  1185→        {/* STEP 1 */}
+  1186→  1186→        {step === 1 && (
+  1187→  1187→          <div className="space-y-4">
+  1188→  1188→            <div className="space-y-2">
+  1189→  1189→              <Label>Product Name *</Label>
+  1190→  1190→              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Biscuit, Sugar" autoFocus />
+  1191→  1191→            </div>
+  1192→  1192→            <div className="space-y-2">
+  1193→  1193→              <Label>Category</Label>
+  1194→  1194→              <Select value={categoryId || "none"} onValueChange={(v) => setCategoryId(v === "none" ? "" : v)}>
+  1195→  1195→                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+  1196→  1196→                <SelectContent>
+  1197→  1197→                  <SelectItem value="none">No category</SelectItem>
+  1198→  1198→                  {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+  1199→  1199→                </SelectContent>
+  1200→  1200→              </Select>
+  1201→  1201→            </div>
+  1202→  1202→            <div className="space-y-2">
+  1203→  1203→              <Label>What are you saving? *</Label>
+  1204→  1204→              <div className="grid grid-cols-2 gap-3">
+  1205→  1205→                <button onClick={() => setProductType("piece")} className={`rounded-lg border-2 p-4 text-center transition-all ${productType === "piece" ? "border-emerald-500 bg-emerald-50" : "border-border hover:bg-muted"}`}>
+  1206→  1206→                  <Package className="w-6 h-6 mx-auto mb-1 text-emerald-600" />
+  1207→  1207→                  <div className="font-bold">Piece</div>
+  1208→  1208→                  <div className="text-xs text-muted-foreground">Single item</div>
+  1209→  1209→                </button>
+  1210→  1210→                <button onClick={() => setProductType("box")} className={`rounded-lg border-2 p-4 text-center transition-all ${productType === "box" ? "border-amber-500 bg-amber-50" : "border-border hover:bg-muted"}`}>
+  1211→  1211→                  <Package className="w-6 h-6 mx-auto mb-1 text-amber-600" />
+  1212→  1212→                  <div className="font-bold">Box / Bag</div>
+  1213→  1213→                  <div className="text-xs text-muted-foreground">Contains pieces</div>
+  1214→  1214→                </button>
+  1215→  1215→              </div>
+  1216→  1216→            </div>
+  1217→  1217→            <Button className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={!name.trim()} onClick={() => setStep(2)}>Next →</Button>
+  1218→  1218→          </div>
+  1219→  1219→        )}
+  1220→  1220→
+  1221→  1221→        {/* STEP 2 */}
+  1222→  1222→        {step === 2 && (
+  1223→  1223→          <div className="space-y-4">
+  1224→  1224→            {/* PIECE form — full details */}
+  1225→  1225→            {productType === "piece" && (
+  1226→  1226→              <div className="space-y-3">
+  1227→  1227→                <div className="space-y-2">
+  1228→  1228→                  <Label>Barcode *</Label>
+  1229→  1229→                  <Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan or type barcode" data-barcode-input="true" className="text-left" />
+  1230→  1230→                </div>
+  1231→  1231→                <div className="grid grid-cols-2 gap-2">
+  1232→  1232→                  <div className="space-y-2"><Label>Cost Price</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+  1233→  1233→                  <div className="space-y-2"><Label>Sale Price (Regular) *</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+  1234→  1234→                </div>
+  1235→  1235→                <div className="grid grid-cols-2 gap-2">
+  1236→  1236→                  <div className="space-y-2"><Label>Wholesale Price</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+  1237→  1237→                  <div className="space-y-2"><Label>Shopkeeper Price</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+  1238→  1238→                </div>
+  1239→  1239→                <div className="grid grid-cols-2 gap-2">
+  1240→  1240→                  <div className="space-y-2"><Label>Stock Quantity</Label><Input type="number" value={pieceStock} onChange={(e) => setPieceStock(e.target.value)} placeholder="0" className="text-left" /></div>
+  1241→  1241→                  <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
+  1242→  1242→                </div>
+  1243→  1243→                <div className="grid grid-cols-2 gap-2">
+  1244→  1244→                  <div className="space-y-2"><Label>Manufacturing Date</Label><Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} className="text-left" /></div>
+  1245→  1245→                  <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
+  1246→  1246→                </div>
+  1247→  1247→                <ImageUpload value={image} onChange={setImage} label="Product Image" />
+  1248→  1248→              </div>
+  1249→  1249→            )}
+  1250→  1250→
+  1251→  1251→            {/* BOX form */}
+  1252→  1252→            {productType === "box" && (
+  1253→  1253→              <>
+  1254→  1254→                <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-3 space-y-3">
+  1255→  1255→                  <div className="flex items-center gap-2"><Package className="w-4 h-4 text-amber-600" /><Label className="font-bold text-amber-800">Box Details</Label></div>
+  1256→  1256→                  <div className="space-y-2"><Label>Box Barcode *</Label><Input value={boxBarcode} onChange={(e) => setBoxBarcode(e.target.value)} placeholder="Scan box barcode" data-barcode-input="true" className="text-left" /></div>
+  1257→  1257→                  <div className="grid grid-cols-2 gap-2">
+  1258→  1258→                    <div className="space-y-2"><Label>Pieces per Box *</Label><Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 80" className="text-left" /></div>
+  1259→  1259→                    <div className="space-y-2"><Label>Number of Boxes</Label><Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" /></div>
+  1260→  1260→                  </div>
+  1261→  1261→                  <div className="grid grid-cols-2 gap-2">
+  1262→  1262→                    <div className="space-y-2"><Label>Box Cost Price</Label><Input type="number" value={boxCostPrice} onChange={(e) => setBoxCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+  1263→  1263→                    <div className="space-y-2"><Label>Box Sale Price</Label><Input type="number" value={boxSalePrice} onChange={(e) => setBoxSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+  1264→  1264→                  </div>
+  1265→  1265→                  <div className="grid grid-cols-2 gap-2">
+  1266→  1266→                    <div className="space-y-2"><Label>Box Wholesale</Label><Input type="number" value={boxWholesalePrice} onChange={(e) => setBoxWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+  1267→  1267→                    <div className="space-y-2"><Label>Box Shopkeeper</Label><Input type="number" value={boxShopkeeperPrice} onChange={(e) => setBoxShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+  1268→  1268→                  </div>
+  1269→  1269→                  {totalPieces > 0 && <div className="rounded bg-amber-100 p-2 text-center text-sm font-bold text-amber-800">Total: {boxQty || 0} boxes × {piecesPerBox || 0} pcs = {totalPieces} pieces</div>}
+  1270→  1270→                  <div className="grid grid-cols-2 gap-2">
+  1271→  1271→                    <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
+  1272→  1272→                    <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
+  1273→  1273→                  </div>
+  1274→  1274→                </div>
+  1275→  1275→                <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-3 space-y-3">
+  1276→  1276→                  <div className="flex items-center gap-2"><Package className="w-4 h-4 text-emerald-600" /><Label className="font-bold text-emerald-800">Piece Details (auto-calculated)</Label></div>
+  1277→  1277→                  <div className="space-y-2"><Label>Piece Barcode *</Label><Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan piece barcode" data-barcode-input="true" className="text-left" /></div>
+  1278→  1278→                  <div className="grid grid-cols-2 gap-2">
+  1279→  1279→                    <div className="space-y-2"><Label>Cost/Pc</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder={autoPieceCost ? autoPieceCost.toFixed(2) : "0"} className="text-left" /></div>
+  1280→  1280→                    <div className="space-y-2"><Label>Regular/Pc</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder={autoPieceSale ? autoPieceSale.toFixed(2) : "0"} className="text-left" /></div>
+  1281→  1281→                  </div>
+  1282→  1282→                  <div className="grid grid-cols-2 gap-2">
+  1283→  1283→                    <div className="space-y-2"><Label>Wholesale/Pc</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder={autoPieceWholesale ? autoPieceWholesale.toFixed(2) : "0"} className="text-left" /></div>
+  1284→  1284→                    <div className="space-y-2"><Label>Shopkeeper/Pc</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder={autoPieceShopkeeper ? autoPieceShopkeeper.toFixed(2) : "0"} className="text-left" /></div>
+  1285→  1285→                  </div>
+  1286→  1286→                  <div className="text-xs text-emerald-600">Prices auto-calculated from box ÷ pieces. Override allowed.</div>
+  1287→  1287→                </div>
+  1288→  1288→                <ImageUpload value={image} onChange={setImage} label="Product Image" />
+  1289→  1289→              </>
+  1290→  1290→            )}
+  1291→  1291→
+  1292→  1292→            <div className="flex gap-2">
+  1293→  1293→              <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>← Back</Button>
+  1294→  1294→              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving || (productType === "piece" ? !pieceBarcode.trim() : !boxBarcode.trim() || !pieceBarcode.trim())} onClick={saveProducts}>
+  1295→  1295→                {saving ? "Saving..." : editId ? "Update Product" : "Save Product"}
+  1296→  1296→              </Button>
+  1297→  1297→            </div>
+  1298→  1298→          </div>
+  1299→  1299→        )}
+  1300→  1300→      </DialogContent>
+  1301→  1301→    </Dialog>
+  1302→  1302→  );
+  1303→  1303→}
+  1304→  1304→

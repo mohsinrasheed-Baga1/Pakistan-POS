@@ -46,7 +46,7 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
     win.document.write(`
       <html dir="ltr"><head><title>Receipt ${sale.invoiceNo}</title>
       <style>
-        @page { size: ${widthMm}mm auto; margin: 0 1mm 1mm 5mm; }
+        @page { size: ${widthMm}mm auto; margin: 0 1mm 1mm 1mm; }
         * { font-family: 'Consolas', 'Courier New', monospace; box-sizing: border-box; margin: 0; padding: 0; font-weight: bold; }
         body { width: ${widthMm}mm; font-size: ${fontSize}; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .center { text-align: center; }
@@ -56,7 +56,7 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
         th, td { text-align: left; padding: 1px 0; font-size: ${tableFontSize}; word-wrap: break-word; overflow: hidden; font-weight: bold; }
         th { border-bottom: 1px solid #000; font-weight: bold; }
         .bold { font-weight: bold; }
-        .big { font-size: ${printerWidth === 80 ? "16px" : "13px"}; font-weight: bold; }
+        .big { font-size: ${printerWidth === 80 ? "20px" : "16px"}; font-weight: bold; letter-spacing: 0.5px; }
         .sub-name { font-size: ${printerWidth === 80 ? "14px" : "11px"}; font-weight: bold; margin-top: 2px; }
         .logo { max-height: 50px; height: 50px; max-width: 100%; margin: 0 auto 2px auto; display: block; }
         .barcode-container { text-align: center; margin: 4px 0; }
@@ -86,10 +86,10 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
         <div
           ref={printRef}
           className="bg-white text-black p-3 rounded-lg space-y-1"
-          style={{ maxWidth, margin: "0 auto", fontFamily: "'Courier New', monospace", color: "#000" }}
+          style={{ maxWidth, margin: "0 auto", fontFamily: "'Consolas', 'Courier New', monospace", color: "#000", fontWeight: "bold" }}
         >
           {/* Header */}
-          <div className="center">
+          <div className="center" style={{ textAlign: "center" }}>
             {logo && (
               <img
                 src={logo}
@@ -104,15 +104,15 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
                 }}
               />
             )}
-            <div className="big">{settings?.shopName || "POS"}</div>
+            <div className="big" style={{ fontSize: printerWidth === 80 ? "20px" : "16px", fontWeight: "bold", letterSpacing: "0.5px" }}>{settings?.shopName || "POS"}</div>
             {settings?.shopAddress && (
-              <div style={{ fontSize: tableFontSize }}>{settings.shopAddress}</div>
+              <div style={{ fontSize: tableFontSize, fontWeight: "bold" }}>{settings.shopAddress}</div>
             )}
             {settings?.shopPhone && (
-              <div style={{ fontSize: tableFontSize }}>Ph: {settings.shopPhone}</div>
+              <div style={{ fontSize: tableFontSize, fontWeight: "bold" }}>Ph: {settings.shopPhone}</div>
             )}
             {subName && (
-              <div className="sub-name" style={{ marginTop: "2px" }}>{subName}</div>
+              <div className="sub-name" style={{ marginTop: "2px", fontSize: printerWidth === 80 ? "14px" : "11px", fontWeight: "bold" }}>{subName}</div>
             )}
           </div>
 

@@ -70,12 +70,16 @@ CREATE TABLE IF NOT EXISTS Product (
   hasBarcode BOOLEAN NOT NULL DEFAULT 1,
   image TEXT,
   active BOOLEAN NOT NULL DEFAULT 1,
+  packBarcode TEXT,
+  packQuantity REAL NOT NULL DEFAULT 0,
+  packPrice REAL NOT NULL DEFAULT 0,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL,
   FOREIGN KEY (categoryId) REFERENCES Category(id) ON DELETE SET NULL,
   FOREIGN KEY (vendorId) REFERENCES Vendor(id) ON DELETE SET NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS Product_barcode_key ON Product(barcode);
+CREATE UNIQUE INDEX IF NOT EXISTS Product_packBarcode_key ON Product(packBarcode);
 
 CREATE TABLE IF NOT EXISTS Sale (
   id TEXT PRIMARY KEY NOT NULL,
@@ -217,6 +221,9 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["expiryDate", "DATETIME"],
     ["manufacturingDate", "DATETIME"],
     ["vendorId", "TEXT"],
+    ["packBarcode", "TEXT"],
+    ["packQuantity", "REAL NOT NULL DEFAULT 0"],
+    ["packPrice", "REAL NOT NULL DEFAULT 0"],
   ],
   Sale: [
     ["cardId", "TEXT"],
