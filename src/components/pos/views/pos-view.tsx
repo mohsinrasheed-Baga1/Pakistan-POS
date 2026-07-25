@@ -141,8 +141,17 @@ export function PosView({ settings }: PosViewProps) {
       });
       const data = await res.json();
       if (data.found && data.kind === "product" && data.product) {
-        addToCart(data.product as Product);
-        toast.success(`Scanned: ${data.product.name}`);
+        const product = data.product as Product;
+        if (data.isPack && product.packQuantity > 0) {
+          // Box scan: add 1 box = deduct packQuantity pieces from stock
+          // Use packPrice as the price, add as 1 unit
+          const boxProduct = { ...product, salePrice: product.packPrice };
+          cart.addItem(boxProduct, 1);
+          toast.success(`Box: ${product.name} (${product.packQuantity} pcs)`);
+        } else {
+          addToCart(product);
+          toast.success(`Scanned: ${product.name}`);
+        }
       } else if (data.found && data.kind === "card" && data.card) {
         toast.success(`Shop Card: ${data.card.name} — ${data.card.type === "WHOLESALE" ? "Wholesale" : "Regular"} mode`);
         cart.setSaleType(data.card.type === "WHOLESALE" ? "WHOLESALE" : "RETAIL");

@@ -105,16 +105,21 @@ export async function POST(req: NextRequest) {
 
   // deduct stock + log
   for (const it of saleItemsData) {
+    // If item was sold at packPrice (box sale), deduct packQuantity pieces from stock
+    const product = await db.product.findUnique({ where: { id: it.productId } });
+    const isBoxSale = product && product.packPrice > 0 && it.price === product.packPrice;
+    const stockDeduction = isBoxSale ? (product?.packQuantity || 1) * it.quantity : it.quantity;
+
     await db.product.update({
       where: { id: it.productId },
-      data: { stock: { decrement: it.quantity } },
+      data: { stock: { decrement: stockDeduction } },
     });
     await db.stockLog.create({
       data: {
         productId: it.productId,
         type: "SALE",
-        quantity: -it.quantity,
-        note: `Sale ${invoiceNo}`,
+        quantity: -stockDeduction,
+        note: isBoxSale ? `Box sale ${invoiceNo} (${it.quantity} box × ${product?.packQuantity} pcs = ${stockDeduction} pcs)` : `Sale ${invoiceNo}`,
       },
     });
   }

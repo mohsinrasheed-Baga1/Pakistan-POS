@@ -123,6 +123,7 @@ export function ProductsView({ userRole }: ProductsViewProps) {
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
   const [printProduct, setPrintProduct] = React.useState<Product | null>(null);
   const [wizardOpen, setWizardOpen] = React.useState(false);
+  const [editProduct, setEditProduct] = React.useState<Product | null>(null);
 
   const loadProducts = React.useCallback(async () => {
     setLoading(true);
@@ -175,6 +176,12 @@ export function ProductsView({ userRole }: ProductsViewProps) {
   }
 
   function openEdit(p: Product) {
+    // If product has packBarcode (box product), open in wizard edit mode
+    if (p.packBarcode) {
+      setEditProduct(p);
+      setWizardOpen(true);
+      return;
+    }
     setForm({
       name: p.name,
       barcode: p.barcodeType === "COMPANY" ? p.barcode : "",
@@ -298,14 +305,9 @@ export function ProductsView({ userRole }: ProductsViewProps) {
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
           {canManage && (
-            <>
-              <Button variant="outline" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => setWizardOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" /> Quick Add (Box/Piece)
-              </Button>
-              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={openAdd}>
-                <Plus className="w-4 h-4 mr-2" /> New Product
-              </Button>
-            </>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setWizardOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" /> Add Product
+            </Button>
           )}
         </div>
       </div>
@@ -767,9 +769,10 @@ export function ProductsView({ userRole }: ProductsViewProps) {
       {/* Quick Add Wizard */}
       <ProductWizard
         open={wizardOpen}
-        onOpenChange={setWizardOpen}
+        onOpenChange={(o) => { setWizardOpen(o); if (!o) setEditProduct(null); }}
         categories={categories}
         onDone={loadProducts}
+        editProduct={editProduct}
       />
     </div>
   );
