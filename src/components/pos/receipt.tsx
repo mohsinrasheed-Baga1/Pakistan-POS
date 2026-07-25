@@ -46,23 +46,23 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
     win.document.write(`
       <html dir="ltr"><head><title>Receipt ${sale.invoiceNo}</title>
       <style>
-        @page { size: ${widthMm}mm auto; margin: 1mm; }
-        * { font-family: 'Courier New', monospace; box-sizing: border-box; margin: 0; padding: 0; }
+        @page { size: ${widthMm}mm auto; margin: 0 1mm 1mm 5mm; }
+        * { font-family: 'Consolas', 'Courier New', monospace; box-sizing: border-box; margin: 0; padding: 0; font-weight: bold; }
         body { width: ${widthMm}mm; font-size: ${fontSize}; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .center { text-align: center; }
         .row { display: flex; justify-content: space-between; }
-        .border { border-top: 1px dashed #000; margin: 4px 0; }
+        .border { border-top: 2px solid #000; margin: 4px 0; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th, td { text-align: left; padding: 1px 0; font-size: ${tableFontSize}; word-wrap: break-word; overflow: hidden; }
+        th, td { text-align: left; padding: 1px 0; font-size: ${tableFontSize}; word-wrap: break-word; overflow: hidden; font-weight: bold; }
         th { border-bottom: 1px solid #000; font-weight: bold; }
         .bold { font-weight: bold; }
-        .big { font-size: ${printerWidth === 80 ? "14px" : "11px"}; font-weight: bold; }
-        .sub-name { font-size: ${printerWidth === 80 ? "13px" : "10px"}; font-weight: bold; margin-top: 2px; }
+        .big { font-size: ${printerWidth === 80 ? "16px" : "13px"}; font-weight: bold; }
+        .sub-name { font-size: ${printerWidth === 80 ? "14px" : "11px"}; font-weight: bold; margin-top: 2px; }
         .logo { max-height: 50px; height: 50px; max-width: 100%; margin: 0 auto 2px auto; display: block; }
         .barcode-container { text-align: center; margin: 4px 0; }
         .barcode-container svg { max-width: 100%; height: auto; display: inline-block; }
-        .item-name { font-size: ${tableFontSize}; }
-        .item-detail { font-size: ${printerWidth === 80 ? "9px" : "8px"}; color: #000; }
+        .item-name { font-size: ${tableFontSize}; font-weight: bold; }
+        .item-detail { font-size: ${printerWidth === 80 ? "10px" : "9px"}; color: #000; font-weight: bold; }
         .payment-label { font-weight: bold; }
       </style></head><body>${content.innerHTML}</body></html>
     `);
