@@ -47,22 +47,11 @@
       "maintainer": "Mohsin Rasheed"
     },
     "win": {
-      "target": ["nsis"],
+      "target": ["portable"],
       "icon": "build/icon.png",
       "signtoolOptions": null,
       "signAndEditExecutable": false,
       "forceCodeSigning": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "installerIcon": "build/icon.png",
-      "uninstallerIcon": "build/icon.png",
-      "installerHeaderIcon": "build/icon.png",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Shop POS System"
     }
   },
   "dependencies": {
