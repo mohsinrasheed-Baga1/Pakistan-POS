@@ -928,9 +928,9 @@ function BarcodePrintDialog({
                   <BarcodeDisplay
                     value={product.barcode}
                     format={product.barcodeType === "EAN13" ? "EAN13" : "CODE128"}
-                    height={28}
-                    width={1}
-                    displayValue={false}
+                    height={40}
+                    width={2}
+                    displayValue={true}
                   />
                 </div>
                 {/* BOTTOM — product name */}
@@ -1000,6 +1000,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const [pieceWholesalePrice, setPieceWholesalePrice] = React.useState("");
   const [pieceShopkeeperPrice, setPieceShopkeeperPrice] = React.useState("");
   const [pieceMinStock, setPieceMinStock] = React.useState("");
+  const [pieceStock, setPieceStock] = React.useState("");
 
   // Box-level (optional — only used if boxBarcode is filled)
   const [boxBarcode, setBoxBarcode] = React.useState("");
@@ -1023,7 +1024,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
     setName(""); setCategoryId("");
     setImage(null); setExpiryDate(""); setManufacturingDate("");
     setPieceBarcode(""); setPieceCostPrice(""); setPieceSalePrice("");
-    setPieceWholesalePrice(""); setPieceShopkeeperPrice(""); setPieceMinStock("");
+    setPieceWholesalePrice(""); setPieceShopkeeperPrice(""); setPieceMinStock(""); setPieceStock("");
     setBoxBarcode(""); setPiecesPerBox(""); setBoxQty("");
     setBoxCostPrice(""); setBoxSalePrice(""); setBoxWholesalePrice(""); setBoxShopkeeperPrice("");
     setEditId(null);
@@ -1047,6 +1048,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
       setPieceWholesalePrice((editProduct.wholesalePrice || 0).toString());
       setPieceShopkeeperPrice((editProduct.shopkeeperPrice || 0).toString());
       setPieceMinStock((editProduct.minStock || 0).toString());
+      setPieceStock(editProduct.stock ? editProduct.stock.toString() : "");
 
       // Box-level fields (only if the product was saved with a packBarcode)
       if (editProduct.packBarcode) {
@@ -1081,15 +1083,17 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const lastBoxSig = React.useRef("");
   React.useEffect(() => {
     if (!hasBox) return;
-    const sig = `${boxCostPrice}|${boxSalePrice}|${boxWholesalePrice}|${boxShopkeeperPrice}|${piecesPerBox}`;
+    const sig = `${boxCostPrice}|${boxSalePrice}|${boxWholesalePrice}|${boxShopkeeperPrice}|${piecesPerBox}|${boxQty}`;
     if (sig === lastBoxSig.current) return;
     lastBoxSig.current = sig;
     if (autoPieceCost > 0) setPieceCostPrice(autoPieceCost.toFixed(2));
     if (autoPieceSale > 0) setPieceSalePrice(autoPieceSale.toFixed(2));
     if (autoPieceWholesale > 0) setPieceWholesalePrice(autoPieceWholesale.toFixed(2));
     if (autoPieceShopkeeper > 0) setPieceShopkeeperPrice(autoPieceShopkeeper.toFixed(2));
+    // Auto-fill piece stock from boxes × pieces per box
+    if (totalPieces > 0) setPieceStock(totalPieces.toString());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boxCostPrice, boxSalePrice, boxWholesalePrice, boxShopkeeperPrice, piecesPerBox, hasBox]);
+  }, [boxCostPrice, boxSalePrice, boxWholesalePrice, boxShopkeeperPrice, piecesPerBox, boxQty, hasBox, totalPieces]);
 
   async function saveProducts() {
     if (!name.trim()) {
@@ -1111,8 +1115,9 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
       const effPieceSale = Number(pieceSalePrice) || autoPieceSale || 0;
       const effPieceWholesale = Number(pieceWholesalePrice) || autoPieceWholesale || 0;
       const effPieceShopkeeper = Number(pieceShopkeeperPrice) || autoPieceShopkeeper || 0;
-      // Stock is always in pieces.
-      const stockPieces = totalPieces > 0 ? totalPieces : 0;
+      // Stock is always in pieces. If box details are filled, use totalPieces
+      // (boxes × pieces per box). Otherwise use the manually entered piece stock.
+      const stockPieces = totalPieces > 0 ? totalPieces : (Number(pieceStock) || 0);
 
       const body = {
         name: name.trim(),
@@ -1233,10 +1238,26 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
             </div>
             {hasBox && <div className="text-xs text-emerald-700">Piece prices auto-calculated from box ÷ pieces. You can override by typing your own value.</div>}
             <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label>Stock (pieces)</Label>
+                <Input
+                  type="number"
+                  value={hasBox ? (totalPieces > 0 ? totalPieces.toString() : "") : pieceStock}
+                  onChange={(e) => { if (!hasBox) setPieceStock(e.target.value); }}
+                  placeholder={hasBox ? "Auto: boxes × pieces" : "0"}
+                  readOnly={hasBox}
+                  className={`text-left ${hasBox ? "bg-muted cursor-not-allowed" : ""}`}
+                />
+                {hasBox && totalPieces > 0 && (
+                  <div className="text-xs text-emerald-600">Auto: {boxQty || 0} boxes × {piecesPerBox || 0} = {totalPieces} pcs</div>
+                )}
+              </div>
               <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
-              <div className="space-y-2"><Label>Manufacturing Date</Label><Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} className="text-left" /></div>
             </div>
-            <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2"><Label>Manufacturing Date</Label><Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} className="text-left" /></div>
+              <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
+            </div>
           </div>
 
           {/* Section 4: Image (optional) */}

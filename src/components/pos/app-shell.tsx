@@ -39,6 +39,7 @@ import { StoreView } from "@/components/pos/views/store-view";
 import { VendorsView } from "@/components/pos/views/vendors-view";
 import { ExpensesView } from "@/components/pos/views/expenses-view";
 import { NotificationsBell } from "@/components/pos/notifications-bell";
+import { GlobalCalculator } from "@/components/pos/global-calculator";
 import { toast } from "sonner";
 
 interface AppShellProps {
@@ -65,6 +66,7 @@ export function AppShell({ user, settings }: AppShellProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
+  const [calcOpen, setCalcOpen] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
 
   const roleOrder = { CASHIER: 1, MANAGER: 2, ADMIN: 3 };
@@ -73,12 +75,18 @@ export function AppShell({ user, settings }: AppShellProps) {
   );
 
   // Global shortcut: Ctrl+Shift+P → jump to POS from any page
+  // F4 → open calculator from any page
   React.useEffect(() => {
     function handleGlobalKey(e: KeyboardEvent) {
       if (e.ctrlKey && e.shiftKey && (e.key === "P" || e.key === "p")) {
         e.preventDefault();
         setView("pos");
         toast.success("→ POS");
+      }
+      // F4 opens calculator globally (works on all pages)
+      if (e.key === "F4") {
+        e.preventDefault();
+        setCalcOpen((prev) => !prev);
       }
     }
     window.addEventListener("keydown", handleGlobalKey);
@@ -284,6 +292,8 @@ export function AppShell({ user, settings }: AppShellProps) {
           </footer>
         </main>
       </div>
+      {/* Global calculator — opens with F4 from any page */}
+      <GlobalCalculator open={calcOpen} onOpenChange={setCalcOpen} />
     </div>
   );
 }

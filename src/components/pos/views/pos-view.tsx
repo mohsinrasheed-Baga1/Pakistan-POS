@@ -310,13 +310,19 @@ export function PosView({ settings }: PosViewProps) {
         }
       }
 
-      // Function keys
+      // Function keys (F4 calculator is now handled globally in app-shell)
       if (e.key === "F2") { e.preventDefault(); setCheckoutOpen(true); }
       else if (e.key === "F3") { e.preventDefault(); setReturnOpen(true); }
-      else if (e.key === "F4") { e.preventDefault(); setCalcOpen(true); }
       else if (e.key === "F9") { e.preventDefault(); cart.setSaleType(cart.saleType === "RETAIL" ? "WHOLESALE" : cart.saleType === "WHOLESALE" ? "SHOPKEEPER" : "RETAIL"); }
       else if (e.key === "F12") { e.preventDefault(); cart.clear(); setScannedCard(null); toast.success("Cart cleared"); setTimeout(() => searchRef.current?.focus(), 50); }
       else if (e.key === "Escape") { setQ(""); setHighlightedIndex(0); searchRef.current?.focus(); }
+      // Tab key: if cart has items, open checkout (tab navigation to transaction)
+      else if (e.key === "Tab" && !e.shiftKey) {
+        if (cart.items.length > 0 && !checkoutOpen) {
+          e.preventDefault();
+          setCheckoutOpen(true);
+        }
+      }
     }
     window.addEventListener("keydown", handlePosKey);
     return () => window.removeEventListener("keydown", handlePosKey);

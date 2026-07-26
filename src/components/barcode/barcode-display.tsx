@@ -41,9 +41,9 @@ export function BarcodeDisplay({
         width,
         height,
         displayValue,
-        fontSize: 14,
-        margin: 8,
-        textMargin: 2,
+        fontSize: 10,
+        margin: 2,
+        textMargin: 1,
       });
     } catch (e) {
       // fallback to plain CODE128
@@ -53,8 +53,9 @@ export function BarcodeDisplay({
           width,
           height,
           displayValue,
-          fontSize: 14,
-          margin: 8,
+          fontSize: 10,
+          margin: 2,
+          textMargin: 1,
         });
       } catch {}
     }

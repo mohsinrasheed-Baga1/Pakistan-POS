@@ -13,6 +13,7 @@ import {
   Store,
   TrendingUp,
   AlertTriangle,
+  ScanLine,
 } from "lucide-react";
 import {
   Card,
@@ -50,6 +51,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { formatMoney, unitLabel } from "@/lib/pos-utils";
+import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
 import type { Product } from "@/types";
 
 type StoreProduct = Omit<Product, "category"> & {
@@ -193,6 +195,38 @@ export function StoreView() {
   const [quantity, setQuantity] = React.useState("");
   const [note, setNote] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [boxReceiveQty, setBoxReceiveQty] = React.useState("");
+
+  // Scan-based receive: when a barcode is scanned, look up the product and
+  // auto-open a receive prompt asking how many pieces/boxes to receive.
+  const scanRef = React.useRef<HTMLInputElement>(null);
+  const scanningRef = React.useRef(false);
+
+  async function handleScannedCode(code: string) {
+    if (scanningRef.current) return;
+    scanningRef.current = true;
+    try {
+      const res = await fetch(`/api/barcode?code=${encodeURIComponent(code)}`, { cache: "no-store" });
+      const data = await res.json();
+      if (data.found && data.kind === "product" && data.product) {
+        const product = data.product as Product;
+        // Auto-open the receive dialog with the scanned product
+        setDialog({ kind: "receive", product: product as StoreProduct });
+        setQuantity("");
+        setNote("");
+        setBoxReceiveQty("");
+        toast.success(`Found: ${product.name}`);
+      } else {
+        toast.warning(`Unknown barcode: ${code}`);
+      }
+    } catch {
+      toast.error("Scan lookup failed");
+    } finally {
+      setTimeout(() => { scanningRef.current = false; }, 800);
+    }
+  }
+
+  useBarcodeScanner(handleScannedCode);
 
   const load = React.useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -248,6 +282,7 @@ export function StoreView() {
     setDialog({ kind: "receive", product });
     setQuantity("");
     setNote("");
+    setBoxReceiveQty("");
   }
 
   function openTransfer(product: StoreProduct) {
@@ -258,6 +293,7 @@ export function StoreView() {
     setDialog({ kind: "transfer", product });
     setQuantity("");
     setNote("");
+    setBoxReceiveQty("");
   }
 
   async function handleSubmit() {
@@ -393,6 +429,32 @@ export function StoreView() {
 
         {/* Inventory tab */}
         <TabsContent value="inventory" className="space-y-3">
+          {/* Scan-to-receive box */}
+          <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50/50 p-3 flex items-center gap-3">
+            <ScanLine className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold text-emerald-800">Scan to Receive</div>
+              <div className="text-xs text-emerald-700">Scan a product or box barcode to quickly receive stock</div>
+            </div>
+            <div className="relative w-64 max-w-full">
+              <Input
+                ref={scanRef}
+                placeholder="Scan barcode here..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const val = (e.target as HTMLInputElement).value.trim();
+                    if (val.length >= 4) {
+                      handleScannedCode(val);
+                      (e.target as HTMLInputElement).value = "";
+                    }
+                  }
+                }}
+                className="pr-9"
+              />
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            </div>
+          </div>
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -655,33 +717,85 @@ export function StoreView() {
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="qty">
-                Quantity{" "}
-                <span className="text-muted-foreground">
-                  ({dialog?.product && unitLabel(dialog.product.unit)})
-                </span>
-              </Label>
-              <Input
-                id="qty"
-                type="number"
-                min="1"
-                step="any"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                placeholder="0"
-                autoFocus
-              />
-              {dialog?.kind === "transfer" && (
-                <p className="text-xs text-muted-foreground">
-                  Max transferable:{" "}
-                  <span className="font-medium">
-                    {dialog.product.storeStock}{" "}
-                    {unitLabel(dialog.product.unit)}
+            {/* Box receive mode: if the product has a packBarcode (box product),
+                allow entering boxes and auto-calculate pieces. */}
+            {dialog?.kind === "receive" && dialog.product.packBarcode && dialog.product.packQuantity > 0 && (
+              <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Package className="w-4 h-4 text-amber-600" />
+                  <Label className="font-bold text-amber-800">Receive by Box</Label>
+                </div>
+                <div className="text-xs text-amber-700">
+                  This product has {dialog.product.packQuantity} pieces per box.
+                  Enter the number of boxes received — pieces will be auto-calculated.
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="boxQty">Boxes Received</Label>
+                    <Input
+                      id="boxQty"
+                      type="number"
+                      min="1"
+                      value={boxReceiveQty}
+                      onChange={(e) => {
+                        setBoxReceiveQty(e.target.value);
+                        const boxes = Number(e.target.value) || 0;
+                        const pieces = boxes * (dialog.product.packQuantity || 1);
+                        setQuantity(pieces.toString());
+                      }}
+                      placeholder="0"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Pieces (auto)</Label>
+                    <Input
+                      type="number"
+                      value={quantity}
+                      readOnly
+                      className="bg-muted"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+                {Number(boxReceiveQty) > 0 && (
+                  <div className="text-xs font-bold text-amber-800">
+                    = {boxReceiveQty} boxes × {dialog.product.packQuantity} = {quantity} pieces
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Standard quantity input (for piece products, or when not using box mode) */}
+            {!(dialog?.kind === "receive" && dialog.product.packBarcode && dialog.product.packQuantity > 0) && (
+              <div className="space-y-1.5">
+                <Label htmlFor="qty">
+                  Quantity{" "}
+                  <span className="text-muted-foreground">
+                    ({dialog?.product && unitLabel(dialog.product.unit)})
                   </span>
-                </p>
-              )}
-            </div>
+                </Label>
+                <Input
+                  id="qty"
+                  type="number"
+                  min="1"
+                  step="any"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  placeholder="0"
+                  autoFocus
+                />
+                {dialog?.kind === "transfer" && (
+                  <p className="text-xs text-muted-foreground">
+                    Max transferable:{" "}
+                    <span className="font-medium">
+                      {dialog.product.storeStock}{" "}
+                      {unitLabel(dialog.product.unit)}
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label htmlFor="note">Note (optional)</Label>
