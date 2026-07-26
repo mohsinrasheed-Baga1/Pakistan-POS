@@ -1,6 +1,6 @@
 {
   "name": "shop-pos-system",
-  "version": "2.7.15",
+  "version": "2.7.19",
   "description": "Shop POS System - Point of Sale with barcode scanner, products and sales management",
   "author": "Mohsin Rasheed",
   "license": "MIT",
@@ -48,7 +48,6 @@
     },
     "win": {
       "target": ["portable"],
-      "icon": "build/icon.png",
       "signtoolOptions": null,
       "signAndEditExecutable": false,
       "forceCodeSigning": false

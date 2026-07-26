@@ -124,10 +124,12 @@ function ensureDatabase(dbPath, mode) {
 
 let mainWindow = null;
 let serverProcess = null;
+let dbPath = path.join(userData, "pos.db"); // module-level, used by gdrive handlers
 
 function startServer() {
-  const { dbPath, mode } = resolveDbPath();
-  ensureDatabase(dbPath, mode);
+  const resolved = resolveDbPath();
+  dbPath = resolved.dbPath;
+  ensureDatabase(dbPath, resolved.mode);
 
   const serverJs = path.join(serverDir, "server.js");
   if (!fs.existsSync(serverJs)) {
@@ -170,10 +172,26 @@ function startServer() {
   serverProcess.on("exit", (code) => {
     console.log("[POS] Server process exited with code", code);
     serverProcess = null;
+    // Auto-restart server if it crashes (up to 3 attempts)
+    if (!isQuitting && restartAttempts < 3) {
+      restartAttempts++;
+      console.log(`[POS] Auto-restarting server (attempt ${restartAttempts}/3) in 2s...`);
+      setTimeout(() => {
+        if (!isQuitting) {
+          startServer();
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.loadURL(`http://${HOST}:${PORT}/`);
+          }
+        }
+      }, 2000);
+    }
   });
 
   return true;
 }
+
+let isQuitting = false;
+let restartAttempts = 0;
 
 function waitForServer(retries = 90) {
   return new Promise((resolve) => {
@@ -212,12 +230,17 @@ function createWindow() {
     backgroundColor: "#f8fafc",
     autoHideMenuBar: true,
     show: false,
+    // Center on screen so window doesn't appear off-screen
+    center: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+
+  // Center explicitly (belt-and-suspenders for multi-monitor setups)
+  mainWindow.center();
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http")) {
@@ -229,11 +252,48 @@ function createWindow() {
 
   // Show window only after content loads (avoid white flash)
   mainWindow.once("ready-to-show", () => {
+    mainWindow.center();
     mainWindow.show();
     mainWindow.focus();
-    // Force focus on webview so keyboard shortcuts work
-    setTimeout(() => mainWindow.focusOnWebView(), 200);
+    // Briefly set always-on-top to ensure it appears above other windows
+    mainWindow.setAlwaysOnTop(true);
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setAlwaysOnTop(false);
+        mainWindow.focusOnWebView();
+      }
+    }, 300);
   });
+
+  // CRITICAL FIX: Force-show the window after 5 seconds even if
+  // ready-to-show never fires. This fixes the "app runs in task manager
+  // but nothing displays" issue. Causes: slow server start, GPU issues,
+  // or Next.js page taking too long on first load.
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      console.log("[POS] Force-showing window after 5s timeout");
+      mainWindow.center();
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.setAlwaysOnTop(true);
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.setAlwaysOnTop(false);
+          mainWindow.focusOnWebView();
+        }
+      }, 500);
+    }
+  }, 5000);
+
+  // Second force-show at 15 seconds with a loading message
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      console.log("[POS] Force-showing window after 15s with loading message");
+      mainWindow.center();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  }, 15000);
 
   // Re-focus webview on window focus/click (ensures keyboard events work)
   mainWindow.on("focus", () => {
@@ -241,6 +301,33 @@ function createWindow() {
   });
   mainWindow.on("show", () => {
     setTimeout(() => mainWindow.focusOnWebView(), 100);
+  });
+
+  // If the page fails to load, show a loading message and retry
+  mainWindow.webContents.on("did-fail-load", (_evt, errorCode, errorDesc) => {
+    console.error("[POS] Page failed to load:", errorCode, errorDesc);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isVisible()) {
+        mainWindow.center();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+      mainWindow.loadURL(
+        "data:text/html;charset=utf-8," +
+          encodeURIComponent(
+            `<html><body style="font-family:Tahoma,Arial,sans-serif;padding:40px;background:#f8fafc;color:#000;text-align:center">` +
+              `<h2 style="color:#059669">Shop POS System</h2>` +
+              `<p style="font-size:14px">Loading... Please wait.</p>` +
+              `<p style="color:#666;font-size:12px">The server is starting up.</p>` +
+              `</body></html>`
+          )
+      );
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.loadURL(`http://${HOST}:${PORT}/`);
+        }
+      }, 2000);
+    }
   });
 
   mainWindow.loadURL(`http://${HOST}:${PORT}/`);
@@ -364,6 +451,10 @@ if (!gotLock) {
     }, 60 * 60 * 1000);
   }
 
+  // Auto-update checking is handled in-app via the Settings UI.
+  // This no-op stub prevents the ReferenceError that crashed the app.
+  function checkForUpdates() {}
+
   app.whenReady().then(async () => {
     startServer();
     const ok = await waitForServer();
@@ -372,11 +463,10 @@ if (!gotLock) {
     }
     createWindow();
     startBackupScheduler();
-    setTimeout(checkForUpdates, 5000);
-    setInterval(checkForUpdates, 4 * 60 * 60 * 1000);
   });
 
   app.on("window-all-closed", () => {
+    isQuitting = true;
     if (serverProcess) {
       try {
         serverProcess.kill();
@@ -386,6 +476,7 @@ if (!gotLock) {
   });
 
   app.on("before-quit", () => {
+    isQuitting = true;
     if (serverProcess) {
       try {
         serverProcess.kill();
@@ -401,6 +492,7 @@ if (!gotLock) {
 }
 
 process.on("exit", () => {
+  isQuitting = true;
   if (serverProcess) {
     try {
       serverProcess.kill();
