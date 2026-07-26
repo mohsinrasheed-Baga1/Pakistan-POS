@@ -68,6 +68,11 @@ model Product {
   hasBarcode      Boolean  @default(true)
   image           String?
   active          Boolean  @default(true)
+  packBarcode     String?  @unique
+  packQuantity    Float    @default(0)
+  packPrice       Float    @default(0)
+  packWholesalePrice Float @default(0)
+  packShopkeeperPrice Float @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   saleItems       SaleItem[]

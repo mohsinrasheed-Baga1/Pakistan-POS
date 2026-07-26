@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
     where.OR = [
       { name: { contains: q } },
       { barcode: { contains: q } },
+      { packBarcode: { contains: q } },
     ];
   }
   if (categoryId) where.categoryId = categoryId;
@@ -60,6 +61,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Box/pack fields — optional. If packBarcode provided, ensure it's unique.
+  const packBarcode = body.packBarcode?.trim() || null;
+  const packQuantity = Number(body.packQuantity) || 0;
+  const packPrice = Number(body.packPrice) || 0;
+  const packWholesalePrice = Number(body.packWholesalePrice) || 0;
+  const packShopkeeperPrice = Number(body.packShopkeeperPrice) || 0;
+  if (packBarcode) {
+    const dupPack = await db.product.findUnique({ where: { packBarcode } });
+    if (dupPack) {
+      return NextResponse.json(
+        { error: "This box barcode already exists" },
+        { status: 400 }
+      );
+    }
+  }
+
   const product = await db.product.create({
     data: {
       name: body.name,
@@ -81,6 +98,11 @@ export async function POST(req: NextRequest) {
       hasBarcode,
       image: body.image || null,
       active: body.active !== false,
+      packBarcode,
+      packQuantity,
+      packPrice,
+      packWholesalePrice,
+      packShopkeeperPrice,
     },
     include: { category: true, vendor: true },
   });

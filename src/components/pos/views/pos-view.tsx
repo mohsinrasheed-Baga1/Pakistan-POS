@@ -35,7 +35,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { useCartStore, useAppStore } from "@/stores/use-pos-store";
+import { useCartStore, useAppStore, effectivePrice } from "@/stores/use-pos-store";
 import { formatMoney, unitLabel, isLooseUnit } from "@/lib/pos-utils";
 import type { Product, Category } from "@/types";
 import { Receipt } from "@/components/pos/receipt";
@@ -59,6 +59,11 @@ export function PosView({ settings }: PosViewProps) {
   const [returnOpen, setReturnOpen] = React.useState(false);
   const [calcOpen, setCalcOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+
+  // Quantity prompt: when a product is scanned/selected, ask for quantity
+  const [pendingProduct, setPendingProduct] = React.useState<{ product: Product; isBox: boolean } | null>(null);
+  const [qtyInput, setQtyInput] = React.useState("1");
+  const qtyInputRef = React.useRef<HTMLInputElement>(null);
 
   const searchRef = React.useRef<HTMLInputElement>(null);
   const productGridRef = React.useRef<HTMLDivElement>(null);
@@ -104,23 +109,68 @@ export function PosView({ settings }: PosViewProps) {
     return () => clearTimeout(t);
   }, [loadProducts]);
 
-  function addToCart(product: Product, qty: number = 1) {
+  function addToCart(product: Product, qty: number = 1, isBox: boolean = false) {
     if (!product.active) {
       toast.error("This product is inactive");
       return;
     }
-    const existingItem = cart.items.find((i) => i.product.id === product.id);
+    // For box sales, each unit = packQuantity pieces of stock.
+    const stockPerUnit = isBox ? (product.packQuantity || 1) : 1;
+    const existingItem = cart.items.find(
+      (i) => i.product.id === product.id && !!i.isBox === isBox
+    );
     const currentInCart = existingItem ? existingItem.quantity : 0;
-    const isPack = product.packPrice > 0 && product.salePrice === product.packPrice;
-    const effectiveQty = isPack ? qty * (product.packQuantity || 1) : qty;
-    if (!isLooseUnit(product.unit) && currentInCart + effectiveQty > product.stock) {
-      toast.error(`Low stock! Only ${product.stock} ${unitLabel(product.unit)} available`);
+    const effectiveQty = (currentInCart + qty) * stockPerUnit;
+    if (!isLooseUnit(product.unit) && effectiveQty > product.stock) {
+      const availBoxes = product.packQuantity > 0 ? Math.floor(product.stock / product.packQuantity) : 0;
+      toast.error(
+        isBox
+          ? `Low stock! Only ${availBoxes} box(es) / ${product.stock} pcs available`
+          : `Low stock! Only ${product.stock} ${unitLabel(product.unit)} available`
+      );
       return;
     }
-    cart.addItem(product, qty);
+    cart.addItem(product, qty, isBox);
     // After adding, clear search and refocus for next product
     setQ("");
     setHighlightedIndex(0);
+    setTimeout(() => searchRef.current?.focus(), 50);
+  }
+
+  // Open the quantity prompt for a product (scanned or clicked).
+  // The user types a quantity and presses Enter to add it to the cart.
+  function promptForQuantity(product: Product, isBox: boolean = false) {
+    if (!product.active) {
+      toast.error("This product is inactive");
+      return;
+    }
+    setPendingProduct({ product, isBox });
+    setQtyInput("1");
+    setTimeout(() => qtyInputRef.current?.focus(), 50);
+  }
+
+  // Confirm the quantity prompt: add the product to the cart with the entered qty.
+  function confirmQtyPrompt() {
+    if (!pendingProduct) return;
+    const qty = Number(qtyInput) || 1;
+    if (qty <= 0) {
+      toast.error("Quantity must be greater than 0");
+      return;
+    }
+    addToCart(pendingProduct.product, qty, pendingProduct.isBox);
+    toast.success(
+      pendingProduct.isBox
+        ? `Added ${qty} box(es): ${pendingProduct.product.name}`
+        : `Added ${qty} ${pendingProduct.product.name}`
+    );
+    setPendingProduct(null);
+    setQtyInput("1");
+    setTimeout(() => searchRef.current?.focus(), 50);
+  }
+
+  function cancelQtyPrompt() {
+    setPendingProduct(null);
+    setQtyInput("1");
     setTimeout(() => searchRef.current?.focus(), 50);
   }
 
@@ -143,14 +193,11 @@ export function PosView({ settings }: PosViewProps) {
       if (data.found && data.kind === "product" && data.product) {
         const product = data.product as Product;
         if (data.isPack && product.packQuantity > 0) {
-          // Box scan: add 1 box = deduct packQuantity pieces from stock
-          // Use packPrice as the price, add as 1 unit
-          const boxProduct = { ...product, salePrice: product.packPrice };
-          cart.addItem(boxProduct, 1);
-          toast.success(`Box: ${product.name} (${product.packQuantity} pcs)`);
+          // Box scan: open quantity prompt for box sale
+          promptForQuantity(product, true);
         } else {
-          addToCart(product);
-          toast.success(`Scanned: ${product.name}`);
+          // Piece scan: open quantity prompt
+          promptForQuantity(product, false);
         }
       } else if (data.found && data.kind === "card" && data.card) {
         toast.success(`Shop Card: ${data.card.name} — ${data.card.type === "WHOLESALE" ? "Wholesale" : "Regular"} mode`);
@@ -191,12 +238,38 @@ export function PosView({ settings }: PosViewProps) {
     el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [highlightedIndex]);
 
-  // Keyboard shortcuts: arrow keys + Enter + F-keys
+  // Keyboard shortcuts: arrow keys + Enter + F-keys + Delete
   React.useEffect(() => {
     function handlePosKey(e: KeyboardEvent) {
       if (returnOpen || calcOpen || checkoutOpen || receiptOpen) return;
+
+      // Handle quantity prompt keys
+      if (pendingProduct) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          confirmQtyPrompt();
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          cancelQtyPrompt();
+          return;
+        }
+        return; // let other keys (digits) go to the qty input
+      }
+
       const active = document.activeElement;
       const isSearchFocused = active === searchRef.current;
+
+      // Delete key: remove the last cart item
+      if (e.key === "Delete" && (!active || active.tagName !== "INPUT" || isSearchFocused)) {
+        if (cart.items.length > 0) {
+          e.preventDefault();
+          cart.removeLastItem();
+          toast.success("Removed last item");
+        }
+        return;
+      }
 
       // Arrow key navigation through products
       if (isSearchFocused || (!active || active.tagName !== "INPUT")) {
@@ -216,16 +289,23 @@ export function PosView({ settings }: PosViewProps) {
           e.preventDefault();
           setHighlightedIndex((p) => Math.max(p - 4, 0));
           return;
-        } else if (e.key === "Enter" && products.length > 0 && isSearchFocused) {
+        } else if (e.key === "Enter" && isSearchFocused) {
           // CRITICAL: Don't add highlighted product if a scan is in progress
-          // (scanner's Enter also triggers this — causes double-add)
           if (scanningRef.current || lastScanResultRef.current) {
             e.preventDefault();
             return;
           }
           e.preventDefault();
-          const product = products[highlightedIndex];
-          if (product) addToCart(product);
+          // If search is empty and no products highlighted, just refocus
+          if (!q && products.length === 0) {
+            searchRef.current?.focus();
+            return;
+          }
+          // If a product is highlighted, open quantity prompt
+          if (products.length > 0) {
+            const product = products[highlightedIndex];
+            if (product) promptForQuantity(product, false);
+          }
           return;
         }
       }
@@ -241,7 +321,7 @@ export function PosView({ settings }: PosViewProps) {
     window.addEventListener("keydown", handlePosKey);
     return () => window.removeEventListener("keydown", handlePosKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart.saleType, returnOpen, calcOpen, checkoutOpen, receiptOpen, products, highlightedIndex]);
+  }, [cart.saleType, returnOpen, calcOpen, checkoutOpen, receiptOpen, products, highlightedIndex, pendingProduct, q, cart.items]);
 
   async function handleCheckout() {
     if (cart.items.length === 0) {
@@ -254,11 +334,8 @@ export function PosView({ settings }: PosViewProps) {
         items: cart.items.map((i) => ({
           productId: i.product.id,
           quantity: i.quantity,
-          price: cart.saleType === "WHOLESALE" && i.product.wholesalePrice > 0
-            ? i.product.wholesalePrice
-            : cart.saleType === "SHOPKEEPER" && i.product.shopkeeperPrice > 0
-            ? i.product.shopkeeperPrice
-            : i.product.salePrice,
+          isBox: !!i.isBox,
+          price: effectivePrice(i.product, cart.saleType, i.isBox),
         })),
         discount: cart.discount,
         paidAmount: Number(paidAmount) || totals.total,
@@ -383,6 +460,50 @@ export function PosView({ settings }: PosViewProps) {
               className="pl-10 h-11"
             />
           </div>
+
+          {/* Quantity prompt — appears when a product is scanned/selected */}
+          {pendingProduct && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={cancelQtyPrompt}>
+              <div className="bg-background rounded-lg shadow-xl p-6 max-w-sm w-full space-y-4" onClick={(e) => e.stopPropagation()}>
+                <div>
+                  <h3 className="font-bold text-lg flex items-center gap-2">
+                    <Package className="w-5 h-5 text-emerald-600" />
+                    {pendingProduct.product.name}
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {pendingProduct.isBox
+                      ? `Box sale — ${pendingProduct.product.packQuantity} pieces per box`
+                      : `Price: ${formatMoney(effectivePrice(pendingProduct.product, cart.saleType, pendingProduct.isBox), currency)} / ${unitLabel(pendingProduct.product.unit)}`
+                    }
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Quantity {pendingProduct.isBox ? "(boxes)" : ""} *</Label>
+                  <Input
+                    ref={qtyInputRef}
+                    type="number"
+                    min="1"
+                    value={qtyInput}
+                    onChange={(e) => setQtyInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); confirmQtyPrompt(); }
+                      if (e.key === "Escape") { e.preventDefault(); cancelQtyPrompt(); }
+                    }}
+                    className="text-2xl text-center h-14"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1" onClick={cancelQtyPrompt}>
+                    Cancel (Esc)
+                  </Button>
+                  <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={confirmQtyPrompt}>
+                    Add (Enter)
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* category chips */}
           <div className="flex gap-2 overflow-x-auto pb-1">
@@ -527,84 +648,83 @@ export function PosView({ settings }: PosViewProps) {
                 <>
                   <ScrollArea className="h-[40vh] pr-2">
                     <div className="space-y-2">
-                      {cart.items.map((item) => (
+                      {cart.items.map((item) => {
+                        const itemPrice = effectivePrice(item.product, cart.saleType, item.isBox);
+                        const isBoxItem = !!item.isBox;
+                        return (
                         <div
-                          key={item.product.id}
-                          className="flex items-center gap-2 rounded-lg border p-2 bg-background"
+                          key={item.product.id + (isBoxItem ? "-box" : "")}
+                          className={`rounded-lg border p-2 bg-background ${isBoxItem ? "border-amber-300 bg-amber-50/40" : ""}`}
                         >
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">
-                              {item.product.name}
+                          {/* Row 1: name + line total */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="text-sm font-medium truncate flex items-center gap-1 flex-1 min-w-0">
+                              <span className="truncate">{item.product.name}</span>
+                              {isBoxItem && (
+                                <Badge variant="outline" className="text-[10px] bg-amber-100 border-amber-400 text-amber-800 shrink-0">BOX</Badge>
+                              )}
                             </div>
-                            <div className="text-xs text-muted-foreground">
-                              {formatMoney(
-                                cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
-                                  ? item.product.wholesalePrice
-                                  : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
-                                  ? item.product.shopkeeperPrice
-                                  : item.product.salePrice,
-                                currency
-                              )} /{" "}
-                              {unitLabel(item.product.unit)}
+                            <div className="text-sm font-bold text-emerald-700 whitespace-nowrap shrink-0">
+                              {formatMoney(itemPrice * item.quantity, currency)}
                             </div>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() =>
-                                cart.setQty(
-                                  item.product.id,
-                                  item.quantity - (isLooseUnit(item.product.unit) ? 0.5 : 1)
-                                )
-                              }
-                            >
-                              <Minus className="w-3 h-3" />
-                            </Button>
-                            <Input
-                              className="h-7 w-14 text-center px-1"
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const v = Number(e.target.value);
-                                if (!isNaN(v))
-                                  cart.setQty(item.product.id, v);
-                              }}
-                            />
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() =>
-                                cart.setQty(
-                                  item.product.id,
-                                  item.quantity + (isLooseUnit(item.product.unit) ? 0.5 : 1)
-                                )
-                              }
-                            >
-                              <Plus className="w-3 h-3" />
-                            </Button>
+                          {/* Row 2: unit price + qty controls + remove */}
+                          <div className="flex items-center justify-between gap-2 mt-1">
+                            <div className="text-xs text-muted-foreground truncate">
+                              {formatMoney(itemPrice, currency)} /{" "}
+                              {isBoxItem ? `box (${item.product.packQuantity} pcs)` : unitLabel(item.product.unit)}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-7 w-7"
+                                onClick={() =>
+                                  cart.setQty(
+                                    item.product.id,
+                                    item.quantity - (isLooseUnit(item.product.unit) && !isBoxItem ? 0.5 : 1),
+                                    item.isBox
+                                  )
+                                }
+                              >
+                                <Minus className="w-3 h-3" />
+                              </Button>
+                              <Input
+                                className="h-7 w-14 text-center px-1"
+                                value={item.quantity}
+                                onChange={(e) => {
+                                  const v = Number(e.target.value);
+                                  if (!isNaN(v))
+                                    cart.setQty(item.product.id, v, item.isBox);
+                                }}
+                              />
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-7 w-7"
+                                onClick={() =>
+                                  cart.setQty(
+                                    item.product.id,
+                                    item.quantity + (isLooseUnit(item.product.unit) && !isBoxItem ? 0.5 : 1),
+                                    item.isBox
+                                  )
+                                }
+                              >
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-red-600 hover:bg-red-50"
+                                onClick={() => cart.removeItem(item.product.id, item.isBox)}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
                           </div>
-                          <div className="text-sm font-bold text-emerald-700 w-16 text-right">
-                            {formatMoney(
-                              (cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
-                                ? item.product.wholesalePrice
-                                : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
-                                ? item.product.shopkeeperPrice
-                                : item.product.salePrice) * item.quantity,
-                              currency
-                            )}
-                          </div>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-red-600 hover:bg-red-50"
-                            onClick={() => cart.removeItem(item.product.id)}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </ScrollArea>
 

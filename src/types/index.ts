@@ -29,6 +29,11 @@ export interface Product {
   hasBarcode: boolean;
   image: string | null;
   active: boolean;
+  packBarcode: string | null;
+  packQuantity: number;
+  packPrice: number;
+  packWholesalePrice: number;
+  packShopkeeperPrice: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -54,6 +59,7 @@ export interface Vendor {
 export interface CartItem {
   product: Product;
   quantity: number;
+  isBox?: boolean;
 }
 
 export interface SaleItem {

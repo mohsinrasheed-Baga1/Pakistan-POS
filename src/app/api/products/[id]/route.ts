@@ -18,6 +18,23 @@ export async function PUT(
   const newStock = Number(body.stock) || existing.stock;
   const stockDiff = newStock - prevStock;
 
+  // Handle pack/box fields
+  const packBarcode = body.packBarcode !== undefined ? (body.packBarcode?.trim() || null) : existing.packBarcode;
+  const packQuantity = body.packQuantity !== undefined ? Number(body.packQuantity) || 0 : existing.packQuantity;
+  const packPrice = body.packPrice !== undefined ? Number(body.packPrice) || 0 : existing.packPrice;
+  const packWholesalePrice = body.packWholesalePrice !== undefined ? Number(body.packWholesalePrice) || 0 : existing.packWholesalePrice;
+  const packShopkeeperPrice = body.packShopkeeperPrice !== undefined ? Number(body.packShopkeeperPrice) || 0 : existing.packShopkeeperPrice;
+  // Check packBarcode uniqueness if changing
+  if (packBarcode && packBarcode !== existing.packBarcode) {
+    const dupPack = await db.product.findUnique({ where: { packBarcode } });
+    if (dupPack && dupPack.id !== id) {
+      return NextResponse.json(
+        { error: "This box barcode already exists" },
+        { status: 400 }
+      );
+    }
+  }
+
   const product = await db.product.update({
     where: { id },
     data: {
@@ -38,6 +55,11 @@ export async function PUT(
       hasBarcode: body.hasBarcode !== false,
       image: body.image || null,
       active: body.active !== false,
+      packBarcode,
+      packQuantity,
+      packPrice,
+      packWholesalePrice,
+      packShopkeeperPrice,
     },
     include: { category: true, vendor: true },
   });
