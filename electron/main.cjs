@@ -124,10 +124,12 @@ function ensureDatabase(dbPath, mode) {
 
 let mainWindow = null;
 let serverProcess = null;
+let dbPath = path.join(userData, "pos.db"); // module-level, updated by startServer()
 
 function startServer() {
-  const { dbPath, mode } = resolveDbPath();
-  ensureDatabase(dbPath, mode);
+  const resolved = resolveDbPath();
+  dbPath = resolved.dbPath;
+  ensureDatabase(dbPath, resolved.mode);
 
   const serverJs = path.join(serverDir, "server.js");
   if (!fs.existsSync(serverJs)) {
@@ -170,10 +172,27 @@ function startServer() {
   serverProcess.on("exit", (code) => {
     console.log("[POS] Server process exited with code", code);
     serverProcess = null;
+    // Auto-restart the server if it crashes (up to 3 attempts)
+    if (!isQuitting && restartAttempts < 3) {
+      restartAttempts++;
+      console.log(`[POS] Auto-restarting server (attempt ${restartAttempts}/3) in 2s...`);
+      setTimeout(() => {
+        if (!isQuitting) {
+          startServer();
+          // Re-load the page in the window if it exists
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.loadURL(`http://${HOST}:${PORT}/`);
+          }
+        }
+      }, 2000);
+    }
   });
 
   return true;
 }
+
+let isQuitting = false;
+let restartAttempts = 0;
 
 function waitForServer(retries = 90) {
   return new Promise((resolve) => {
@@ -235,12 +254,51 @@ function createWindow() {
     setTimeout(() => mainWindow.focusOnWebView(), 200);
   });
 
+  // CRITICAL: Force-show the window after 8 seconds even if ready-to-show
+  // never fires (e.g. server slow to respond). This prevents the app from
+  // appearing "dead" (nothing displays) when the Next.js server is still
+  // starting up or hits an error.
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      console.log("[POS] Force-showing window after timeout");
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.focusOnWebView();
+    }
+  }, 8000);
+
   // Re-focus webview on window focus/click (ensures keyboard events work)
   mainWindow.on("focus", () => {
     mainWindow.focusOnWebView();
   });
   mainWindow.on("show", () => {
     setTimeout(() => mainWindow.focusOnWebView(), 100);
+  });
+
+  // If the page fails to load, show an error page so the user knows
+  // something went wrong instead of a blank white screen.
+  mainWindow.webContents.on("did-fail-load", (_evt, errorCode, errorDesc) => {
+    console.error("[POS] Page failed to load:", errorCode, errorDesc);
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+    mainWindow.loadURL(
+      "data:text/html;charset=utf-8," +
+        encodeURIComponent(
+          `<html><body style="font-family:Tahoma,Arial,sans-serif;padding:40px;background:#f8fafc;color:#000">` +
+            `<h2 style="color:#dc2626">Server is starting...</h2>` +
+            `<p>The app is loading. Please wait a moment.</p>` +
+            `<p style="color:#666;font-size:12px">Error: ${errorDesc} (${errorCode})</p>` +
+            `<p style="color:#666;font-size:12px">If this persists, restart the app.</p>` +
+            `</body></html>`
+        )
+    );
+    // Retry loading the actual page after 3 seconds
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadURL(`http://${HOST}:${PORT}/`);
+      }
+    }, 3000);
   });
 
   mainWindow.loadURL(`http://${HOST}:${PORT}/`);
@@ -364,6 +422,14 @@ if (!gotLock) {
     }, 60 * 60 * 1000);
   }
 
+  // ---- Auto-update checker (stub — actual update UI is in the Next.js app) ----
+  // The in-app Settings page handles update checks via the Next.js API.
+  // This is a no-op stub so the setTimeout/setInterval calls don't throw.
+  function checkForUpdates() {
+    // No-op: update checking is handled by the Next.js Settings UI.
+    // Kept here for backwards compatibility with older main.cjs callers.
+  }
+
   app.whenReady().then(async () => {
     startServer();
     const ok = await waitForServer();
@@ -372,11 +438,11 @@ if (!gotLock) {
     }
     createWindow();
     startBackupScheduler();
-    setTimeout(checkForUpdates, 5000);
-    setInterval(checkForUpdates, 4 * 60 * 60 * 1000);
+    // Auto-update checks are handled in-app; no-op here.
   });
 
   app.on("window-all-closed", () => {
+    isQuitting = true;
     if (serverProcess) {
       try {
         serverProcess.kill();
@@ -386,6 +452,7 @@ if (!gotLock) {
   });
 
   app.on("before-quit", () => {
+    isQuitting = true;
     if (serverProcess) {
       try {
         serverProcess.kill();
@@ -401,6 +468,7 @@ if (!gotLock) {
 }
 
 process.on("exit", () => {
+  isQuitting = true;
   if (serverProcess) {
     try {
       serverProcess.kill();
