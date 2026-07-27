@@ -116,6 +116,7 @@ export function ProductsView({ userRole }: ProductsViewProps) {
   const [vendors, setVendors] = React.useState<Vendor[]>([]);
   const [q, setQ] = React.useState("");
   const [activeCat, setActiveCat] = React.useState("all");
+  const [filter, setFilter] = React.useState<"all" | "lowStock" | "expiry">("all");
   const [loading, setLoading] = React.useState(true);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editId, setEditId] = React.useState<string | null>(null);
@@ -132,6 +133,8 @@ export function ProductsView({ userRole }: ProductsViewProps) {
       const params = new URLSearchParams();
       if (q) params.set("q", q);
       if (activeCat !== "all") params.set("categoryId", activeCat);
+      if (filter === "lowStock") params.set("lowStock", "true");
+      if (filter === "expiry") params.set("expiringSoon", "true");
       const res = await fetch(`/api/products?${params.toString()}`, {
         cache: "no-store",
       });
@@ -142,7 +145,7 @@ export function ProductsView({ userRole }: ProductsViewProps) {
     } finally {
       setLoading(false);
     }
-  }, [q, activeCat]);
+  }, [q, activeCat, filter]);
 
   const loadCategories = React.useCallback(async () => {
     try {
@@ -277,10 +280,18 @@ export function ProductsView({ userRole }: ProductsViewProps) {
           <Button variant="outline" onClick={loadProducts}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button variant="outline" className="border-amber-300 text-amber-700" onClick={() => { setActiveCat("all"); setQ(""); }}>
+          <Button
+            variant={filter === "lowStock" ? "default" : "outline"}
+            className={filter === "lowStock" ? "bg-amber-600 hover:bg-amber-700 text-white" : "border-amber-300 text-amber-700"}
+            onClick={() => setFilter(filter === "lowStock" ? "all" : "lowStock")}
+          >
             <AlertTriangle className="w-4 h-4 mr-2" /> Low Stock
           </Button>
-          <Button variant="outline" className="border-rose-300 text-rose-700" onClick={() => { setActiveCat("all"); setQ(""); }}>
+          <Button
+            variant={filter === "expiry" ? "default" : "outline"}
+            className={filter === "expiry" ? "bg-rose-600 hover:bg-rose-700 text-white" : "border-rose-300 text-rose-700"}
+            onClick={() => setFilter(filter === "expiry" ? "all" : "expiry")}
+          >
             <Calendar className="w-4 h-4 mr-2" /> Expiry
           </Button>
           {canManage && (
@@ -871,11 +882,11 @@ function BarcodePrintDialog({
 
   return (
     <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
+      <DialogContent className="max-w-md max-h-[85vh] flex flex-col overflow-hidden">
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle>Print Barcode Sticker</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="space-y-3 flex-1 min-h-0 overflow-y-auto px-6 pb-2">
           <div className="text-center text-xs text-muted-foreground">
             Sticker size: 50mm × 25mm. Shop name (top) — Barcode (middle) —
             Product name (bottom).
@@ -952,7 +963,7 @@ function BarcodePrintDialog({
             ))}
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="flex-shrink-0 border-t pt-4">
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
@@ -1013,7 +1024,9 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
 
   // Derived values.
   // CRITICAL: cost/piece = boxCost / piecesPerBox (NOT divided by totalPieces).
-  const hasBox = boxBarcode.trim().length > 0;
+  // hasBox is true when box barcode is filled OR when both piecesPerBox and boxQty
+  // are filled (so stock auto-calc works even without a box barcode).
+  const hasBox = boxBarcode.trim().length > 0 || ((Number(piecesPerBox) || 0) > 0 && (Number(boxQty) || 0) > 0);
   const totalPieces = (Number(piecesPerBox) || 0) * (Number(boxQty) || 0);
   const autoPieceCost = (Number(piecesPerBox) || 0) > 0 ? (Number(boxCostPrice) || 0) / (Number(piecesPerBox) || 0) : 0;
   const autoPieceSale = (Number(piecesPerBox) || 0) > 0 ? (Number(boxSalePrice) || 0) / (Number(piecesPerBox) || 0) : 0;

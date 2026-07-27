@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
   const categoryId = searchParams.get("categoryId") || "";
   const barcode = searchParams.get("barcode") || "";
   const lowStock = searchParams.get("lowStock") === "true";
+  const expiringSoon = searchParams.get("expiringSoon") === "true";
 
   const where: any = {};
   if (q) {
@@ -24,6 +25,12 @@ export async function GET(req: NextRequest) {
   if (barcode) where.barcode = barcode;
   if (lowStock) {
     where.stock = { lte: db.product.fields.minStock };
+  }
+  if (expiringSoon) {
+    // Products expiring within 30 days (including already expired)
+    const now = new Date();
+    const future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    where.expiryDate = { lte: future };
   }
 
   const products = await db.product.findMany({

@@ -76,8 +76,8 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
+      <DialogContent className="max-w-sm max-h-[85vh] flex flex-col overflow-hidden p-0">
+        <DialogHeader className="flex-shrink-0 p-6 pb-2">
           <DialogTitle className="flex items-center gap-2 text-emerald-700">
             <CheckCircle2 className="w-5 h-5" />
             Sale Successful
@@ -85,7 +85,7 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
         </DialogHeader>
         <div
           ref={printRef}
-          className="bg-white text-black p-3 rounded-lg space-y-1"
+          className="bg-white text-black p-3 rounded-lg space-y-1 overflow-y-auto flex-1 min-h-0 mx-4 mb-2"
           style={{ maxWidth, margin: "0 auto", fontFamily: "'Courier New', monospace", color: "#000" }}
         >
           {/* Header */}
@@ -228,7 +228,7 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
             {settings?.receiptFooter || "Thank you! Please come again."}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-shrink-0 p-4 pt-2 border-t">
           <Button
             variant="outline"
             className="flex-1"
