@@ -1,6 +1,6 @@
 {
   "name": "shop-pos-system",
-  "version": "2.7.19",
+  "version": "2.7.20",
   "description": "Shop POS System - Point of Sale with barcode scanner, products and sales management",
   "author": "Mohsin Rasheed",
   "license": "MIT",
@@ -47,10 +47,26 @@
       "maintainer": "Mohsin Rasheed"
     },
     "win": {
-      "target": ["portable"],
+      "target": ["nsis"],
+      "icon": "build/icon.ico",
       "signtoolOptions": null,
       "signAndEditExecutable": false,
       "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Shop POS System",
+      "artifactName": "Shop-POS-System-Setup-${version}.exe"
+    },
+    "toolsets": {
+      "nsis": "0.0.0"
     }
   },
   "dependencies": {
