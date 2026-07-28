@@ -59,9 +59,13 @@ export function PosView({ settings }: PosViewProps) {
   const [returnOpen, setReturnOpen] = React.useState(false);
   const [calcOpen, setCalcOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+  const [qtyOpen, setQtyOpen] = React.useState(false);
+  const [qtyProduct, setQtyProduct] = React.useState<Product | null>(null);
+  const [qtyValue, setQtyValue] = React.useState("");
 
   const searchRef = React.useRef<HTMLInputElement>(null);
   const productGridRef = React.useRef<HTMLDivElement>(null);
+  const qtyInputRef = React.useRef<HTMLInputElement>(null);
 
   const cart = useCartStore();
   const { setView } = useAppStore();
@@ -124,6 +128,29 @@ export function PosView({ settings }: PosViewProps) {
     setTimeout(() => searchRef.current?.focus(), 50);
   }
 
+  // Open quantity prompt dialog before adding product to cart
+  function promptQuantity(product: Product) {
+    setQtyProduct(product);
+    setQtyValue("1");
+    setQtyOpen(true);
+    setTimeout(() => qtyInputRef.current?.select(), 100);
+  }
+
+  // Confirm quantity and add to cart
+  function confirmQuantity() {
+    if (!qtyProduct) return;
+    const qty = parseFloat(qtyValue);
+    if (isNaN(qty) || qty <= 0) {
+      toast.error("Enter a valid quantity");
+      return;
+    }
+    addToCart(qtyProduct, qty);
+    setQtyOpen(false);
+    setQtyProduct(null);
+    setQtyValue("");
+    setTimeout(() => searchRef.current?.focus(), 100);
+  }
+
   // Handle scanned barcode — look up product/card and take action
   // Guard: prevent concurrent execution (scanner may fire twice before first completes)
   const scanningRef = React.useRef(false);
@@ -149,12 +176,20 @@ export function PosView({ settings }: PosViewProps) {
           cart.addItem(boxProduct, 1);
           toast.success(`Box: ${product.name} (${product.packQuantity} pcs)`);
         } else {
-          addToCart(product);
-          toast.success(`Scanned: ${product.name}`);
+          // Show quantity prompt for scanned product
+          setQtyProduct(product);
+          setQtyValue("1");
+          setQtyOpen(true);
+          setTimeout(() => qtyInputRef.current?.select(), 100);
         }
       } else if (data.found && data.kind === "card" && data.card) {
-        toast.success(`Shop Card: ${data.card.name} — ${data.card.type === "WHOLESALE" ? "Wholesale" : "Regular"} mode`);
-        cart.setSaleType(data.card.type === "WHOLESALE" ? "WHOLESALE" : "RETAIL");
+        toast.success(`Shop Card: ${data.card.name} — ${data.card.type === "SHOP_KEEPER" ? "Shopkeeper" : data.card.type === "WHOLESALE" ? "Wholesale" : "Regular"} mode`);
+        const cardType = data.card.type;
+        if (cardType === "SHOP_KEEPER") {
+          cart.setSaleType("SHOPKEEPER");
+        } else {
+          cart.setSaleType(cardType === "WHOLESALE" ? "WHOLESALE" : "RETAIL");
+        }
         setScannedCard(data.card);
       } else {
         toast.warning(`Unknown barcode: ${code}`);
@@ -179,11 +214,11 @@ export function PosView({ settings }: PosViewProps) {
 
   // Auto-focus search bar after dialogs close
   React.useEffect(() => {
-    if (!checkoutOpen && !receiptOpen && !returnOpen && !calcOpen) {
+    if (!checkoutOpen && !receiptOpen && !returnOpen && !calcOpen && !qtyOpen) {
       const t = setTimeout(() => searchRef.current?.focus(), 100);
       return () => clearTimeout(t);
     }
-  }, [checkoutOpen, receiptOpen, returnOpen, calcOpen]);
+  }, [checkoutOpen, receiptOpen, returnOpen, calcOpen, qtyOpen]);
 
   // Scroll highlighted product into view
   React.useEffect(() => {
@@ -194,7 +229,7 @@ export function PosView({ settings }: PosViewProps) {
   // Keyboard shortcuts: arrow keys + Enter + F-keys
   React.useEffect(() => {
     function handlePosKey(e: KeyboardEvent) {
-      if (returnOpen || calcOpen || checkoutOpen || receiptOpen) return;
+      if (returnOpen || calcOpen || receiptOpen) return;\n      if (qtyOpen) return;
       const active = document.activeElement;
       const isSearchFocused = active === searchRef.current;
 
@@ -225,9 +260,22 @@ export function PosView({ settings }: PosViewProps) {
           }
           e.preventDefault();
           const product = products[highlightedIndex];
-          if (product) addToCart(product);
+          if (product) promptQuantity(product);
           return;
         }
+      }
+
+      // Space key triggers checkout (when search input is empty and cart has items)
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        if (cart.items.length > 0) {
+          if (scannedCard) {
+            handleCheckout();
+          } else {
+            setCheckoutOpen(true);
+          }
+        }
+        return;
       }
 
       // Function keys
@@ -377,7 +425,7 @@ export function PosView({ settings }: PosViewProps) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               ref={searchRef}
-              placeholder="Search by name or barcode... (↑↓ to navigate, Enter to add)"
+              placeholder="Search by name or barcode... (↑↓ navigate, Enter add, Space checkout)"
               value={q}
               onChange={(e) => { setQ(e.target.value); setHighlightedIndex(0); }}
               className="pl-10 h-11"
@@ -436,7 +484,7 @@ export function PosView({ settings }: PosViewProps) {
                 <button
                   key={p.id}
                   data-product-idx={idx}
-                  onClick={() => addToCart(p)}
+                  onClick={() => promptQuantity(p)}
                   disabled={!p.active}
                   className={`group text-left bg-card rounded-xl border p-2 transition-all disabled:opacity-50 ${
                     idx === highlightedIndex
@@ -618,7 +666,7 @@ export function PosView({ settings }: PosViewProps) {
                         <div className="min-w-0">
                           <div className="text-sm font-medium truncate">{scannedCard.name}</div>
                           <div className="text-xs text-muted-foreground">
-                            {scannedCard.cardNumber} • {scannedCard.type === "WHOLESALE" ? "Wholesale" : "Regular"}
+                            {scannedCard.cardNumber} • {scannedCard.type === "SHOP_KEEPER" ? "Shopkeeper" : scannedCard.type === "WHOLESALE" ? "Wholesale" : "Regular"}
                           </div>
                         </div>
                       </div>
@@ -713,6 +761,59 @@ export function PosView({ settings }: PosViewProps) {
           </Card>
         </div>
       </div>
+
+      {/* Quantity Prompt Dialog */}
+      <Dialog open={qtyOpen} onOpenChange={(v) => { if (!v) { setQtyOpen(false); setQtyProduct(null); setTimeout(() => searchRef.current?.focus(), 100); } }}>
+        <DialogContent className="max-w-xs" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="text-lg">Enter Quantity</DialogTitle>
+            <DialogDescription className="text-sm">
+              {qtyProduct?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="bg-emerald-50 rounded-lg p-3 text-center">
+              <div className="text-sm text-muted-foreground">Price per {qtyProduct ? unitLabel(qtyProduct.unit) : "unit"}</div>
+              <div className="text-2xl font-bold text-emerald-700">
+                {formatMoney(
+                  qtyProduct
+                    ? (cart.saleType === "WHOLESALE" && qtyProduct.wholesalePrice > 0
+                      ? qtyProduct.wholesalePrice
+                      : cart.saleType === "SHOPKEEPER" && qtyProduct.shopkeeperPrice > 0
+                      ? qtyProduct.shopkeeperPrice
+                      : qtyProduct.salePrice)
+                    : 0,
+                  currency
+                )}
+              </div>
+            </div>
+            <Input
+              ref={qtyInputRef}
+              type="number"
+              min="0"
+              step={qtyProduct && isLooseUnit(qtyProduct.unit) ? "0.5" : "1"}
+              value={qtyValue}
+              onChange={(e) => setQtyValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  confirmQuantity();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setQtyOpen(false);
+                  setQtyProduct(null);
+                  setTimeout(() => searchRef.current?.focus(), 100);
+                }
+              }}
+              autoFocus
+              className="h-14 text-2xl text-center font-mono"
+            />
+            <div className="text-xs text-center text-muted-foreground">
+              Press Enter to add • Escape to cancel
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Checkout dialog */}
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>

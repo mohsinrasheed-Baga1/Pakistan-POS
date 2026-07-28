@@ -42,7 +42,7 @@ export async function PUT(
     name: (body.name || "").toString().trim() || existing.name,
     phone: body.phone != null ? String(body.phone).trim() || null : existing.phone,
     address: body.address != null ? String(body.address).trim() || null : existing.address,
-    type: body.type === "WHOLESALE" ? "WHOLESALE" : "REGULAR",
+    type: body.type === "WHOLESALE" ? "WHOLESALE" : body.type === "SHOP_KEEPER" ? "SHOP_KEEPER" : "REGULAR",
     active: body.active !== false,
   };
 
