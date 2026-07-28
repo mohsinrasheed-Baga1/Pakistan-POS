@@ -229,7 +229,8 @@ export function PosView({ settings }: PosViewProps) {
   // Keyboard shortcuts: arrow keys + Enter + F-keys
   React.useEffect(() => {
     function handlePosKey(e: KeyboardEvent) {
-      if (returnOpen || calcOpen || receiptOpen) return;\n      if (qtyOpen) return;
+      if (returnOpen || calcOpen || receiptOpen) return;
+      if (qtyOpen) return;
       const active = document.activeElement;
       const isSearchFocused = active === searchRef.current;
 
