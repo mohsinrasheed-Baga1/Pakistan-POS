@@ -42,14 +42,35 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Find EXE file
+        id: find-exe
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path "release" -Filter "Shop-POS-System-Setup-*.exe" | Select-Object -First 1
+          if ($exe) {
+            echo "EXE_PATH=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+            echo "EXE_NAME=$($exe.Name)" >> $env:GITHUB_OUTPUT
+            echo "Found: $($exe.FullName) ($([math]::Round($exe.Length/1MB, 1)) MB)"
+          } else {
+            echo "ERROR: No Setup EXE found in release folder"
+            Get-ChildItem -Path "release" -Recurse | ForEach-Object { echo $_.FullName }
+            exit 1
+          }
+
       - name: Upload EXE to Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
         run: |
-          $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
-          $exePath = Get-ChildItem -Path "release\*.exe" | Select-Object -First 1 -ExpandProperty FullName
-          echo "Found EXE: $exePath"
-          echo "Tag: $tag"
-          $exeName = Split-Path $exePath -Leaf
-          $assetUrl = "https://uploads.github.com/repos/${{ github.repository }}/releases/tags/$tag/assets?name=$exeName"
-          curl -X POST -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/octet-stream" --data-binary "@$exePath" "$assetUrl"
+          $exePath = "${{ steps.find-exe.outputs.EXE_PATH }}"
+          $exeName = "${{ steps.find-exe.outputs.EXE_NAME }}"
+          $tag = "${{ github.ref_name }}"
+          Write-Host "Uploading $exeName to release $tag"
+          $uploadUrl = "https://uploads.github.com/repos/${{ github.repository }}/releases/tags/$tag/assets?name=$exeName"
+          $headers = @{
+            "Authorization" = "token $env:GH_TOKEN"
+            "Content-Type" = "application/octet-stream"
+          }
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -InFile $exePath
+          Write-Host "Upload complete!"
