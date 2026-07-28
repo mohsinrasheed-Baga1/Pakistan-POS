@@ -1,0 +1,55 @@
+name: Build Windows EXE
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Bun
+        run: |
+          npm install -g bun
+          bun --version
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Generate Prisma Client
+        run: bun run db:generate
+
+      - name: Build Next.js
+        run: bun run build
+        env:
+          DATABASE_URL: "file:./pos.db"
+
+      - name: Prepare Electron
+        run: node scripts/prepare-electron.mjs
+
+      - name: Build Windows Installer
+        run: bunx electron-builder --win nsis --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload EXE to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
+          $exePath = Get-ChildItem -Path "release\*.exe" | Select-Object -First 1 -ExpandProperty FullName
+          echo "Found EXE: $exePath"
+          echo "Tag: $tag"
+          $exeName = Split-Path $exePath -Leaf
+          $assetUrl = "https://uploads.github.com/repos/${{ github.repository }}/releases/tags/$tag/assets?name=$exeName"
+          curl -X POST -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/octet-stream" --data-binary "@$exePath" "$assetUrl"
