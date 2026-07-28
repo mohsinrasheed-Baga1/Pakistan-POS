@@ -40,9 +40,10 @@ console.log("[prepare-electron] Generating template pos.db...");
 const templateDb = join(serverDest, "pos.db");
 if (existsSync(templateDb)) rmSync(templateDb, { force: true });
 try {
-  execSync(`DATABASE_URL="file:${templateDb}" bunx prisma db push --skip-generate`, {
+  execSync("bunx prisma db push --skip-generate", {
     stdio: "inherit",
     cwd: root,
+    env: { ...process.env, DATABASE_URL: `file:${templateDb}` },
   });
   console.log("[prepare-electron] Template DB created");
 } catch (e) {
