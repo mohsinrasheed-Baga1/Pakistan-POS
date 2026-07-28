@@ -158,6 +158,7 @@ export type CardType = "REGULAR" | "WHOLESALE" | "SHOP_KEEPER";
 export interface CustomerCard {
   id: string;
   cardNumber: string;
+  customerId: string;
   name: string;
   phone: string | null;
   address: string | null;
@@ -170,12 +171,24 @@ export interface CustomerCard {
   updatedAt: string;
 }
 
+export type TransactionType =
+  | "DEPOSIT"
+  | "WITHDRAWAL"
+  | "PURCHASE"
+  | "PAYMENT"
+  | "CREDIT"
+  | "DEBIT"
+  | "ADJUSTMENT"
+  | "REFUND";
+
 export interface CardTransaction {
   id: string;
   cardId: string;
-  type: "PURCHASE" | "PAYMENT" | "DEPOSIT" | "WITHDRAW";
+  type: TransactionType;
   amount: number;
   description: string | null;
+  note: string | null;
+  operatorName: string | null;
   saleId: string | null;
   createdAt: string;
 }

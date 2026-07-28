@@ -21,6 +21,7 @@ import {
   Warehouse,
   Truck,
   TrendingDown,
+  Smartphone,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ import { DashboardView } from "@/components/pos/views/dashboard-view";
 import { StoreView } from "@/components/pos/views/store-view";
 import { VendorsView } from "@/components/pos/views/vendors-view";
 import { ExpensesView } from "@/components/pos/views/expenses-view";
+import { LoadBillView } from "@/components/pos/views/loadbill-view";
 import { NotificationsBell } from "@/components/pos/notifications-bell";
 import { toast } from "sonner";
 
@@ -53,6 +55,7 @@ const NAV: { id: View; label: string; icon: any; minRole?: string }[] = [
   { id: "store", label: "Main Store", icon: Warehouse },
   { id: "vendors", label: "Vendors", icon: Truck },
   { id: "expenses", label: "Expenses", icon: TrendingDown },
+  { id: "loadbill", label: "Load & Bill", icon: Smartphone },
   { id: "cards", label: "Shop Cards", icon: CreditCard },
   { id: "sales", label: "Sales History", icon: Receipt },
   { id: "reports", label: "Reports", icon: BarChart3 },
@@ -113,6 +116,8 @@ export function AppShell({ user, settings }: AppShellProps) {
         return <VendorsView />;
       case "expenses":
         return <ExpensesView />;
+      case "loadbill":
+        return <LoadBillView userRole={user.role} />;
       case "users":
         return user.role === "ADMIN" ? <UsersView /> : <PosView settings={settings} />;
       case "settings":

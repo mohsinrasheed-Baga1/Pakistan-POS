@@ -10,6 +10,14 @@ import {
   Printer,
   RefreshCw,
   User,
+  QrCode,
+  History,
+  Eye,
+  Wallet,
+  CheckCircle,
+  XCircle,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,11 +63,22 @@ import { formatMoney } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
 // @ts-ignore - qrcode has no bundled types in this project
 import QRCode from "qrcode";
-import type { CustomerCard, Settings } from "@/types";
+import type { CustomerCard, CardTransaction, TransactionType, Settings } from "@/types";
 
 interface CardsViewProps {
   userRole: string;
 }
+
+const TRANSACTION_TYPES: { value: TransactionType; labelEn: string; labelUr: string }[] = [
+  { value: "DEPOSIT", labelEn: "Deposit", labelUr: "جمع" },
+  { value: "WITHDRAWAL", labelEn: "Withdrawal", labelUr: "نکلنے" },
+  { value: "PURCHASE", labelEn: "Purchase", labelUr: "خریداری" },
+  { value: "PAYMENT", labelEn: "Payment", labelUr: "ادائیگی" },
+  { value: "CREDIT", labelEn: "Credit", labelUr: "ادھار" },
+  { value: "DEBIT", labelEn: "Debit", labelUr: "خرچ" },
+  { value: "ADJUSTMENT", labelEn: "Adjustment", labelUr: "ایڈجسٹمنٹ" },
+  { value: "REFUND", labelEn: "Refund", labelUr: "واپسی" },
+];
 
 const emptyForm = {
   name: "",
@@ -68,6 +87,13 @@ const emptyForm = {
   type: "REGULAR" as "REGULAR" | "WHOLESALE" | "SHOP_KEEPER",
   cardNumber: "",
   active: true,
+};
+
+const emptyTxForm = {
+  type: "DEPOSIT" as TransactionType,
+  amount: "",
+  description: "",
+  operatorName: "",
 };
 
 export function CardsView({ userRole }: CardsViewProps) {
@@ -82,6 +108,12 @@ export function CardsView({ userRole }: CardsViewProps) {
   const [saving, setSaving] = React.useState(false);
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
   const [printCard, setPrintCard] = React.useState<CustomerCard | null>(null);
+  const [detailCard, setDetailCard] = React.useState<CustomerCard | null>(null);
+  const [detailTransactions, setDetailTransactions] = React.useState<CardTransaction[]>([]);
+  const [detailLoading, setDetailLoading] = React.useState(false);
+  const [txDialogOpen, setTxDialogOpen] = React.useState(false);
+  const [txForm, setTxForm] = React.useState(emptyTxForm);
+  const [txSaving, setTxSaving] = React.useState(false);
 
   const loadCards = React.useCallback(async () => {
     setLoading(true);
@@ -145,6 +177,7 @@ export function CardsView({ userRole }: CardsViewProps) {
         type: form.type,
         cardNumber: editId ? form.cardNumber : "", // never overwrite on edit; server keeps existing
         active: form.active,
+        ...(editId ? {} : { customerId: `CUST-${Date.now().toString().slice(-8)}` }),
       };
       const url = editId ? `/api/cards/${editId}` : "/api/cards";
       const method = editId ? "PUT" : "POST";
@@ -183,6 +216,64 @@ export function CardsView({ userRole }: CardsViewProps) {
       loadCards();
     } catch {
       toast.error("Network error");
+    }
+  }
+
+  async function openDetail(c: CustomerCard) {
+    setDetailCard(c);
+    setDetailTransactions([]);
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`/api/cards/${c.id}`, { cache: "no-store" });
+      const data = await res.json();
+      setDetailCard(data.card);
+      setDetailTransactions(data.card.transactions || []);
+    } catch {
+      toast.error("Failed to load card details");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function openTxDialog() {
+    setTxForm(emptyTxForm);
+    setTxDialogOpen(true);
+  }
+
+  async function handleTxSave() {
+    if (!detailCard) return;
+    const amt = parseFloat(txForm.amount);
+    if (!amt || amt <= 0) {
+      toast.error("Valid amount is required");
+      return;
+    }
+    setTxSaving(true);
+    try {
+      const res = await fetch(`/api/cards/${detailCard.id}/transactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: txForm.type,
+          amount: amt,
+          description: txForm.description.trim(),
+          operatorName: txForm.operatorName.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Transaction failed");
+        setTxSaving(false);
+        return;
+      }
+      toast.success("Transaction recorded");
+      setTxDialogOpen(false);
+      // Refresh detail + list
+      openDetail({ ...detailCard, balance: (detailCard.balance || 0) + amt } as CustomerCard);
+      loadCards();
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setTxSaving(false);
     }
   }
 
@@ -244,6 +335,7 @@ export function CardsView({ userRole }: CardsViewProps) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Card Number</TableHead>
+                    <TableHead>Customer ID</TableHead>
                     <TableHead>Cardholder</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>Type</TableHead>
@@ -257,6 +349,9 @@ export function CardsView({ userRole }: CardsViewProps) {
                     <TableRow key={c.id}>
                       <TableCell className="font-mono text-xs">
                         {c.cardNumber}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {c.customerId || "-"}
                       </TableCell>
                       <TableCell className="font-medium">{c.name}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
@@ -291,6 +386,15 @@ export function CardsView({ userRole }: CardsViewProps) {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-1 justify-end">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={() => openDetail(c)}
+                            title="View Details"
+                          >
+                            <Eye className="w-4 h-4 text-blue-600" />
+                          </Button>
                           <Button
                             size="icon"
                             variant="ghost"
@@ -453,6 +557,242 @@ export function CardsView({ userRole }: CardsViewProps) {
         settings={settings}
         onClose={() => setPrintCard(null)}
       />
+
+      {/* Card Detail / Scan Summary Dialog */}
+      <Dialog open={!!detailCard} onOpenChange={(o) => !o && setDetailCard(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wallet className="w-5 h-5 text-emerald-600" />
+              Card Details — تفصیلات
+            </DialogTitle>
+          </DialogHeader>
+          {detailCard && (
+            <div className="space-y-4">
+              {/* Summary Panel */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="text-xs text-muted-foreground">Customer Name / نام</div>
+                  <div className="font-bold">{detailCard.name}</div>
+                </div>
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="text-xs text-muted-foreground">Customer ID</div>
+                  <div className="font-mono font-bold text-emerald-700">{detailCard.customerId || "-"}</div>
+                </div>
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="text-xs text-muted-foreground">Phone / فون</div>
+                  <div className="font-medium">{detailCard.phone || "-"}</div>
+                </div>
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="text-xs text-muted-foreground">Card Number</div>
+                  <div className="font-mono font-medium">{detailCard.cardNumber}</div>
+                </div>
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="text-xs text-muted-foreground">Account Status / حیثیت</div>
+                  <div>
+                    {detailCard.active ? (
+                      <Badge className="border-emerald-300 text-emerald-700 bg-emerald-50">
+                        <CheckCircle className="w-3 h-3 mr-1" /> Active — فعال
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-red-300 text-red-700 bg-red-50">
+                        <XCircle className="w-3 h-3 mr-1" /> Inactive — غیر فعال
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="text-xs text-muted-foreground">Card Type</div>
+                  <div className="font-medium">
+                    {detailCard.type === "WHOLESALE" ? "Wholesale / ہول سیل" : detailCard.type === "SHOP_KEEPER" ? "Shop Keeper / دکاندار" : "Regular / عام"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Balance - Big and Prominent */}
+              <div className="rounded-xl bg-emerald-600 text-white p-5 text-center">
+                <div className="text-sm opacity-80">Current Balance — موجودہ بیلنس</div>
+                <div className="text-3xl font-bold mt-1">{formatMoney(detailCard.balance, currency)}</div>
+                <div className="flex justify-center gap-4 mt-3 text-xs opacity-80">
+                  <span>Total Purchases: {formatMoney(detailCard.totalPurchases, currency)}</span>
+                  <span>Total Paid: {formatMoney(detailCard.totalPaid, currency)}</span>
+                  <span>Remaining: {formatMoney(detailCard.totalPurchases - detailCard.totalPaid, currency)}</span>
+                </div>
+              </div>
+
+              {/* Last Transaction */}
+              {detailTransactions.length > 0 && (
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="text-xs text-muted-foreground">Last Transaction — آخری لین دین</div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-sm">
+                      {TRANSACTION_TYPES.find(t => t.value === detailTransactions[0].type)?.labelEn || detailTransactions[0].type}
+                      {" "}({TRANSACTION_TYPES.find(t => t.value === detailTransactions[0].type)?.labelUr})
+                    </span>
+                    <span className="font-bold">{formatMoney(detailTransactions[0].amount, currency)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(detailTransactions[0].createdAt).toLocaleString("en-PK")}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <Button
+                  className="bg-emerald-600 hover:bg-emerald-700 flex-1"
+                  onClick={openTxDialog}
+                >
+                  <ArrowUpRight className="w-4 h-4 mr-2" /> New Transaction — نیا لین دین
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setPrintCard(detailCard);
+                    setDetailCard(null);
+                  }}
+                >
+                  <Printer className="w-4 h-4 mr-2" /> Print Card
+                </Button>
+              </div>
+
+              {/* Transactions Button → Ledger */}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setDetailCard(null);
+                  // The transactions are already displayed below
+                }}
+              >
+                <History className="w-4 h-4 mr-2" /> Transaction History — تاریخِ لین دین ({detailTransactions.length} transactions)
+              </Button>
+
+              {/* Transaction History Table */}
+              {detailLoading ? (
+                <div className="p-4 text-center text-muted-foreground">Loading transactions...</div>
+              ) : detailTransactions.length > 0 ? (
+                <div className="rounded-lg border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Operator</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {detailTransactions.map((tx) => (
+                        <TableRow key={tx.id}>
+                          <TableCell className="text-xs">
+                            {new Date(tx.createdAt).toLocaleString("en-PK")}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {TRANSACTION_TYPES.find(t => t.value === tx.type)?.labelEn || tx.type}
+                              {" "}{TRANSACTION_TYPES.find(t => t.value === tx.type)?.labelUr || ""}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {formatMoney(tx.amount, currency)}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">
+                            {tx.description || tx.note || "-"}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {tx.operatorName || "-"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-center text-sm text-muted-foreground py-4">
+                  No transactions yet — ابھی تک کوئی لین دین نہیں
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* New Transaction Dialog */}
+      <Dialog open={txDialogOpen} onOpenChange={setTxDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowDownLeft className="w-5 h-5 text-emerald-600" />
+              New Transaction — نیا لین دین
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Transaction Type / قسم</Label>
+              <Select
+                value={txForm.type}
+                onValueChange={(v) => setTxForm({ ...txForm, type: v as TransactionType })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRANSACTION_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.labelEn} ({t.labelUr})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Amount / رقم *</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={txForm.amount}
+                onChange={(e) => setTxForm({ ...txForm, amount: e.target.value })}
+                dir="ltr"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description / تفصیل</Label>
+              <Textarea
+                value={txForm.description}
+                onChange={(e) => setTxForm({ ...txForm, description: e.target.value })}
+                placeholder="Transaction note (optional)"
+                rows={2}
+                className="resize-none"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Operator Name / آپریٹر</Label>
+              <Input
+                value={txForm.operatorName}
+                onChange={(e) => setTxForm({ ...txForm, operatorName: e.target.value })}
+                placeholder="Your name"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTxDialogOpen(false)} disabled={txSaving}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={handleTxSave}
+              disabled={txSaving}
+            >
+              {txSaving ? "Saving..." : "Save Transaction"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -601,6 +941,7 @@ export function CardVisual({
           style={{
             display: "flex",
             justifyContent: "center",
+            alignItems: "flex-end",
             marginTop: "0.5mm",
           }}
         >
@@ -613,6 +954,21 @@ export function CardVisual({
               />
             ) : null}
           </div>
+          {card.customerId && (
+            <div
+              style={{
+                marginLeft: "1mm",
+                fontSize: "6px",
+                fontFamily: "monospace",
+                color: "#555",
+                lineHeight: 1.2,
+              }}
+            >
+              <div style={{ fontWeight: "bold", color: "#333", fontSize: "6.5px" }}>
+                {card.customerId}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -730,7 +1086,10 @@ function CardPrintDialog({
               <svg id="barcode-svg"></svg>
             </div>
             <div class="qr">
-              <div style="width:10mm;height:10mm;">${qrImg}</div>
+              <div style="display:flex;justify-content:center;align-items:flex-end;margin-top:0.5mm;">
+                <div style="width:10mm;height:10mm;">${qrImg}</div>
+                ${card.customerId ? `<div style="margin-left:1mm;font-size:6px;font-family:monospace;color:#555;line-height:1.2;"><span style="font-weight:bold;color:#333;font-size:6.5px;">${escapeHtml(card.customerId)}</span></div>` : ""}
+              </div>
             </div>
           </div>
         </div>

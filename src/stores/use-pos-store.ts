@@ -15,6 +15,7 @@ export type View =
   | "store"
   | "vendors"
   | "expenses"
+  | "loadbill"
   | "settings";
 
 interface AppState {

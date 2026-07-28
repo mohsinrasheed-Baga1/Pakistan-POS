@@ -155,6 +155,7 @@ model StockLog {
 model CustomerCard {
   id             String   @id @default(cuid())
   cardNumber     String   @unique
+  customerId     String   @unique              // Unique Customer ID for future scalability (web/app integration)
   name           String
   phone          String?
   address        String?
@@ -173,10 +174,12 @@ model CardTransaction {
   id          String   @id @default(cuid())
   cardId      String
   card        CustomerCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  type        String
+  type        String    // DEPOSIT | WITHDRAWAL | PURCHASE | PAYMENT | CREDIT | DEBIT | ADJUSTMENT | REFUND
   amount      Float
   description String?
   saleId      String?
+  operatorName String?  // Who processed this transaction
+  note        String?
   createdAt   DateTime @default(now())
 }
 
@@ -198,6 +201,67 @@ model Expense {
   note        String?
   date        DateTime @default(now())
   createdAt   DateTime @default(now())
+}
+
+// ---- Load & Bill Payment Module ----
+
+model MobileLoadCompany {
+  id            String   @id @default(cuid())
+  name          String   @unique           // Jazz, Ufone, Telenor, Zong
+  balance       Float    @default(0)       // Current stock balance (purchased - sold)
+  totalPurchased Float   @default(0)       // Total amount loaded from company
+  totalSold     Float    @default(0)       // Total amount sold to customers
+  totalProfit   Float    @default(0)       // Total profit (sold - purchase cost)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  transactions  MobileLoadTxn[]
+}
+
+model MobileLoadTxn {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       MobileLoadCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type          String   @default("SALE")  // PURCHASE (buy from company) | SALE (sell to customer)
+  amount        Float                         // Face value of load
+  costPrice     Float    @default(0)          // Cost price (for purchase) or 0
+  salePrice     Float    @default(0)          // Sale price to customer (for sale) or 0
+  profit        Float    @default(0)          // salePrice - costPrice for SALE
+  customerPhone String?
+  customerName  String?
+  referenceNo   String?
+  operatorName  String?
+  note          String?
+  createdAt     DateTime @default(now())
+}
+
+model BillPaymentTxn {
+  id            String   @id @default(cuid())
+  category      String                       // electricity | gas | water | internet | other
+  consumerName  String?
+  consumerPhone String?
+  accountNo     String?                      // Bill reference / consumer ID
+  billAmount    Float                        // Actual bill amount (liability to company)
+  serviceCharge Float    @default(0)          // Service charge / commission (our income)
+  totalPaid     Float                        // billAmount + serviceCharge (what customer paid)
+  referenceNo   String?
+  operatorName  String?
+  note          String?
+  createdAt     DateTime @default(now())
+}
+
+model WalletTxn {
+  id            String   @id @default(cuid())
+  provider      String                       // JAZZCASH | EASYPAISA
+  type          String                       // SEND | RECEIVE
+  amount        Float                        // Principal amount sent/received
+  serviceCharge Float    @default(0)          // Editable service fee (profit)
+  customerName  String?
+  customerPhone String?
+  referenceNo   String?
+  operatorName  String?
+  note          String?
+  createdAt     DateTime @default(now())
 }
 
 model Settings {

@@ -71,9 +71,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to generate card number" }, { status: 500 });
   }
 
+  // Generate customerId if not provided
+  const customerId = body.customerId
+    ? String(body.customerId).trim()
+    : `CUST-${Date.now().toString().slice(-8)}`;
+
   const card = await db.customerCard.create({
     data: {
       cardNumber,
+      customerId,
       name,
       phone: body.phone ? String(body.phone).trim() : null,
       address: body.address ? String(body.address).trim() : null,
