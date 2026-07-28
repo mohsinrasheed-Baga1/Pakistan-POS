@@ -107,7 +107,14 @@ export function VendorsView({ userRole }: VendorsViewProps) {
         cache: "no-store",
       });
       const data = await res.json();
-      setVendors(data.vendors || []);
+      // Safely handle vendors - add missing fields with defaults for backward compat
+      const vendorList = (data.vendors || []).map((v: any) => ({
+        ...v,
+        totalPurchased: v.totalPurchased ?? 0,
+        totalPaid: v.totalPaid ?? 0,
+        balance: v.balance ?? 0,
+      }));
+      setVendors(vendorList);
     } catch {
       toast.error("Failed to load vendors");
     } finally {
@@ -272,8 +279,14 @@ export function VendorsView({ userRole }: VendorsViewProps) {
     setDetailVendor(v);
     setDetailDialogOpen(true);
     setDetailLoading(true);
+    setDetailPurchases([]);
     try {
       const res = await fetch(`/api/vendors/${v.id}/purchases`);
+      if (!res.ok) {
+        // Purchases endpoint might not exist yet - that's OK
+        setDetailPurchases([]);
+        return;
+      }
       const data = await res.json();
       setDetailPurchases(data.purchases || []);
     } catch {

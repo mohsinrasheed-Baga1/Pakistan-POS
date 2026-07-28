@@ -1106,69 +1106,54 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   async function saveProducts() {
     setSaving(true);
     try {
-      if (productType === "piece") {
-        const body = {
-          name, barcode: pieceBarcode, categoryId: categoryId || null,
-          costPrice: Number(pieceCostPrice) || 0,
-          salePrice: Number(pieceSalePrice) || 0,
-          wholesalePrice: Number(pieceWholesalePrice) || 0,
-          shopkeeperPrice: Number(pieceShopkeeperPrice) || 0,
-          unit: "piece", stock: Number(pieceStock) || 0,
-          minStock: Number(pieceMinStock) || 0,
-          expiryDate: expiryDate || null,
-          manufacturingDate: manufacturingDate || null,
-          hasBarcode: true, active: true, image,
-        };
-        const url = editId ? `/api/products/${editId}` : "/api/products";
-        const method = editId ? "PUT" : "POST";
-        const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const data = await res.json();
-        if (!res.ok) {
-          const msg = data.error || "Failed";
-          toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
-          setSaving(false); return;
-        }
-        toast.success(editId ? "Product updated!" : `${name} added!`);
-      } else {
+      // Always save piece product first
+      const hasBox = boxBarcode.trim() && piecesPerBox.trim();
+      const stock = hasBox ? totalPieces : Number(pieceStock) || 0;
+
+      const pieceBody = {
+        name, barcode: pieceBarcode, categoryId: categoryId || null,
+        costPrice: hasBox ? (Number(pieceCostPrice) || autoPieceCost) : Number(pieceCostPrice) || 0,
+        salePrice: hasBox ? (Number(pieceSalePrice) || autoPieceSale) : Number(pieceSalePrice) || 0,
+        wholesalePrice: hasBox ? (Number(pieceWholesalePrice) || autoPieceWholesale) : Number(pieceWholesalePrice) || 0,
+        shopkeeperPrice: hasBox ? (Number(pieceShopkeeperPrice) || autoPieceShopkeeper) : Number(pieceShopkeeperPrice) || 0,
+        unit: "piece", stock,
+        minStock: Number(pieceMinStock) || 0,
+        expiryDate: expiryDate || null,
+        manufacturingDate: manufacturingDate || null,
+        hasBarcode: true, active: true, image,
+      };
+
+      const url = editId ? `/api/products/${editId}` : "/api/products";
+      const method = editId ? "PUT" : "POST";
+      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(pieceBody) });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.error || "Failed";
+        toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
+        setSaving(false); return;
+      }
+
+      // If box barcode filled, also save box product (only on new, not edit)
+      if (hasBox && !editId) {
         const boxBody = {
-          name: editId ? name : `${name} (Box)`, barcode: boxBarcode, categoryId: categoryId || null,
+          name: `${name} (Box)`, barcode: boxBarcode, categoryId: categoryId || null,
           costPrice: Number(boxCostPrice) || 0, salePrice: Number(boxSalePrice) || 0,
           wholesalePrice: Number(boxWholesalePrice) || 0, shopkeeperPrice: Number(boxShopkeeperPrice) || 0,
-          unit: "piece", stock: totalPieces || Number(pieceStock) || 0,
+          unit: "piece", stock: Number(boxQty) || 0,
           minStock: Number(pieceMinStock) || 0,
           expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
           hasBarcode: true, active: true, image,
           packBarcode: pieceBarcode, packQuantity: Number(piecesPerBox) || 0, packPrice: Number(boxSalePrice) || 0,
         };
-        const boxUrl = editId ? `/api/products/${editId}` : "/api/products";
-        const boxMethod = editId ? "PUT" : "POST";
-        const boxRes = await fetch(boxUrl, { method: boxMethod, headers: { "Content-Type": "application/json" }, body: JSON.stringify(boxBody) });
-        const boxData = await boxRes.json();
+        const boxRes = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(boxBody) });
         if (!boxRes.ok) {
-          const msg = boxData.error || "Box save failed";
-          toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
-          setSaving(false); return;
-        }
-
-        // Save/update piece product
-        const pieceBody = {
-          name, barcode: pieceBarcode, categoryId: categoryId || null,
-          costPrice: Number(pieceCostPrice) || autoPieceCost,
-          salePrice: Number(pieceSalePrice) || autoPieceSale,
-          wholesalePrice: Number(pieceWholesalePrice) || autoPieceWholesale,
-          shopkeeperPrice: Number(pieceShopkeeperPrice) || autoPieceShopkeeper,
-          unit: "piece", stock: totalPieces || Number(pieceStock) || 0,
-          minStock: Number(pieceMinStock) || 0,
-          expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
-          hasBarcode: true, active: true, image,
-        };
-        const pieceRes = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pieceBody) });
-        if (!pieceRes.ok) {
-          const pieceData = await pieceRes.json();
-          toast.warning(`Box saved! Piece: ${pieceData.error}`);
+          const boxData = await boxRes.json();
+          toast.warning(`Piece saved! Box: ${boxData.error}`);
         } else {
-          toast.success(editId ? "Product updated!" : `${name} added! Box + Piece saved.`);
+          toast.success(`${name} added! Box + Piece saved.`);
         }
+      } else {
+        toast.success(editId ? "Product updated!" : `${name} added!`);
       }
       onDone();
       onOpenChange(false);
@@ -1179,12 +1164,11 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{editId ? "Edit Product" : "Add Product"} — Step {step}/2</DialogTitle>
+          <DialogTitle>{editId ? "Edit Product" : "Add Product"}</DialogTitle>
         </DialogHeader>
 
-        {/* STEP 1 */}
-        {step === 1 && (
-          <div className="space-y-4">
+        {/* Single combined form - Piece + Box together */}
+        <div className="space-y-4">
             <div className="space-y-2">
               <Label>Product Name *</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Biscuit, Sugar" autoFocus />
@@ -1199,105 +1183,61 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>What are you saving? *</Label>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setProductType("piece")} className={`rounded-lg border-2 p-4 text-center transition-all ${productType === "piece" ? "border-emerald-500 bg-emerald-50" : "border-border hover:bg-muted"}`}>
-                  <Package className="w-6 h-6 mx-auto mb-1 text-emerald-600" />
-                  <div className="font-bold">Piece</div>
-                  <div className="text-xs text-muted-foreground">Single item</div>
-                </button>
-                <button onClick={() => setProductType("box")} className={`rounded-lg border-2 p-4 text-center transition-all ${productType === "box" ? "border-amber-500 bg-amber-50" : "border-border hover:bg-muted"}`}>
-                  <Package className="w-6 h-6 mx-auto mb-1 text-amber-600" />
-                  <div className="font-bold">Box / Bag</div>
-                  <div className="text-xs text-muted-foreground">Contains pieces</div>
-                </button>
+
+            {/* Piece section */}
+            <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-3 space-y-3">
+              <div className="flex items-center gap-2"><Package className="w-4 h-4 text-emerald-600" /><Label className="font-bold text-emerald-800">Piece Details</Label></div>
+              <div className="space-y-2">
+                <Label>Piece Barcode *</Label>
+                <Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan or type piece barcode" data-barcode-input="true" className="text-left" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Cost Price</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2"><Label>Sale Price (Regular) *</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Wholesale Price</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2"><Label>Shopkeeper Price</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Stock Quantity</Label><Input type="number" value={pieceStock} onChange={(e) => setPieceStock(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
               </div>
             </div>
-            <Button className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={!name.trim()} onClick={() => setStep(2)}>Next →</Button>
-          </div>
-        )}
 
-        {/* STEP 2 */}
-        {step === 2 && (
-          <div className="space-y-4">
-            {/* PIECE form — full details */}
-            {productType === "piece" && (
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label>Barcode *</Label>
-                  <Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan or type barcode" data-barcode-input="true" className="text-left" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2"><Label>Cost Price</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                  <div className="space-y-2"><Label>Sale Price (Regular) *</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2"><Label>Wholesale Price</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                  <div className="space-y-2"><Label>Shopkeeper Price</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2"><Label>Stock Quantity</Label><Input type="number" value={pieceStock} onChange={(e) => setPieceStock(e.target.value)} placeholder="0" className="text-left" /></div>
-                  <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2"><Label>Manufacturing Date</Label><Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} className="text-left" /></div>
-                  <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
-                </div>
-                <ImageUpload value={image} onChange={setImage} label="Product Image" />
+            {/* Box section (optional) */}
+            <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-3 space-y-3">
+              <div className="flex items-center gap-2"><Package className="w-4 h-4 text-amber-600" /><Label className="font-bold text-amber-800">Box Details (optional)</Label><span className="text-xs text-muted-foreground">- fill if product comes in box/bag</span></div>
+              <div className="space-y-2">
+                <Label>Box Barcode</Label>
+                <Input value={boxBarcode} onChange={(e) => setBoxBarcode(e.target.value)} placeholder="Scan box barcode" data-barcode-input="true" className="text-left" />
               </div>
-            )}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Pieces per Box</Label><Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 80" className="text-left" /></div>
+                <div className="space-y-2"><Label>Number of Boxes</Label><Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Box Cost Price</Label><Input type="number" value={boxCostPrice} onChange={(e) => setBoxCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2"><Label>Box Sale Price</Label><Input type="number" value={boxSalePrice} onChange={(e) => setBoxSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2"><Label>Box Wholesale</Label><Input type="number" value={boxWholesalePrice} onChange={(e) => setBoxWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2"><Label>Box Shopkeeper</Label><Input type="number" value={boxShopkeeperPrice} onChange={(e) => setBoxShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+              </div>
+              {totalPieces > 0 && <div className="rounded bg-amber-100 p-2 text-center text-sm font-bold text-amber-800">Total: {boxQty || 0} boxes x {piecesPerBox || 0} pcs = {totalPieces} pieces</div>}
+            </div>
 
-            {/* BOX form */}
-            {productType === "box" && (
-              <>
-                <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-3 space-y-3">
-                  <div className="flex items-center gap-2"><Package className="w-4 h-4 text-amber-600" /><Label className="font-bold text-amber-800">Box Details</Label></div>
-                  <div className="space-y-2"><Label>Box Barcode *</Label><Input value={boxBarcode} onChange={(e) => setBoxBarcode(e.target.value)} placeholder="Scan box barcode" data-barcode-input="true" className="text-left" /></div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Pieces per Box *</Label><Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 80" className="text-left" /></div>
-                    <div className="space-y-2"><Label>Number of Boxes</Label><Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Box Cost Price</Label><Input type="number" value={boxCostPrice} onChange={(e) => setBoxCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                    <div className="space-y-2"><Label>Box Sale Price</Label><Input type="number" value={boxSalePrice} onChange={(e) => setBoxSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Box Wholesale</Label><Input type="number" value={boxWholesalePrice} onChange={(e) => setBoxWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                    <div className="space-y-2"><Label>Box Shopkeeper</Label><Input type="number" value={boxShopkeeperPrice} onChange={(e) => setBoxShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                  </div>
-                  {totalPieces > 0 && <div className="rounded bg-amber-100 p-2 text-center text-sm font-bold text-amber-800">Total: {boxQty || 0} boxes × {piecesPerBox || 0} pcs = {totalPieces} pieces</div>}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
-                    <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
-                  </div>
-                </div>
-                <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-3 space-y-3">
-                  <div className="flex items-center gap-2"><Package className="w-4 h-4 text-emerald-600" /><Label className="font-bold text-emerald-800">Piece Details (auto-calculated)</Label></div>
-                  <div className="space-y-2"><Label>Piece Barcode *</Label><Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan piece barcode" data-barcode-input="true" className="text-left" /></div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Cost/Pc</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder={autoPieceCost ? autoPieceCost.toFixed(2) : "0"} className="text-left" /></div>
-                    <div className="space-y-2"><Label>Regular/Pc</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder={autoPieceSale ? autoPieceSale.toFixed(2) : "0"} className="text-left" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-2"><Label>Wholesale/Pc</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder={autoPieceWholesale ? autoPieceWholesale.toFixed(2) : "0"} className="text-left" /></div>
-                    <div className="space-y-2"><Label>Shopkeeper/Pc</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder={autoPieceShopkeeper ? autoPieceShopkeeper.toFixed(2) : "0"} className="text-left" /></div>
-                  </div>
-                  <div className="text-xs text-emerald-600">Prices auto-calculated from box ÷ pieces. Override allowed.</div>
-                </div>
-                <ImageUpload value={image} onChange={setImage} label="Product Image" />
-              </>
-            )}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2"><Label>Manufacturing Date</Label><Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} className="text-left" /></div>
+              <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
+            </div>
+            <ImageUpload value={image} onChange={setImage} label="Product Image" />
 
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>← Back</Button>
-              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving || (productType === "piece" ? !pieceBarcode.trim() : !boxBarcode.trim() || !pieceBarcode.trim())} onClick={saveProducts}>
-                {saving ? "Saving..." : editId ? "Update Product" : "Save Product"}
-              </Button>
+              <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving || !pieceBarcode.trim() || !name.trim()} onClick={saveProducts}>{saving ? "Saving..." : editId ? "Update" : "Add Product"}</Button>
             </div>
-          </div>
-        )}
-      </DialogContent>
+        </div>      </DialogContent>
     </Dialog>
   );
 }
