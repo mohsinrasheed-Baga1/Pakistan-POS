@@ -90,7 +90,7 @@ import { useAppStore } from "@/stores/use-pos-store";
 // ============================================================
 // In-app auto-update constants
 // ============================================================
-const CURRENT_VERSION = "2.7.26";
+const CURRENT_VERSION = "2.7.27";
 const UPDATE_URL =
   "https://raw.githubusercontent.com/mohsinrasheed-Baga1/shop-pos-system/main/public/update.json";
 // The installer is split into 11 parts (~20 MB each) on the repo dist/ folder.
@@ -3121,6 +3121,8 @@ function CloudBackupCard() {
   const [action, setAction] = React.useState<string>("");
   const [restoreTarget, setRestoreTarget] = React.useState<any>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [gClientId, setGClientId] = React.useState("");
+  const [gClientSecret, setGClientSecret] = React.useState("");
 
   const refresh = React.useCallback(async () => {
     if (typeof window === "undefined" || !window.posElectron?.googleDrive) return;
@@ -3153,6 +3155,30 @@ function CloudBackupCard() {
       } else {
         setError(res.error || "Connection failed");
         toast.error(res.error || "Connection failed");
+      }
+    } catch (e: any) {
+      setError(e.message);
+      toast.error(e.message);
+    } finally {
+      setLoading(false);
+      setAction("");
+    }
+  }
+
+  async function handleSaveConfig() {
+    setError(null);
+    setLoading(true);
+    setAction("save-config");
+    try {
+      const res = await window.posElectron.googleDrive.saveConfig(gClientId, gClientSecret);
+      if (res.ok) {
+        toast.success("OAuth credentials saved! Connecting...");
+        await refresh();
+        // Now auto-connect
+        await handleConnect();
+      } else {
+        setError(res.error || "Failed to save config");
+        toast.error(res.error || "Failed to save config");
       }
     } catch (e: any) {
       setError(e.message);
@@ -3318,7 +3344,7 @@ function CloudBackupCard() {
           <Alert className="border-amber-200 bg-amber-50">
             <AlertCircle className="h-4 w-4 text-amber-600" />
             <AlertDescription className="text-amber-800">
-              Google Drive backup is not configured yet. The app developer needs to set up Google OAuth credentials. See GOOGLE-DRIVE-SETUP.md.
+              Google Drive backup is not configured. Enter your Google OAuth credentials below to connect.
             </AlertDescription>
           </Alert>
         )}
@@ -3330,12 +3356,68 @@ function CloudBackupCard() {
           </Alert>
         )}
 
-        {/* Actions */}
-        <div className="flex flex-wrap gap-2">
-          {!connected ? (
+        {/* OAuth Setup Form - shown when not configured */}
+        {!connected && (
+          <div className="rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50/50 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Cloud className="w-5 h-5 text-emerald-600" />
+              <Label className="font-bold text-emerald-800">Setup Google Drive Backup</Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              To connect Google Drive, you need Google OAuth credentials. Follow these steps:
+            </p>
+            <ol className="list-decimal list-inside text-xs text-muted-foreground space-y-1 pl-1">
+              <li>Go to <span className="font-mono bg-muted px-1 rounded">console.cloud.google.com</span></li>
+              <li>Create a new project (or select existing)</li>
+              <li>Enable <strong>Google Drive API</strong></li>
+              <li>Create <strong>OAuth 2.0 Client ID</strong> (Desktop App type)</li>
+              <li>Copy <strong>Client ID</strong> and <strong>Client Secret</strong> below</li>
+            </ol>
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Google OAuth Client ID *</Label>
+                <Input
+                  type="text"
+                  placeholder="xxxxx.apps.googleusercontent.com"
+                  value={gClientId}
+                  onChange={(e) => setGClientId(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Google OAuth Client Secret *</Label>
+                <Input
+                  type="password"
+                  placeholder="GOCSPX-xxxxx"
+                  value={gClientSecret}
+                  onChange={(e) => setGClientSecret(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleSaveConfig}
+                disabled={loading || !gClientId.trim() || !gClientSecret.trim()}
+                className="bg-emerald-600 hover:bg-emerald-700"
+                size="sm"
+              >
+                {action === "save-config" ? (
+                  <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Saving...</>
+                ) : (
+                  <><Save className="w-3 h-3 mr-1" /> Save & Connect</>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Actions - only show if already configured */}
+        {!connected && status?.configured !== false && (
+          <div className="flex flex-wrap gap-2">
             <Button
               onClick={handleConnect}
-              disabled={loading || status?.configured === false}
+              disabled={loading}
               className="bg-emerald-600 hover:bg-emerald-700"
             >
               {action === "connect" ? (
@@ -3344,45 +3426,46 @@ function CloudBackupCard() {
                 <><Cloud className="w-4 h-4 mr-2" /> Connect Google Drive</>
               )}
             </Button>
-          ) : (
-            <>
-              <Button
-                onClick={handleBackup}
-                disabled={loading}
-                className="bg-emerald-600 hover:bg-emerald-700"
-              >
-                {action === "backup" ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</>
-                ) : (
-                  <><Upload className="w-4 h-4 mr-2" /> Backup Now</>
-                )}
-              </Button>
-              <Button
-                onClick={handleListBackups}
-                disabled={loading}
-                variant="outline"
-              >
-                {action === "list" ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading...</>
-                ) : (
-                  <><List className="w-4 h-4 mr-2" /> Restore Backup</>
-                )}
-              </Button>
-              <Button
-                onClick={handleDisconnect}
-                disabled={loading}
-                variant="outline"
-                className="text-red-600 hover:bg-red-50"
-              >
-                {action === "disconnect" ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /></>
-                ) : (
-                  <><CloudOff className="w-4 h-4 mr-2" /> Disconnect</>
-                )}
-              </Button>
-            </>
-          )}
-        </div>
+          </div>
+        )}
+        {connected && (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={handleBackup}
+              disabled={loading}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {action === "backup" ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</>
+              ) : (
+                <><Upload className="w-4 h-4 mr-2" /> Backup Now</>
+              )}
+            </Button>
+            <Button
+              onClick={handleListBackups}
+              disabled={loading}
+              variant="outline"
+            >
+              {action === "list" ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading...</>
+              ) : (
+                <><List className="w-4 h-4 mr-2" /> Restore Backup</>
+              )}
+            </Button>
+            <Button
+              onClick={handleDisconnect}
+              disabled={loading}
+              variant="outline"
+              className="text-red-600 hover:bg-red-50"
+            >
+              {action === "disconnect" ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /></>
+              ) : (
+                <><CloudOff className="w-4 h-4 mr-2" /> Disconnect</>
+              )}
+            </Button>
+          </div>
+        )}
 
         {/* Backup schedule info */}
         {connected && (

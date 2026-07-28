@@ -15,5 +15,6 @@ contextBridge.exposeInMainWorld("posElectron", {
     backup: () => ipcRenderer.invoke("gdrive:backup"),
     listBackups: () => ipcRenderer.invoke("gdrive:listBackups"),
     restore: (fileId) => ipcRenderer.invoke("gdrive:restore", fileId),
+    saveConfig: (clientId, clientSecret) => ipcRenderer.invoke("gdrive:save-config", clientId, clientSecret),
   },
 });

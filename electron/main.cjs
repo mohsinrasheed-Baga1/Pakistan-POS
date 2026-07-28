@@ -423,6 +423,30 @@ if (!gotLock) {
     }
   });
 
+  ipcMain.handle("gdrive:save-config", async (event, clientId, clientSecret) => {
+    try {
+      const isDev = !app.isPackaged;
+      const configPath = isDev
+        ? path.join(__dirname, "..", "google-oauth.config.json")
+        : path.join(process.resourcesPath, "google-oauth.config.json");
+      const currentConfig = gdrive.getConfig();
+      const newConfig = {
+        ...(currentConfig || {}),
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+        redirectUri: currentConfig?.redirectUri || "http://localhost:4784",
+        scopes: currentConfig?.scopes || ["https://www.googleapis.com/auth/drive.file"],
+        backupFolderName: currentConfig?.backupFolderName || "POS Backups",
+        backupScheduleHours: currentConfig?.backupScheduleHours || 4,
+      };
+      fs.writeFileSync(configPath, JSON.stringify(newConfig, null, 2));
+      gdrive.reloadConfig();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   ipcMain.handle("gdrive:restore", async (event, fileId) => {
     try {
       const tempPath = path.join(os.tmpdir(), "pos-restore-" + Date.now() + ".db");

@@ -30,6 +30,15 @@ function loadConfig() {
   return config;
 }
 
+function getConfig() {
+  return loadConfig();
+}
+
+function reloadConfig() {
+  config = null;
+  return loadConfig();
+}
+
 // Token storage: encrypted via safeStorage, saved to a file in userData
 function getTokenStorePath() {
   return path.join(app.getPath("userData"), "gdrive-tokens.json");
@@ -431,4 +440,6 @@ module.exports = {
   getStatus,
   getBackupRecords,
   loadTokens,
+  getConfig,
+  reloadConfig,
 };
