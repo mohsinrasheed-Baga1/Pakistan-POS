@@ -36,6 +36,8 @@ jobs:
 
       - name: Prepare Electron
         run: node scripts/prepare-electron.mjs
+        env:
+          DATABASE_URL: "file:./pos.db"
 
       - name: Build Windows Installer
         run: bunx electron-builder --win nsis --x64
