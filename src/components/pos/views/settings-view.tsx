@@ -83,14 +83,21 @@ import {
   Clock,
   Keyboard,
   HardDriveDownload,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import type { Settings } from "@/types";
 import { useAppStore } from "@/stores/use-pos-store";
 
 // ============================================================
 // In-app auto-update constants
 // ============================================================
-const CURRENT_VERSION = "2.7.27";
+const CURRENT_VERSION = "2.7.28";
 const UPDATE_URL =
   "https://raw.githubusercontent.com/mohsinrasheed-Baga1/shop-pos-system/main/public/update.json";
 // The installer is split into 11 parts (~20 MB each) on the repo dist/ folder.
@@ -3123,6 +3130,7 @@ function CloudBackupCard() {
   const [error, setError] = React.useState<string | null>(null);
   const [gClientId, setGClientId] = React.useState("");
   const [gClientSecret, setGClientSecret] = React.useState("");
+  const [showRestoreHelp, setShowRestoreHelp] = React.useState(false);
 
   const refresh = React.useCallback(async () => {
     if (typeof window === "undefined" || !window.posElectron?.googleDrive) return;
@@ -3142,6 +3150,7 @@ function CloudBackupCard() {
 
   const isElectron = typeof window !== "undefined" && window.posElectron?.googleDrive;
   const connected = status?.connected;
+  const configured = status ? status.configured : null; // null = still loading
 
   async function handleConnect() {
     setError(null);
@@ -3319,7 +3328,9 @@ function CloudBackupCard() {
                 <CloudOff className="w-5 h-5 text-muted-foreground" />
                 <div>
                   <div className="font-medium text-sm">Not Connected</div>
-                  <div className="text-xs text-muted-foreground">Click connect to set up</div>
+                  <div className="text-xs text-muted-foreground">
+                    {configured === null ? "Loading..." : "Enter credentials below to connect"}
+                  </div>
                 </div>
               </>
             )}
@@ -3339,16 +3350,6 @@ function CloudBackupCard() {
           </div>
         )}
 
-        {/* Config not set warning */}
-        {status?.configured === false && (
-          <Alert className="border-amber-200 bg-amber-50">
-            <AlertCircle className="h-4 w-4 text-amber-600" />
-            <AlertDescription className="text-amber-800">
-              Google Drive backup is not configured. Enter your Google OAuth credentials below to connect.
-            </AlertDescription>
-          </Alert>
-        )}
-
         {error && (
           <Alert className="border-red-200 bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
@@ -3356,13 +3357,21 @@ function CloudBackupCard() {
           </Alert>
         )}
 
-        {/* OAuth Setup Form - shown when not configured */}
+        {/* OAuth Setup Form - ALWAYS shown when not connected */}
         {!connected && (
           <div className="rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50/50 p-4 space-y-3">
             <div className="flex items-center gap-2">
               <Cloud className="w-5 h-5 text-emerald-600" />
               <Label className="font-bold text-emerald-800">Setup Google Drive Backup</Label>
             </div>
+            {configured === false && (
+              <Alert className="border-amber-200 bg-amber-50 py-2">
+                <AlertCircle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-800 text-xs">
+                  Google Drive is not configured. Enter your OAuth credentials below to connect.
+                </AlertDescription>
+              </Alert>
+            )}
             <p className="text-xs text-muted-foreground">
               To connect Google Drive, you need Google OAuth credentials. Follow these steps:
             </p>
@@ -3400,20 +3409,25 @@ function CloudBackupCard() {
                 onClick={handleSaveConfig}
                 disabled={loading || !gClientId.trim() || !gClientSecret.trim()}
                 className="bg-emerald-600 hover:bg-emerald-700"
-                size="sm"
               >
                 {action === "save-config" ? (
-                  <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Saving...</>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving &amp; Connecting...</>
                 ) : (
-                  <><Save className="w-3 h-3 mr-1" /> Save & Connect</>
+                  <><Save className="w-4 h-4 mr-2" /> Save &amp; Connect Google Drive</>
                 )}
               </Button>
             </div>
+            {configured === true && (
+              <p className="text-xs text-emerald-700">
+                <CheckCircle2 className="w-3 h-3 inline mr-1" />
+                Credentials already saved. Click &quot;Save &amp; Connect&quot; again or use the Connect button below.
+              </p>
+            )}
           </div>
         )}
 
-        {/* Actions - only show if already configured */}
-        {!connected && status?.configured !== false && (
+        {/* Connect button - only when configured but not connected */}
+        {!connected && configured === true && (
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={handleConnect}
@@ -3449,7 +3463,7 @@ function CloudBackupCard() {
               {action === "list" ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading...</>
               ) : (
-                <><List className="w-4 h-4 mr-2" /> Restore Backup</>
+                <><List className="w-4 h-4 mr-2" /> View &amp; Restore Backups</>
               )}
             </Button>
             <Button
@@ -3480,7 +3494,7 @@ function CloudBackupCard() {
           </div>
         )}
 
-        {/* Restore dialog */}
+        {/* Restore dialog - backups list */}
         {backups.length > 0 && (
           <div className="space-y-2">
             <Label className="text-sm font-medium">Available Backups on Google Drive:</Label>
@@ -3493,7 +3507,7 @@ function CloudBackupCard() {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{b.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {new Date(b.createdTime).toLocaleString()} • {Math.round((b.size || 0) / 1024)} KB
+                      {new Date(b.createdTime).toLocaleString()} &bull; {Math.round((Number(b.size) || 0) / 1024)} KB
                     </div>
                   </div>
                   <Button
@@ -3537,12 +3551,49 @@ function CloudBackupCard() {
           </AlertDialogContent>
         </AlertDialog>
 
+        {/* How to restore after computer crash - FAQ */}
+        <Collapsible open={showRestoreHelp} onOpenChange={setShowRestoreHelp}>
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full justify-between">
+              <span className="flex items-center gap-2">
+                <Info className="w-4 h-4 text-blue-600" />
+                <span className="text-sm font-medium">Computer坏了之后如何恢复数据? (How to restore after computer crash?)</span>
+              </span>
+              {showRestoreHelp ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 mt-2 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-bold text-blue-800">
+                <RefreshCw className="w-4 h-4" />
+                Computer crash ya format hone ke baad data recovery
+              </div>
+              <div className="text-xs text-muted-foreground space-y-2">
+                <p>Agar aapka computer kharab ho jaye ya format ho jaye, aapka data Google Drive par safe hai. Naye computer par data wapas lane ke liye:</p>
+                <ol className="list-decimal list-inside space-y-1 pl-2">
+                  <li><strong>Software install karein</strong> — Naye computer par Shop POS System download aur install karein</li>
+                  <li><strong>Settings &rarr; Google Drive</strong> jayein</li>
+                  <li><strong>Client ID aur Client Secret</strong> daalein (jo pehle use kiya tha) &rarr; <strong>Save &amp; Connect</strong> dabayein</li>
+                  <li><strong>Google sign-in</strong> &mdash; Google ka page khulega, <strong>usi Gmail</strong> se login karein jo pehle backup lene ke liye use ki thi</li>
+                  <li><strong>Connected</strong> hone ke baad, <strong>&quot;View &amp; Restore Backups&quot;</strong> button dabayein</li>
+                  <li><strong>Sab backups ki list</strong> aa jayegi Google Drive se &mdash; sabse naya (latest) backup select karein</li>
+                  <li><strong>&quot;Restore&quot;</strong> dabayein &rarr; Confirm karein</li>
+                  <li><strong>App restart karein</strong> &rarr; <span className="text-emerald-700 font-bold">Aapka sara data wapas aa jayega!</span></li>
+                </ol>
+                <div className="mt-2 p-2 bg-emerald-100 rounded border border-emerald-200 text-emerald-800">
+                  <strong>Important:</strong> Aapko sirf Client ID aur Client Secret yaad rakhna hai. Ye Google Cloud Console se milta hai. Backup aapke Google Drive account mein store hota hai &mdash; computer se independent.
+                </div>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
         <Separator />
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
           <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
           <span>
             Your Google credentials are encrypted and stored securely on this computer.
-            We only access files in the "POS Backups" folder. You can disconnect anytime.
+            We only access files in the &quot;POS Backups&quot; folder. You can disconnect anytime.
           </span>
         </div>
       </CardContent>
