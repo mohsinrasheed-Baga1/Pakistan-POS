@@ -1184,47 +1184,123 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
               </Select>
             </div>
 
-            {/* Piece section */}
-            <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-3 space-y-3">
-              <div className="flex items-center gap-2"><Package className="w-4 h-4 text-emerald-600" /><Label className="font-bold text-emerald-800">Piece Details</Label></div>
-              <div className="space-y-2">
-                <Label>Piece Barcode *</Label>
-                <Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan or type piece barcode" data-barcode-input="true" className="text-left" />
-              </div>
+            {/* BOX section (primary - on top) */}
+            <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3 space-y-3">
+              <div className="flex items-center gap-2"><Package className="w-4 h-4 text-amber-600" /><Label className="font-bold text-amber-800">Box Details</Label><span className="text-xs text-muted-foreground">- enter box info first, piece prices auto-calculate below</span></div>
               <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2"><Label>Cost Price</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                <div className="space-y-2"><Label>Sale Price (Regular) *</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2">
+                  <Label>Pieces per Box *</Label>
+                  <Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 80" className="text-left" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Number of Boxes *</Label>
+                  <Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" />
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2"><Label>Wholesale Price</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                <div className="space-y-2"><Label>Shopkeeper Price</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2"><Label>Stock Quantity</Label><Input type="number" value={pieceStock} onChange={(e) => setPieceStock(e.target.value)} placeholder="0" className="text-left" /></div>
-                <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
-              </div>
-            </div>
-
-            {/* Box section (optional) */}
-            <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-3 space-y-3">
-              <div className="flex items-center gap-2"><Package className="w-4 h-4 text-amber-600" /><Label className="font-bold text-amber-800">Box Details (optional)</Label><span className="text-xs text-muted-foreground">- fill if product comes in box/bag</span></div>
               <div className="space-y-2">
                 <Label>Box Barcode</Label>
                 <Input value={boxBarcode} onChange={(e) => setBoxBarcode(e.target.value)} placeholder="Scan box barcode" data-barcode-input="true" className="text-left" />
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2"><Label>Pieces per Box</Label><Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 80" className="text-left" /></div>
-                <div className="space-y-2"><Label>Number of Boxes</Label><Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-2"><Label>Box Cost Price</Label><Input type="number" value={boxCostPrice} onChange={(e) => setBoxCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                <div className="space-y-2"><Label>Box Sale Price</Label><Input type="number" value={boxSalePrice} onChange={(e) => setBoxSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                <div className="space-y-2"><Label>Box Sale Price (Regular)</Label><Input type="number" value={boxSalePrice} onChange={(e) => setBoxSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-2"><Label>Box Wholesale</Label><Input type="number" value={boxWholesalePrice} onChange={(e) => setBoxWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
                 <div className="space-y-2"><Label>Box Shopkeeper</Label><Input type="number" value={boxShopkeeperPrice} onChange={(e) => setBoxShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
               </div>
-              {totalPieces > 0 && <div className="rounded bg-amber-100 p-2 text-center text-sm font-bold text-amber-800">Total: {boxQty || 0} boxes x {piecesPerBox || 0} pcs = {totalPieces} pieces</div>}
+              {totalPieces > 0 && (
+                <div className="rounded bg-amber-200 p-2 text-center text-base font-bold text-amber-900">
+                  Total: {boxQty || 0} boxes × {piecesPerBox || 0} pcs = <span className="text-lg">{totalPieces}</span> pieces
+                </div>
+              )}
+            </div>
+
+            {/* Piece Barcode (single line) - link between box and piece */}
+            <div className="space-y-2">
+              <Label>Piece Barcode *</Label>
+              <Input value={pieceBarcode} onChange={(e) => setPieceBarcode(e.target.value)} placeholder="Scan or type piece barcode" data-barcode-input="true" className="text-left" />
+            </div>
+
+            {/* PIECE section (auto-calculated from box) - on bottom */}
+            <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50 p-3 space-y-3">
+              <div className="flex items-center gap-2"><Package className="w-4 h-4 text-emerald-600" /><Label className="font-bold text-emerald-800">Piece Details (Auto-calculated)</Label></div>
+              <div className="text-xs text-muted-foreground">
+                {totalPieces > 0 && piecesPerBox && Number(piecesPerBox) > 0 ? (
+                  <>Prices below are auto-derived from box prices ÷ {piecesPerBox} pieces per box</>
+                ) : (
+                  <>Fill box details above to auto-calculate piece prices</>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                  <Label>Cost Price / Piece</Label>
+                  <Input
+                    type="number"
+                    value={pieceCostPrice}
+                    onChange={(e) => setPieceCostPrice(e.target.value)}
+                    placeholder="0"
+                    className="text-left bg-emerald-100/70 font-medium"
+                    readOnly={!!(boxSalePrice && piecesPerBox)}
+                  />
+                  {autoPieceCost > 0 && <div className="text-[10px] text-emerald-700">Auto: Rs {autoPieceCost.toFixed(2)}</div>}
+                </div>
+                <div className="space-y-2">
+                  <Label>Sale Price (Regular) / Piece *</Label>
+                  <Input
+                    type="number"
+                    value={pieceSalePrice}
+                    onChange={(e) => setPieceSalePrice(e.target.value)}
+                    placeholder="0"
+                    className="text-left bg-emerald-100/70 font-medium"
+                    readOnly={!!(boxSalePrice && piecesPerBox)}
+                  />
+                  {autoPieceSale > 0 && <div className="text-[10px] text-emerald-700">Auto: Rs {autoPieceSale.toFixed(2)}</div>}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                  <Label>Wholesale Price / Piece</Label>
+                  <Input
+                    type="number"
+                    value={pieceWholesalePrice}
+                    onChange={(e) => setPieceWholesalePrice(e.target.value)}
+                    placeholder="0"
+                    className="text-left bg-emerald-100/70 font-medium"
+                    readOnly={!!(boxWholesalePrice && piecesPerBox)}
+                  />
+                  {autoPieceWholesale > 0 && <div className="text-[10px] text-emerald-700">Auto: Rs {autoPieceWholesale.toFixed(2)}</div>}
+                </div>
+                <div className="space-y-2">
+                  <Label>Shopkeeper Price / Piece</Label>
+                  <Input
+                    type="number"
+                    value={pieceShopkeeperPrice}
+                    onChange={(e) => setPieceShopkeeperPrice(e.target.value)}
+                    placeholder="0"
+                    className="text-left bg-emerald-100/70 font-medium"
+                    readOnly={!!(boxShopkeeperPrice && piecesPerBox)}
+                  />
+                  {autoPieceShopkeeper > 0 && <div className="text-[10px] text-emerald-700">Auto: Rs {autoPieceShopkeeper.toFixed(2)}</div>}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                  <Label>Low Stock Alert</Label>
+                  <Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Total Stock (auto)</Label>
+                  <Input
+                    type="number"
+                    value={totalPieces > 0 ? totalPieces.toString() : pieceStock}
+                    onChange={(e) => setPieceStock(e.target.value)}
+                    placeholder="0"
+                    className="text-left bg-muted"
+                    readOnly={totalPieces > 0}
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2">

@@ -494,27 +494,27 @@ export function CardVisual({
         position: "relative",
       }}
     >
-      {/* Header — subName (top, bold) + shop name/address/phone */}
+      {/* Header — shopName (BIG, top) */}
       <div
         style={{
-          background: "#f0f0f0",
           borderBottom: "1px solid #000",
-          padding: "1mm 2mm",
+          padding: "1.5mm 2mm 0.5mm",
           textAlign: "center",
         }}
       >
         <div
           style={{
             fontWeight: "bold",
-            fontSize: "11px",
-            lineHeight: 1.1,
+            fontSize: "14px",
+            lineHeight: 1.15,
             color: "#000",
+            letterSpacing: "0.3px",
           }}
         >
-          {subName}
-        </div>
-        <div style={{ fontSize: "7px", lineHeight: 1.15, color: "#000" }}>
           {shopName}
+        </div>
+        <div style={{ fontSize: "7px", lineHeight: 1.15, color: "#333" }}>
+          {subName !== shopName ? subName : ""}
           {shopAddress ? ` • ${shopAddress}` : ""}
           {shopPhone ? ` • ${shopPhone}` : ""}
         </div>
@@ -530,67 +530,41 @@ export function CardVisual({
           gap: "0.6mm",
         }}
       >
-        <div
-          style={{
-            textAlign: "center",
-            fontWeight: "bold",
-            fontSize: "8px",
-            letterSpacing: "0.5px",
-            textTransform: "uppercase",
-            color: "#000",
-          }}
-        >
-          — SHOP CARD —
-        </div>
-
+        {/* Card holder name + type */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: "1mm",
           }}
         >
-          <User
-            style={{ width: "10px", height: "10px", color: "#000" }}
-          />
-          <span
+          <div
             style={{
-              fontSize: "9px",
-              fontWeight: "bold",
-              color: "#000",
-              textTransform: "uppercase",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5mm",
             }}
           >
-            {card.name}
-          </span>
-        </div>
-
-        <div
-          style={{
-            fontSize: "12px",
-            fontWeight: "bold",
-            fontFamily: "Courier New, monospace",
-            letterSpacing: "1px",
-            color: "#000",
-            textAlign: "center",
-            padding: "0.4mm 0",
-          }}
-        >
-          {card.cardNumber}
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+            <User
+              style={{ width: "8px", height: "8px", color: "#000" }}
+            />
+            <span
+              style={{
+                fontSize: "8px",
+                fontWeight: "bold",
+                color: "#000",
+                textTransform: "uppercase",
+              }}
+            >
+              {card.name}
+            </span>
+          </div>
           <span
             style={{
               border: "1px solid #000",
-              padding: "0.4mm 2mm",
-              fontSize: "8px",
+              padding: "0.3mm 1.5mm",
+              fontSize: "7px",
               fontWeight: "bold",
               color: "#000",
               background: "#fff",
@@ -602,17 +576,35 @@ export function CardVisual({
           </span>
         </div>
 
-        {/* QR + Barcode side by side */}
+        {/* BIG Barcode + number below */}
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "1mm",
-            marginTop: "auto",
+            justifyContent: "center",
+            overflow: "hidden",
+            marginTop: "0.5mm",
           }}
         >
-          <div style={{ width: "12mm", height: "12mm" }}>
+          <BarcodeDisplay
+            value={card.cardNumber}
+            format="CODE128"
+            height={38}
+            width={1.2}
+            displayValue={true}
+            fontSize={10}
+            textMargin={1}
+          />
+        </div>
+
+        {/* QR code small */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            marginTop: "0.5mm",
+          }}
+        >
+          <div style={{ width: "10mm", height: "10mm" }}>
             {qrDataUrl ? (
               <img
                 src={qrDataUrl}
@@ -620,22 +612,6 @@ export function CardVisual({
                 style={{ width: "100%", height: "100%" }}
               />
             ) : null}
-          </div>
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              justifyContent: "center",
-              overflow: "hidden",
-            }}
-          >
-            <BarcodeDisplay
-              value={card.cardNumber}
-              format="CODE128"
-              height={26}
-              width={1}
-              displayValue={false}
-            />
           </div>
         </div>
       </div>
@@ -719,49 +695,42 @@ function CardPrintDialog({
           background: #fff;
         }
         .header {
-          background: #f0f0f0;
           border-bottom: 1px solid #000;
-          padding: 1mm 2mm;
+          padding: 1.5mm 2mm 0.5mm;
           text-align: center;
         }
-        .sub-name { font-weight: bold; font-size: 11px; line-height: 1.1; color: #000; }
-        .shop-meta { font-size: 7px; line-height: 1.15; color: #000; }
-        .body { flex: 1; padding: 1mm 2mm; display: flex; flex-direction: column; gap: 0.6mm; }
-        .title { text-align: center; font-weight: bold; font-size: 8px; letter-spacing: 0.5px; text-transform: uppercase; color: #000; }
-        .holder { display: flex; align-items: center; gap: 1mm; }
-        .holder-name { font-size: 9px; font-weight: bold; color: #000; text-transform: uppercase; }
-        .card-number { font-size: 12px; font-weight: bold; font-family: 'Courier New', monospace; letter-spacing: 1px; color: #000; text-align: center; padding: 0.4mm 0; }
-        .type-row { display: flex; align-items: center; justify-content: center; }
-        .type-badge { border: 1px solid #000; padding: 0.4mm 2mm; font-size: 8px; font-weight: bold; color: #000; background: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
-        .footer { display: flex; align-items: center; justify-content: space-between; gap: 1mm; margin-top: auto; }
-        .qr { width: 12mm; height: 12mm; }
-        .barcode { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; }
+        .shop-name { font-weight: bold; font-size: 14px; line-height: 1.15; color: #000; letter-spacing: 0.3px; }
+        .shop-meta { font-size: 7px; line-height: 1.15; color: #333; }
+        .body { flex: 1; padding: 1mm 2mm; display: flex; flex-direction: column; gap: 0.5mm; }
+        .holder-row { display: flex; align-items: center; justify-content: space-between; gap: 1mm; }
+        .holder-name { font-size: 8px; font-weight: bold; color: #000; text-transform: uppercase; }
+        .type-badge { border: 1px solid #000; padding: 0.3mm 1.5mm; font-size: 7px; font-weight: bold; color: #000; background: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
+        .barcode { display: flex; justify-content: center; overflow: hidden; margin-top: 0.5mm; }
+        .qr { display: flex; justify-content: center; margin-top: 0.5mm; }
       </style></head>
       <body>
         <div class="card">
           <div class="header">
-            <div class="sub-name">${escapeHtml(subName)}</div>
+            <div class="shop-name">${escapeHtml(shopName)}</div>
             <div class="shop-meta">
-              ${escapeHtml(shopName)}${
+              ${subName !== shopName ? escapeHtml(subName) : ""}${
                 shopAddress ? ` &bull; ${escapeHtml(shopAddress)}` : ""
               }${shopPhone ? ` &bull; ${escapeHtml(shopPhone)}` : ""}
             </div>
           </div>
           <div class="body">
-            <div class="title">&mdash; SHOP CARD &mdash;</div>
-            <div class="holder">
-              <span style="font-size:10px;">&#9635;</span>
-              <span class="holder-name">${escapeHtml(card.name)}</span>
-            </div>
-            <div class="card-number">${escapeHtml(card.cardNumber)}</div>
-            <div class="type-row">
+            <div class="holder-row">
+              <div style="display:flex;align-items:center;gap:0.5mm;">
+                <span style="font-size:8px;">&#9635;</span>
+                <span class="holder-name">${escapeHtml(card.name)}</span>
+              </div>
               <span class="type-badge">${escapeHtml(cardTypeLabel)}</span>
             </div>
-            <div class="footer">
-              <div class="qr">${qrImg}</div>
-              <div class="barcode">
-                <svg id="barcode-svg"></svg>
-              </div>
+            <div class="barcode">
+              <svg id="barcode-svg"></svg>
+            </div>
+            <div class="qr">
+              <div style="width:10mm;height:10mm;">${qrImg}</div>
             </div>
           </div>
         </div>
@@ -770,10 +739,11 @@ function CardPrintDialog({
           try {
             JsBarcode('#barcode-svg', '${escapeHtml(card.cardNumber)}', {
               format: 'CODE128',
-              width: 1,
-              height: 26,
-              displayValue: false,
-              margin: 0
+              width: 1.2,
+              height: 38,
+              displayValue: true,
+              fontSize: 10,
+              textMargin: 1,
             });
           } catch (e) {
             console.error('barcode error', e);
