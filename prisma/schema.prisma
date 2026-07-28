@@ -33,16 +33,31 @@ model Category {
 }
 
 model Vendor {
+  id             String   @id @default(cuid())
+  name           String
+  companyName    String?
+  phone          String?
+  address        String?
+  note           String?
+  active         Boolean  @default(true)
+  totalPurchased Float   @default(0)
+  totalPaid      Float   @default(0)
+  balance        Float   @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  products       Product[]
+  purchases      VendorPurchase[]
+}
+
+model VendorPurchase {
   id          String   @id @default(cuid())
-  name        String
-  companyName String?
-  phone       String?
-  address     String?
-  note        String?
-  active      Boolean  @default(true)
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  amount      Float
+  type        String   @default("PURCHASE") // PURCHASE | PAYMENT
+  description String?
+  paymentDate DateTime @default(now())
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  products    Product[]
 }
 
 model Product {

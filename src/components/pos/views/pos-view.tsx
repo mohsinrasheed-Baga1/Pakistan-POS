@@ -1081,6 +1081,25 @@ function CalculatorDialog({ open, onOpenChange }: CalculatorDialogProps) {
     }
   }, [open]);
 
+  // Keyboard support for calculator
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      if (e.key >= "0" && e.key <= "9") inputDigit(e.key);
+      else if (e.key === ".") inputDecimal();
+      else if (e.key === "+") performOperation("+");
+      else if (e.key === "-") performOperation("-");
+      else if (e.key === "*") performOperation("*");
+      else if (e.key === "/") performOperation("/");
+      else if (e.key === "Enter" || e.key === "=") calculate();
+      else if (e.key === "Escape") clearAll();
+      else if (e.key === "Backspace") backspace();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, display, previousValue, operation, waitingForOperand]);
+
   function inputDigit(d: string) {
     if (waitingForOperand) {
       setDisplay(d);

@@ -16,6 +16,7 @@ import {
   BarChart3,
   Boxes,
   CheckCircle2,
+  Users,
 } from "lucide-react";
 import {
   Card,
@@ -171,16 +172,19 @@ export function DashboardView() {
   const [notifications, setNotifications] = React.useState<NotificationsResponse | null>(
     null
   );
+  const [topCustomers, setTopCustomers] = React.useState<Array<{ name: string; cardNumber: string; totalPurchases: number; type: string }>>([]);
+  const [cardsLoading, setCardsLoading] = React.useState(false);
 
   const loadAll = React.useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     if (silent) setRefreshing(true);
     try {
-      const [salesRes, productsRes, settingsRes, notifRes] = await Promise.all([
+      const [salesRes, productsRes, settingsRes, notifRes, cardsRes] = await Promise.all([
         fetch("/api/sales?today=true&limit=200", { cache: "no-store" }),
         fetch("/api/products", { cache: "no-store" }),
         fetch("/api/settings", { cache: "no-store" }),
         fetch("/api/notifications", { cache: "no-store" }),
+        fetch("/api/cards", { cache: "no-store" }),
       ]);
       const [salesData, productsData, settingsData, notifData] =
         await Promise.all([
@@ -198,6 +202,10 @@ export function DashboardView() {
       setProducts(productsData.products || []);
       setSettings(settingsData.settings || null);
       setNotifications(notifData as NotificationsResponse);
+      const cardsData = await cardsRes.json();
+      const allCards = cardsData.cards || [];
+      const top5 = [...allCards].sort((a, b) => (b.totalPurchases || 0) - (a.totalPurchases || 0)).slice(0, 5);
+      setTopCustomers(top5);
     } catch {
       toast.error("Failed to load dashboard data");
     } finally {
@@ -575,6 +583,72 @@ export function DashboardView() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Top 5 Spending Customers (Shop Cards) */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                <Users className="h-4 w-4" />
+              </div>
+              <CardTitle className="text-base">Top 5 Spending Customers</CardTitle>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setView("cards")}
+            >
+              All Cards
+              <ArrowRight className="h-3 w-3" />
+            </Button>
+          </div>
+          <CardDescription className="text-xs">
+            Customers with highest purchase amounts on Shop Cards
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {loading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 w-full" />
+              ))}
+            </div>
+          ) : topCustomers.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-6 text-center">
+              <CreditCard className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                No shop card transactions yet
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {topCustomers.map((c, idx) => (
+                <div
+                  key={c.cardNumber}
+                  className="flex items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{c.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {c.type === "WHOLESALE" ? "Wholesale" : c.type === "SHOP_KEEPER" ? "Shop Keeper" : "Regular"} • {c.cardNumber}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-violet-700 dark:text-violet-300 shrink-0">
+                    {formatMoney(c.totalPurchases, currency)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Separator className="hidden" />
     </div>

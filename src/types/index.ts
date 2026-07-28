@@ -47,8 +47,21 @@ export interface Vendor {
   address: string | null;
   note: string | null;
   active: boolean;
+  totalPurchased: number;
+  totalPaid: number;
+  balance: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface VendorPurchase {
+  id: string;
+  vendorId: string;
+  amount: number;
+  type: "PURCHASE" | "PAYMENT";
+  description: string | null;
+  paymentDate: string;
+  createdAt: string;
 }
 
 export interface CartItem {
@@ -140,7 +153,7 @@ export interface User {
   createdAt: string;
 }
 
-export type CardType = "REGULAR" | "WHOLESALE";
+export type CardType = "REGULAR" | "WHOLESALE" | "SHOP_KEEPER";
 
 export interface CustomerCard {
   id: string;

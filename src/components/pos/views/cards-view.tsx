@@ -65,7 +65,7 @@ const emptyForm = {
   name: "",
   phone: "",
   address: "",
-  type: "REGULAR" as "REGULAR" | "WHOLESALE",
+  type: "REGULAR" as "REGULAR" | "WHOLESALE" | "SHOP_KEEPER",
   cardNumber: "",
   active: true,
 };
@@ -266,12 +266,12 @@ export function CardsView({ userRole }: CardsViewProps) {
                         <Badge
                           variant="outline"
                           className={
-                            c.type === "WHOLESALE"
+                            c.type === "WHOLESALE" || c.type === "SHOP_KEEPER"
                               ? "border-amber-300 text-amber-700 bg-amber-50"
                               : "border-emerald-300 text-emerald-700 bg-emerald-50"
                           }
                         >
-                          {c.type === "WHOLESALE" ? "Wholesale" : "Regular"}
+                          {c.type === "WHOLESALE" ? "Wholesale" : c.type === "SHOP_KEEPER" ? "Shop Keeper" : "Regular"}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
@@ -363,7 +363,7 @@ export function CardsView({ userRole }: CardsViewProps) {
                 <Select
                   value={form.type}
                   onValueChange={(v) =>
-                    setForm({ ...form, type: v as "REGULAR" | "WHOLESALE" })
+                    setForm({ ...form, type: v as "REGULAR" | "WHOLESALE" | "SHOP_KEEPER" })
                   }
                 >
                   <SelectTrigger>
@@ -372,6 +372,7 @@ export function CardsView({ userRole }: CardsViewProps) {
                   <SelectContent>
                     <SelectItem value="REGULAR">Regular</SelectItem>
                     <SelectItem value="WHOLESALE">Wholesale</SelectItem>
+                    <SelectItem value="SHOP_KEEPER">Shop Keeper</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -597,7 +598,7 @@ export function CardVisual({
               letterSpacing: "0.5px",
             }}
           >
-            {card.type === "WHOLESALE" ? "Wholesale" : "Regular"}
+            {card.type === "WHOLESALE" ? "Wholesale" : card.type === "SHOP_KEEPER" ? "Shop Keeper" : "Regular"}
           </span>
         </div>
 
@@ -694,7 +695,7 @@ function CardPrintDialog({
       toast.error("Pop-up blocked. Please allow pop-ups to print.");
       return;
     }
-    const cardTypeLabel = card.type === "WHOLESALE" ? "Wholesale" : "Regular";
+    const cardTypeLabel = card.type === "WHOLESALE" ? "Wholesale" : card.type === "SHOP_KEEPER" ? "Shop Keeper" : "Regular";
     const qrImg = qrDataUrl
       ? `<img src="${qrDataUrl}" style="width:12mm;height:12mm;" alt="QR" />`
       : "";

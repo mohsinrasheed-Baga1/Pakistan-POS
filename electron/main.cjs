@@ -20,6 +20,12 @@ const gdrive = require("./google-drive.cjs");
 const http = require("http");
 const { spawn } = require("child_process");
 
+// Old Hardware Fix: disable GPU acceleration for Pentium/Old PCs (black screen fix)
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+app.commandLine.appendSwitch("disable-software-rasterizer");
+app.commandLine.appendSwitch("disable-gpu");
+
 const PORT = 4783;
 const HOST = "127.0.0.1";
 
@@ -457,15 +463,19 @@ if (!gotLock) {
   function checkForUpdates() {}
 
   app.whenReady().then(async () => {
-    // F1 shortcut: open POS view (barcode scanning focus)
+    // F1 shortcut: open POS view and focus barcode input
     globalShortcut.register("F1", () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.executeJavaScript(`
           try {
-            const s = window.__NEXT_DATA__?.props?.pageProps;
-            if (document.querySelector('[data-testid="barcode-input"]')) {
-              document.querySelector('[data-testid="barcode-input"]').focus();
-            }
+            // Click POS nav item first
+            const posNav = document.querySelector('[data-view-id="POS"]');
+            if (posNav) posNav.click();
+            // Then focus barcode input
+            setTimeout(() => {
+              const bi = document.querySelector('[data-testid="barcode-input"]');
+              if (bi) bi.focus();
+            }, 200);
           } catch(e) {}
         `).catch(() => {});
         mainWindow.focus();

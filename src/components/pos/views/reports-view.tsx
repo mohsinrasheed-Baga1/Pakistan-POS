@@ -17,6 +17,7 @@ import {
   Calendar as CalendarIcon,
   CalendarDays,
   X,
+  Truck,
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -739,6 +740,18 @@ export function ReportsView() {
         </Card>
       </div>
 
+      {/* Vendor Balances Section */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Truck className="w-5 h-5 text-emerald-600" />
+            Vendor Balances
+          </CardTitle>
+          <CardDescription>Total outstanding balances across all vendors</CardDescription>
+        </CardHeader>
+        <VendorBalanceSection currency={currency} />
+      </Card>
+
       {/* Custom scrollbar styling */}
       <style jsx global>{`
         .custom-scroll::-webkit-scrollbar {
@@ -874,6 +887,94 @@ function EmptyState({
       <p className="font-medium text-sm">{title}</p>
       <p className="text-xs text-muted-foreground mt-1">{desc}</p>
     </div>
+  );
+}
+
+function VendorBalanceSection({ currency }: { currency: string }) {
+  const [vendors, setVendors] = React.useState<Array<{
+    id: string;
+    name: string;
+    totalPurchased: number;
+    totalPaid: number;
+    balance: number;
+    active: boolean;
+  }>>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/vendors", { cache: "no-store" });
+        const data = await res.json();
+        setVendors(data.vendors || []);
+      } catch {} finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const totalBalance = vendors.reduce((s, v) => s + (v.balance || 0), 0);
+  const vendorsWithBalance = vendors.filter((v) => v.balance > 0);
+
+  if (loading) {
+    return (
+      <CardContent>
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </div>
+      </CardContent>
+    );
+  }
+
+  return (
+    <CardContent className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">
+          {vendors.length} vendors total • {vendorsWithBalance.length} with balance
+        </span>
+        <span className="text-lg font-bold text-red-700">
+          Total Due: {formatMoney(totalBalance, currency)}
+        </span>
+      </div>
+      {vendorsWithBalance.length === 0 ? (
+        <div className="text-center py-6 text-muted-foreground text-sm">
+          No outstanding vendor balances
+        </div>
+      ) : (
+        <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Vendor</TableHead>
+                <TableHead className="text-right">Purchased</TableHead>
+                <TableHead className="text-right">Paid</TableHead>
+                <TableHead className="text-right">Balance</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {vendorsWithBalance
+                .sort((a, b) => b.balance - a.balance)
+                .map((v) => (
+                  <TableRow key={v.id}>
+                    <TableCell className="font-medium">{v.name}</TableCell>
+                    <TableCell className="text-right font-mono text-sm">
+                      {formatMoney(v.totalPurchased, currency)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm">
+                      {formatMoney(v.totalPaid, currency)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono font-bold text-sm text-red-600">
+                      {formatMoney(v.balance, currency)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </CardContent>
   );
 }
 

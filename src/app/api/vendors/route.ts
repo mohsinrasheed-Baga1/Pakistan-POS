@@ -44,3 +44,26 @@ export async function POST(req: NextRequest) {
   });
   return NextResponse.json({ vendor });
 }
+
+export async function PUT(req: NextRequest) {
+  const user = await getSessionUser();
+  if (!user || user.role === "CASHIER") {
+    return NextResponse.json({ error: "Manager or admin only" }, { status: 403 });
+  }
+  const body = await req.json();
+  if (!body.id) {
+    return NextResponse.json({ error: "ID is required" }, { status: 400 });
+  }
+  const vendor = await db.vendor.update({
+    where: { id: body.id },
+    data: {
+      name: body.name?.trim(),
+      companyName: body.companyName || null,
+      phone: body.phone || null,
+      address: body.address || null,
+      note: body.note || null,
+      active: body.active,
+    },
+  });
+  return NextResponse.json({ vendor });
+}
