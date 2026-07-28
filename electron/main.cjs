@@ -9,6 +9,7 @@ const {
   BrowserWindow,
   shell,
   ipcMain,
+  globalShortcut,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -456,6 +457,21 @@ if (!gotLock) {
   function checkForUpdates() {}
 
   app.whenReady().then(async () => {
+    // F1 shortcut: open POS view (barcode scanning focus)
+    globalShortcut.register("F1", () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.executeJavaScript(`
+          try {
+            const s = window.__NEXT_DATA__?.props?.pageProps;
+            if (document.querySelector('[data-testid="barcode-input"]')) {
+              document.querySelector('[data-testid="barcode-input"]').focus();
+            }
+          } catch(e) {}
+        `).catch(() => {});
+        mainWindow.focus();
+      }
+    });
+
     startServer();
     const ok = await waitForServer();
     if (!ok) {
@@ -467,6 +483,7 @@ if (!gotLock) {
 
   app.on("window-all-closed", () => {
     isQuitting = true;
+    globalShortcut.unregisterAll();
     if (serverProcess) {
       try {
         serverProcess.kill();
