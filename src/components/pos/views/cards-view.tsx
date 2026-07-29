@@ -235,8 +235,8 @@ export function CardsView({ userRole }: CardsViewProps) {
     }
   }
 
-  function openTxDialog() {
-    setTxForm(emptyTxForm);
+  function openTxDialog(type?: TransactionType) {
+    setTxForm({ ...emptyTxForm, type: type || emptyTxForm.type });
     setTxDialogOpen(true);
   }
 
@@ -637,13 +637,29 @@ export function CardsView({ userRole }: CardsViewProps) {
                 </div>
               )}
 
-              {/* Actions */}
+              {/* Actions — Quick Cash In / Cash Out buttons */}
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => openTxDialog("DEPOSIT")}
+                >
+                  <ArrowDownLeft className="w-4 h-4 mr-2" /> Cash In — جمع
+                </Button>
+                <Button
+                  className="bg-rose-600 hover:bg-rose-700"
+                  onClick={() => openTxDialog("WITHDRAWAL")}
+                >
+                  <ArrowUpRight className="w-4 h-4 mr-2" /> Cash Out — نکل
+                </Button>
+              </div>
+
               <div className="flex gap-2">
                 <Button
-                  className="bg-emerald-600 hover:bg-emerald-700 flex-1"
-                  onClick={openTxDialog}
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => openTxDialog()}
                 >
-                  <ArrowUpRight className="w-4 h-4 mr-2" /> New Transaction — نیا لین دین
+                  <Plus className="w-4 h-4 mr-2" /> Other Tx — دیگر
                 </Button>
                 <Button
                   variant="outline"

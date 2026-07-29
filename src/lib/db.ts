@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
   schemaEnsured: boolean | undefined
+  schemaEnsuring: Promise<void> | undefined
 }
 
 export const db =
@@ -11,15 +12,25 @@ export const db =
     log: ['error', 'warn'],
   })
 
-// Idempotent schema creation/migration for SQLite. Critical for the Electron
-// desktop app where a fresh DB may be created on first launch or an old DB
-// upgraded from a previous app version.
+// ─────────────────────────────────────────────────────────────────────────────
+// Idempotent schema creation/migration for SQLite.
 //
-// ⚠️ KEEP IN SYNC WITH prisma/schema.prisma — every model + field there must
-// have a matching CREATE TABLE / ALTER TABLE here. The runtime uses this file
-// (NOT prisma migrate) because the desktop app cannot run migrations on the
-// user's machine — it can only run ad-hoc `CREATE TABLE IF NOT EXISTS` /
-// `ALTER TABLE ADD COLUMN` statements against the live SQLite file.
+// This is the SINGLE SOURCE OF TRUTH for the runtime SQLite schema. The desktop
+// app cannot run `prisma migrate` on the user's machine — it can only run
+// ad-hoc `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN` statements
+// against the live SQLite file. Every model + field in prisma/schema.prisma
+// must have a matching entry here, AND every column added in a later version
+// must also be in COLUMN_ADDITIONS so an old user database gets upgraded
+// in place on next launch.
+//
+// WHY THIS MATTERS: if the user upgraded from v2.7.31 (or earlier) where the
+// Vendor table only had `id, name, companyName, createdAt, updatedAt`, then on
+// first launch of v2.7.32 we must ALTER TABLE Vendor ADD COLUMN phone TEXT
+// (and address, note, active, totalPurchased, totalPaid, balance) — otherwise
+// `db.vendor.findMany()` will throw "column main.Vendor.phone does not exist"
+// and the entire Vendors page will fail to load.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS User (
   id TEXT PRIMARY KEY NOT NULL,
@@ -129,7 +140,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS Sale_invoiceNo_key ON Sale(invoiceNo);
 CREATE TABLE IF NOT EXISTS SaleReturn (
   id TEXT PRIMARY KEY NOT NULL,
   saleId TEXT NOT NULL,
-  userId TEXT NOT NULL,
+  userId TEXT,
   amount REAL NOT NULL,
   reason TEXT,
   restocked BOOLEAN NOT NULL DEFAULT 1,
@@ -237,7 +248,6 @@ CREATE TABLE IF NOT EXISTS Settings (
   updatedAt DATETIME NOT NULL
 );
 
--- Load & Bill Payment module tables
 CREATE TABLE IF NOT EXISTS MobileLoadCompany (
   id TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL,
@@ -298,15 +308,30 @@ CREATE TABLE IF NOT EXISTS WalletTxn (
 );
 `;
 
-// Columns added in later versions — run idempotent ALTER TABLE on every boot
-// so an old user database gets upgraded in place. Each entry is
-// [tableName, [columnName, columnDefinition]].
+// ─────────────────────────────────────────────────────────────────────────────
+// COLUMN_ADDITIONS — exhaustive list of EVERY column added after the very
+// first release. When an old user upgrades, ALTER TABLE ADD COLUMN runs
+// idempotently to add any missing columns. New installs are unaffected
+// because CREATE TABLE IF NOT EXISTS already creates the table with all
+// columns.
+//
+// ⚠️ Adding a new column to prisma/schema.prisma? You MUST also add it here,
+//    otherwise users who installed an older version will see
+//    "column main.X.Y does not exist in the current database" errors.
+// ─────────────────────────────────────────────────────────────────────────────
 const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
   User: [
+    ["phone", "TEXT"],
     ["securityQuestion", "TEXT"],
     ["securityAnswer", "TEXT"],
   ],
   Vendor: [
+    // Older versions of Vendor only had id, name, companyName, createdAt,
+    // updatedAt. Add all the columns that have been added since.
+    ["phone", "TEXT"],
+    ["address", "TEXT"],
+    ["note", "TEXT"],
+    ["active", "BOOLEAN NOT NULL DEFAULT 1"],
     ["totalPurchased", "REAL NOT NULL DEFAULT 0"],
     ["totalPaid", "REAL NOT NULL DEFAULT 0"],
     ["balance", "REAL NOT NULL DEFAULT 0"],
@@ -327,16 +352,29 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["saleType", "TEXT NOT NULL DEFAULT 'RETAIL'"],
     ["originalSaleId", "TEXT"],
     ["note", "TEXT"],
+    ["customerName", "TEXT"],
+    ["customerPhone", "TEXT"],
   ],
   SaleReturn: [
     ["userId", "TEXT"],
   ],
+  SaleItem: [
+    // All SaleItem columns are present from the original schema, but include
+    // here for safety in case an old install predates them.
+    ["taxRate", "REAL NOT NULL DEFAULT 0"],
+  ],
   CustomerCard: [
-    ["customerId", "TEXT"],
+    ["customerId", "TEXT NOT NULL DEFAULT ''"],
+    ["address", "TEXT"],
+    ["type", "TEXT NOT NULL DEFAULT 'REGULAR'"],
   ],
   CardTransaction: [
     ["operatorName", "TEXT"],
     ["note", "TEXT"],
+  ],
+  Expense: [
+    ["category", "TEXT NOT NULL DEFAULT 'general'"],
+    ["date", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"],
   ],
   Settings: [
     ["printerWidth", "INTEGER NOT NULL DEFAULT 58"],
@@ -349,41 +387,90 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["googleClientSecret", "TEXT"],
     ["googleRefreshToken", "TEXT"],
   ],
-};
-
-export async function ensureSchema() {
-  if (globalForPrisma.schemaEnsured) return;
-  try {
-    const statements = SCHEMA_SQL.split(";").map((s) => s.trim()).filter(Boolean);
-    for (const stmt of statements) {
-      try {
-        await db.$executeRawUnsafe(stmt + ";");
-      } catch (e: any) {
-        // "duplicate column" or "table already exists" errors are OK — skip
-        if (e.message && (e.message.includes("duplicate") || e.message.includes("already exists"))) {
-          continue;
-        }
-        throw e;
-      }
-    }
-    for (const [table, cols] of Object.entries(COLUMN_ADDITIONS)) {
-      for (const [col, def] of cols) {
-        try {
-          await db.$executeRawUnsafe(`ALTER TABLE ${table} ADD COLUMN ${col} ${def};`);
-        } catch (e: any) {
-          // column already exists — expected, skip
-          if (e.message && e.message.includes("duplicate")) continue;
-          // other errors also skip (table might not exist yet)
-        }
-      }
-    }
-    globalForPrisma.schemaEnsured = true;
-  } catch (e) {
-    console.error("[ensureSchema] Failed:", e);
-  }
 }
 
-if (!globalForPrisma.schemaEnsured && process.env.NODE_ENV === 'production') {
+// ─────────────────────────────────────────────────────────────────────────────
+// ensureSchema — runs CREATE TABLE IF NOT EXISTS for every table + ALTER TABLE
+// ADD COLUMN for every column. Idempotent: safe to run on every boot.
+//
+// CRITICAL: this function is `await`ed by the API routes (see
+// `await ensureSchema()` in src/lib/session.ts) BEFORE any Prisma query runs,
+// so that even the first request after a fresh install / upgrade will see a
+// fully-upgraded database. This fixes the long-standing bug where the Vendors,
+// LoadBill, and Cards pages failed to load on v2.7.32 because ensureSchema()
+// was a fire-and-forget call that hadn't completed by the time the first API
+// request arrived.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function ensureSchema() {
+  if (globalForPrisma.schemaEnsured) return;
+  // If an ensureSchema() call is already in flight, await that same promise
+  // instead of starting a parallel one — otherwise we get race conditions
+  // where two requests both try to ALTER TABLE simultaneously.
+  if (globalForPrisma.schemaEnsuring) {
+    await globalForPrisma.schemaEnsuring;
+    return;
+  }
+  globalForPrisma.schemaEnsuring = (async () => {
+    try {
+      // 1) Run CREATE TABLE IF NOT EXISTS for every table. This creates any
+      //    missing tables (e.g. MobileLoadCompany on a v2.7.31 → v2.7.32
+      //    upgrade) without touching existing data.
+      const statements = SCHEMA_SQL.split(";").map((s) => s.trim()).filter(Boolean);
+      for (const stmt of statements) {
+        try {
+          await db.$executeRawUnsafe(stmt + ";");
+        } catch (e: any) {
+          // SQLite returns "duplicate column name: X" if a CREATE INDEX
+          // already exists, or "there is already a table named X" — both
+          // are expected on an existing DB, so skip silently.
+          const msg = e.message || "";
+          if (
+            msg.includes("duplicate") ||
+            msg.includes("already exists") ||
+            msg.includes("there is already")
+          ) {
+            continue;
+          }
+          // Any other error is real — log it but don't abort the whole
+          // migration, because subsequent ALTER TABLE statements might
+          // still succeed and unblock the API.
+          console.error("[ensureSchema] statement failed:", stmt.slice(0, 80), e.message);
+        }
+      }
+
+      // 2) Run ALTER TABLE ADD COLUMN for every column added in later
+      //    versions. SQLite returns "duplicate column name: X" if the column
+      //    already exists — expected, skip silently.
+      for (const [table, cols] of Object.entries(COLUMN_ADDITIONS)) {
+        for (const [col, def] of cols) {
+          try {
+            await db.$executeRawUnsafe(`ALTER TABLE ${table} ADD COLUMN ${col} ${def};`);
+          } catch (e: any) {
+            const msg = e.message || "";
+            if (msg.includes("duplicate")) continue;
+            // "no such table: X" means the table doesn't exist yet — but
+            // we just created it in step 1, so this shouldn't happen.
+            // Log and continue.
+            if (!msg.includes("no such table")) {
+              console.error(`[ensureSchema] ALTER ${table}.${col} failed:`, msg);
+            }
+          }
+        }
+      }
+      globalForPrisma.schemaEnsured = true;
+    } catch (e) {
+      console.error("[ensureSchema] Failed:", e);
+    } finally {
+      globalForPrisma.schemaEnsuring = undefined;
+    }
+  })();
+  await globalForPrisma.schemaEnsuring;
+}
+
+// Kick off schema creation on module load. The APIs also `await ensureSchema()`
+// before any query, so even if this fire-and-forget hasn't completed yet, the
+// first API request will block until it does.
+if (!globalForPrisma.schemaEnsured) {
   ensureSchema().catch(() => {});
 }
 
