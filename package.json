@@ -1,10 +1,10 @@
 {
   "name": "shop-pos-system",
-  "version": "2.7.29",
+  "version": "2.7.30",
   "description": "Shop POS System - Point of Sale with barcode scanner, products and sales management",
   "author": "Mohsin Rasheed",
   "license": "MIT",
-  "homepage": "https://github.com/mohsinrasheed-Baga1/shop-pos-system",
+  "homepage": "https://shoppos.app",
   "main": "electron/main.cjs",
   "private": true,
   "scripts": {
@@ -40,6 +40,13 @@
     ],
     "asarUnpack": [],
     "npmRebuild": false,
+    "publish": {
+      "provider": "github",
+      "owner": "mohsinrasheed-Baga1",
+      "repo": "shop-pos-system",
+      "releaseType": "release"
+    },
+    "generateUpdatesFilesForAllChannels": true,
     "linux": {
       "target": ["AppImage"],
       "category": "Office",
@@ -151,6 +158,7 @@
     "bun-types": "^1.3.4",
     "electron": "43.1.1",
     "electron-builder": "^26.15.3",
+    "electron-updater": "^6.6.2",
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",

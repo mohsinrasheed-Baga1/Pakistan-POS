@@ -41,3 +41,4 @@ worklog.md
 download/
 .next/standalone/server.js.bak
 tsconfig.tsbuildinfo
+prisma/dev.db

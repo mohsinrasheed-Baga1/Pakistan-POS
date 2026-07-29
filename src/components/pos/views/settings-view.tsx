@@ -95,65 +95,22 @@ import type { Settings } from "@/types";
 import { useAppStore } from "@/stores/use-pos-store";
 
 // ============================================================
-// In-app auto-update constants
+// In-app auto-update (uses electron-updater IPC from main process)
 // ============================================================
-const CURRENT_VERSION = "2.7.29";
-const UPDATE_URL =
-  "https://raw.githubusercontent.com/mohsinrasheed-Baga1/shop-pos-system/main/public/update.json";
-// The installer is split into 11 parts (~20 MB each) on the repo dist/ folder.
-const PART_BASE_URL =
-  "https://raw.githubusercontent.com/mohsinrasheed-Baga1/shop-pos-system/main/dist/part_";
-const PARTS_COUNT = 11;
+type SoftwareUpdateStatus =
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
 
 interface UpdateInfo {
   version: string;
-  releaseUrl?: string;
-  changelog?: string[];
-}
-
-/** Compare semantic versions. Returns true if remote > current. */
-function isNewerVersion(remote: string, current: string): boolean {
-  const parse = (v: string) =>
-    v
-      .split(".")
-      .map((x) => parseInt(x.replace(/\D/g, "") || "0", 10))
-      .slice(0, 3);
-  const r = parse(remote);
-  const c = parse(current);
-  for (let i = 0; i < 3; i++) {
-    const ri = r[i] || 0;
-    const ci = c[i] || 0;
-    if (ri > ci) return true;
-    if (ri < ci) return false;
-  }
-  return false;
-}
-
-/**
- * Download a single file part with streaming progress.
- * Resolves to an array of Uint8Array chunks (combined later).
- */
-async function downloadPartStreaming(
-  url: string,
-  onProgress: (received: number, total: number) => void
-): Promise<Uint8Array[]> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  if (!res.body) throw new Error("No response body for streaming download");
-  const total = parseInt(res.headers.get("Content-Length") || "0", 10);
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      received += value.length;
-      onProgress(received, total);
-    }
-  }
-  return chunks;
+  releaseNotes?: string;
+  releaseDate?: string;
+  downloadSize?: number;
 }
 
 interface BackupFile {
@@ -1057,6 +1014,27 @@ function ChangePasswordCard() {
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
+  // Security question management
+  const [secQuestion, setSecQuestion] = React.useState("");
+  const [secAnswer, setSecAnswer] = React.useState("");
+  const [secSaving, setSecSaving] = React.useState(false);
+  const [secLoading, setSecLoading] = React.useState(true);
+  const [secCurrentQ, setSecCurrentQ] = React.useState("");
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/users/me/security-question");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.question) setSecCurrentQ(data.question);
+          if (data.question) setSecQuestion(data.question);
+        }
+      } catch {}
+      setSecLoading(false);
+    })();
+  }, []);
+
   const newPasswordError =
     newPassword.length > 0 && newPassword.length < 6
       ? "Password must be at least 6 characters"
@@ -1097,6 +1075,33 @@ function ChangePasswordCard() {
     }
   }
 
+  async function onSaveSecurityQuestion(e: React.FormEvent) {
+    e.preventDefault();
+    if (!secQuestion || !secAnswer) {
+      toast.error("Please fill both question and answer");
+      return;
+    }
+    setSecSaving(true);
+    try {
+      const res = await fetch("/api/users/me/security-question", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ securityQuestion: secQuestion, securityAnswer: secAnswer }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || "Save failed");
+      }
+      toast.success("Security question saved! You can now reset your password from the login page.");
+      setSecCurrentQ(secQuestion);
+      setSecAnswer("");
+    } catch (err: any) {
+      toast.error(err?.message || "Could not save security question");
+    } finally {
+      setSecSaving(false);
+    }
+  }
+
   return (
     <Card className="shadow-sm">
       <CardHeader>
@@ -1106,7 +1111,8 @@ function ChangePasswordCard() {
         </CardTitle>
         <CardDescription>Change your account login password</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-6">
+        {/* Change Password Form */}
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="space-y-2">
@@ -1119,7 +1125,7 @@ function ChangePasswordCard() {
                 type="password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="••••••"
+                placeholder="Enter current password"
                 dir="ltr"
                 className="h-11"
                 autoComplete="current-password"
@@ -1184,10 +1190,93 @@ function ChangePasswordCard() {
             </Button>
           </div>
         </form>
+
+        {/* Separator */}
+        <Separator />
+
+        {/* Security Question Management */}
+        <div>
+          <h3 className="text-base font-semibold flex items-center gap-2 mb-1">
+            <ShieldCheck className="w-5 h-5 text-amber-600" />
+            Security Question
+          </h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Set a security question to enable password reset from the login page if you forget your password.
+            {secCurrentQ && (
+              <span className="block mt-1 text-emerald-600 font-medium">
+                Current question: &quot;{secCurrentQ}&quot;
+              </span>
+            )}
+          </p>
+          {secLoading ? (
+            <Skeleton className="h-20 w-full rounded-lg" />
+          ) : (
+            <form onSubmit={onSaveSecurityQuestion} className="space-y-3">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Security Question</Label>
+                  <select
+                    value={secQuestion}
+                    onChange={(e) => setSecQuestion(e.target.value)}
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    dir="ltr"
+                    required
+                  >
+                    <option value="">-- Select a question --</option>
+                    {SECURITY_QUESTIONS.map((q) => (
+                      <option key={q} value={q}>
+                        {q}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Your Answer</Label>
+                  <Input
+                    type="text"
+                    value={secAnswer}
+                    onChange={(e) => setSecAnswer(e.target.value)}
+                    placeholder="Enter your answer"
+                    dir="ltr"
+                    className="h-11"
+                    required
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    type="submit"
+                    disabled={secSaving || !secQuestion || !secAnswer}
+                    className="h-11 w-full bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    {secSaving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-4 h-4" />
+                        Save Security Question
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </form>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
 }
+
+const SECURITY_QUESTIONS = [
+  "What is your shop name?",
+  "What is your pet's name?",
+  "What city were you born in?",
+  "What is your favorite color?",
+  "What was your first school's name?",
+  "What is your mother's name?",
+  "What is your father's name?",
+  "What is your favorite food?",
+];
 
 // ============================================================
 // 6. Backup Password card
@@ -2756,36 +2845,66 @@ function SoftwareUpdatesCard() {
   const [status, setStatus] = React.useState<SoftwareUpdateStatus>("idle");
   const [updateInfo, setUpdateInfo] = React.useState<UpdateInfo | null>(null);
   const [progress, setProgress] = React.useState(0);
-  const [partLabel, setPartLabel] = React.useState("");
-  const [blobUrl, setBlobUrl] = React.useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = React.useState<string>("");
+  const [errorMsg, setErrorMsg] = React.useState("");
+  const [currentVersion, setCurrentVersion] = React.useState("");
 
-  // Revoke the object URL when it's no longer needed (component unmount or
-  // new download).
+  // Get current version from preload or package
   React.useEffect(() => {
+    if (typeof window !== "undefined" && window.posElectron?.version) {
+      setCurrentVersion(window.posElectron.version);
+    }
+  }, []);
+
+  // Listen for progress events from main process
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.posElectron?.updater) return;
+
+    const remover = window.posElectron.updater.onProgress((pct: number) => {
+      setProgress(Math.round(pct));
+    });
+
     return () => {
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      if (remover) remover();
     };
-  }, [blobUrl]);
+  }, []);
+
+  const isElectronUpdater = typeof window !== "undefined" && !!window.posElectron?.updater;
 
   async function checkForUpdates() {
     setStatus("checking");
     setUpdateInfo(null);
     setErrorMsg("");
-    if (blobUrl) {
-      URL.revokeObjectURL(blobUrl);
-      setBlobUrl(null);
-    }
+
     try {
-      const res = await fetch(UPDATE_URL, { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to fetch update info");
-      const data = (await res.json()) as UpdateInfo;
-      if (data?.version && isNewerVersion(data.version, CURRENT_VERSION)) {
-        setUpdateInfo(data);
-        setStatus("available");
-        toast.success(`Version v${data.version} is available!`);
+      if (isElectronUpdater) {
+        // Use electron-updater IPC (delta updates supported)
+        const result = await window.posElectron.updater.check();
+        if (result && result.version) {
+          setUpdateInfo(result);
+          setStatus("available");
+          toast.success(`Version v${result.version} is available!`);
+        } else {
+          setStatus("up-to-date");
+        }
       } else {
-        setStatus("up-to-date");
+        // Fallback: fetch update.json from GitHub
+        const res = await fetch(
+          "https://raw.githubusercontent.com/mohsinrasheed-Baga1/shop-pos-system/main/public/update.json",
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error("Failed to check for updates");
+        const data = await res.json();
+        const curVer = currentVersion || "0.0.0";
+        if (data?.version && isNewerVersion(data.version, curVer)) {
+          setUpdateInfo({
+            version: data.version,
+            releaseNotes: data.changelog?.join("\n"),
+          });
+          setStatus("available");
+          toast.success(`Version v${data.version} is available!`);
+        } else {
+          setStatus("up-to-date");
+        }
       }
     } catch (err: any) {
       setErrorMsg(err?.message || "Failed to check for updates");
@@ -2793,61 +2912,21 @@ function SoftwareUpdatesCard() {
     }
   }
 
-  function triggerDownload(url: string, fileName: string) {
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
-
   async function downloadAndInstall() {
     setStatus("downloading");
     setProgress(0);
     setErrorMsg("");
-    if (blobUrl) {
-      URL.revokeObjectURL(blobUrl);
-      setBlobUrl(null);
-    }
-    try {
-      const allChunks: Uint8Array[] = [];
-      for (let i = 0; i < PARTS_COUNT; i++) {
-        const partIdx = String(i).padStart(2, "0");
-        const url = `${PART_BASE_URL}${partIdx}`;
-        setPartLabel(`Downloading part ${i + 1}/${PARTS_COUNT}...`);
-        const chunks = await downloadPartStreaming(url, (received, total) => {
-          // Approximate overall progress across all 11 parts:
-          //   pct = ((i + received/total) / PARTS_COUNT) * 100
-          let pct: number;
-          if (total > 0) {
-            pct = ((i + received / total) / PARTS_COUNT) * 100;
-          } else {
-            pct = (i / PARTS_COUNT) * 100;
-          }
-          setProgress(Math.min(100, Math.round(pct)));
-        });
-        for (const c of chunks) allChunks.push(c);
-        // After part completes, bump progress to (i+1)/PARTS_COUNT.
-        setProgress(Math.round(((i + 1) / PARTS_COUNT) * 100));
-      }
 
-      // Combine all parts into one Blob and trigger the .exe download.
-      // Browsers cannot directly execute downloaded binaries, so we hand
-      // the combined blob to the user via an <a download> click — they run
-      // the installer manually.
-      const blob = new Blob(allChunks as BlobPart[], {
-        type: "application/octet-stream",
-      });
-      const url = URL.createObjectURL(blob);
-      setBlobUrl(url);
-      const fileName = `Shop-POS-System-Setup-${
-        updateInfo?.version || CURRENT_VERSION
-      }.exe`;
-      triggerDownload(url, fileName);
-      setStatus("downloaded");
-      setPartLabel("");
-      toast.success("Download complete! Installer saved to your Downloads folder.");
+    try {
+      if (isElectronUpdater) {
+        // electron-updater handles download (with delta/differential support)
+        await window.posElectron.updater.download();
+        setStatus("downloaded");
+        toast.success("Update downloaded! Click Install to apply.");
+      } else {
+        setErrorMsg("Auto-update requires the desktop app. Please download manually.");
+        setStatus("error");
+      }
     } catch (err: any) {
       setErrorMsg(err?.message || "Download failed");
       setStatus("error");
@@ -2855,28 +2934,25 @@ function SoftwareUpdatesCard() {
     }
   }
 
-  function openInstaller() {
-    if (!blobUrl) {
-      toast.error("Installer not available. Please download again.");
-      return;
+  async function installUpdate() {
+    try {
+      if (isElectronUpdater) {
+        await window.posElectron.updater.install();
+        // App will restart automatically
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Install failed");
     }
-    const fileName = `Shop-POS-System-Setup-${
-      updateInfo?.version || CURRENT_VERSION
-    }.exe`;
-    triggerDownload(blobUrl, fileName);
   }
 
   function reset() {
     setStatus("idle");
     setUpdateInfo(null);
     setProgress(0);
-    setPartLabel("");
     setErrorMsg("");
-    if (blobUrl) {
-      URL.revokeObjectURL(blobUrl);
-      setBlobUrl(null);
-    }
   }
+
+  const displayVersion = currentVersion || "2.7.30";
 
   return (
     <Card className="shadow-sm">
@@ -2888,24 +2964,28 @@ function SoftwareUpdatesCard() {
               Software Updates
             </CardTitle>
             <CardDescription>
-              Check for new versions and download/install updates directly
-              within the app.
+              Check for new versions and download updates directly within the app.
+              {isElectronUpdater && (
+                <span className="block mt-0.5 text-xs text-emerald-600">
+                  Delta updates enabled — only changed data is downloaded.
+                </span>
+              )}
             </CardDescription>
           </div>
           <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
             <Package className="w-3 h-3 mr-1" />
-            Current Version: v{CURRENT_VERSION}
+            v{displayVersion}
           </Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Idle: show Check for Updates button */}
+        {/* Idle */}
         {status === "idle" && (
           <>
             <p className="text-sm text-muted-foreground">
-              You are currently running{" "}
+              You are running{" "}
               <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                v{CURRENT_VERSION}
+                v{displayVersion}
               </span>
               . Click below to check for newer versions.
             </p>
@@ -2920,7 +3000,7 @@ function SoftwareUpdatesCard() {
           </>
         )}
 
-        {/* Checking: spinner */}
+        {/* Checking */}
         {status === "checking" && (
           <Alert className="border-emerald-200 bg-emerald-50/40 dark:bg-emerald-950/20">
             <Loader2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 animate-spin" />
@@ -2942,7 +3022,7 @@ function SoftwareUpdatesCard() {
                 You&apos;re running the latest version.
               </AlertTitle>
               <AlertDescription className="text-xs">
-                Your current version (v{CURRENT_VERSION}) is up to date. Check
+                Your current version (v{displayVersion}) is up to date. Check
                 again later for new releases.
               </AlertDescription>
             </Alert>
@@ -2958,7 +3038,7 @@ function SoftwareUpdatesCard() {
           </>
         )}
 
-        {/* Available: show version + changelog + Download button */}
+        {/* Available */}
         {status === "available" && updateInfo && (
           <>
             <Alert className="border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30">
@@ -2968,15 +3048,17 @@ function SoftwareUpdatesCard() {
               </AlertTitle>
               <AlertDescription>
                 <p className="text-xs mt-1">
-                  A new version is ready to download. New features, bug fixes
-                  and improvements are included.
+                  A new version is ready to download and install.
                 </p>
-                {updateInfo.changelog && updateInfo.changelog.length > 0 && (
-                  <ul className="mt-3 space-y-1 text-xs list-disc pl-5">
-                    {updateInfo.changelog.map((line, idx) => (
-                      <li key={idx}>{line}</li>
-                    ))}
-                  </ul>
+                {updateInfo.releaseNotes && (
+                  <div className="mt-3 p-2 rounded bg-white/60 dark:bg-black/20 text-xs whitespace-pre-line max-h-48 overflow-y-auto">
+                    {updateInfo.releaseNotes}
+                  </div>
+                )}
+                {updateInfo.downloadSize && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Download size: ~{formatBytes(updateInfo.downloadSize)}
+                  </p>
                 )}
               </AlertDescription>
             </Alert>
@@ -2992,26 +3074,12 @@ function SoftwareUpdatesCard() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={checkForUpdates}
+                onClick={reset}
                 className="h-11 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
               >
-                <RefreshCw className="w-4 h-4" />
-                Re-check
+                Cancel
               </Button>
             </div>
-            {updateInfo.releaseUrl && (
-              <p className="text-xs">
-                <a
-                  href={updateInfo.releaseUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 hover:underline"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  View release notes on GitHub
-                </a>
-              </p>
-            )}
           </>
         )}
 
@@ -3024,7 +3092,7 @@ function SoftwareUpdatesCard() {
                 Downloading update...
               </AlertTitle>
               <AlertDescription className="text-xs">
-                {partLabel || "Starting download..."} {progress}%
+                Only the changed data is being downloaded (delta update). {progress}%
               </AlertDescription>
             </Alert>
             <div className="space-y-1.5">
@@ -3033,43 +3101,37 @@ function SoftwareUpdatesCard() {
                 className="h-3 bg-emerald-100 dark:bg-emerald-950/40"
               />
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{partLabel || "Preparing..."}</span>
+                <span>Downloading update...</span>
                 <span>{progress}%</span>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              The installer is split into {PARTS_COUNT} parts (~20 MB each).
-              Please keep this window open until the download completes.
+              The app will automatically install the update once downloaded. Please keep this window open.
             </p>
           </div>
         )}
 
-        {/* Downloaded */}
+        {/* Downloaded — ready to install */}
         {status === "downloaded" && (
           <div className="space-y-3">
             <Alert className="border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30">
               <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
               <AlertTitle className="text-emerald-800 dark:text-emerald-300">
-                Download complete!
+                Update downloaded successfully!
               </AlertTitle>
               <AlertDescription className="text-xs">
-                The installer has been saved to your Downloads folder. Click
-                below to install.
-                <br />
-                <span className="text-muted-foreground mt-1 inline-block">
-                  Note: Your browser may ask where to save the file. After it
-                  downloads, run the installer to update.
-                </span>
+                The update has been downloaded and is ready to install. The app
+                will restart to apply the update. Your data will be preserved.
               </AlertDescription>
             </Alert>
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
-                onClick={openInstaller}
+                onClick={installUpdate}
                 className="h-11 bg-emerald-600 hover:bg-emerald-700 text-white min-w-[180px]"
               >
                 <Package className="w-4 h-4" />
-                Open Installer
+                Install &amp; Restart
               </Button>
               <Button
                 type="button"
@@ -3077,13 +3139,9 @@ function SoftwareUpdatesCard() {
                 onClick={reset}
                 className="h-11 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
               >
-                Done
+                Later
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              After installing, your data is preserved. The new version will
-              replace this one.
-            </p>
           </div>
         )}
 
@@ -3096,8 +3154,7 @@ function SoftwareUpdatesCard() {
                 Update check failed
               </AlertTitle>
               <AlertDescription className="text-xs">
-                {errorMsg ||
-                  "Could not check for updates. Please try again later."}
+                {errorMsg || "Could not check for updates. Please try again later."}
               </AlertDescription>
             </Alert>
             <Button
@@ -3114,6 +3171,24 @@ function SoftwareUpdatesCard() {
       </CardContent>
     </Card>
   );
+}
+
+/** Compare semantic versions. Returns true if remote > current. */
+function isNewerVersion(remote: string, current: string): boolean {
+  const parse = (v: string) =>
+    v
+      .split(".")
+      .map((x) => parseInt(x.replace(/\D/g, "") || "0", 10))
+      .slice(0, 3);
+  const r = parse(remote);
+  const c = parse(current);
+  for (let i = 0; i < 3; i++) {
+    const ri = r[i] || 0;
+    const ci = c[i] || 0;
+    if (ri > ci) return true;
+    if (ri < ci) return false;
+  }
+  return false;
 }
 
 

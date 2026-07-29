@@ -1,1 +1,12 @@
-{"version":"2.7.29","releaseUrl":"https://github.com/mohsinrasheed-Baga1/shop-pos-system/releases/latest","changelog":["NEW: Load & Bill Payment module - Mobile Load (Jazz/Ufone/Telenor/Zong) with Purchase/Sale tracking per company","NEW: Bill Payment - Electricity, Gas, Water, Internet bills with separate bill amount (liability) and service charge (income)","NEW: JazzCash/Easypaisa - Send Money & Receive Money with editable service charges","NEW: Load & Bill Reports - Daily cash, company-wise, service charge, profit reports with date filters","NEW: Receipt printing for all Load & Bill transactions","UPGRADED: Shop Cards now have Unique Customer ID and QR Code on every card","UPGRADED: Card scan shows full account details - balance, purchases, payments, status, ledger","UPGRADED: Card transactions now support 8 types: Deposit, Withdrawal, Purchase, Payment, Credit, Debit, Adjustment, Refund","UPGRADED: Manual deposit/withdrawal/credit/debit/adjustment/refund entries on Shop Cards"]}
+{
+  "version": "2.7.30",
+  "changelog": [
+    "NEW: Password Reset via Security Question on login page",
+    "NEW: Security Question management in Settings",
+    "NEW: Delta/Differential updates — only changed data is downloaded",
+    "NEW: electron-updater integration for reliable in-app updates",
+    "IMPROVED: Update system now hides repo links and source code",
+    "IMPROVED: One-click Install & Restart after downloading update",
+    "IMPROVED: Smaller update downloads (only changes, not full 300MB)"
+  ]
+}

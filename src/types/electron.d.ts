@@ -18,12 +18,25 @@ declare global {
     restore: (fileId: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
   }
 
+  interface UpdaterAPI {
+    check: () => Promise<{
+      version: string;
+      releaseNotes?: string | null;
+      releaseDate?: string;
+      downloadSize?: number | null;
+    } | null>;
+    download: () => Promise<{ ok: boolean }>;
+    install: () => Promise<void>;
+    onProgress: (callback: (percent: number) => void) => () => void;
+  }
+
   interface Window {
     posElectron?: {
       version: string;
       platform: string;
       openPath?: (p: string) => Promise<{ ok: boolean; opened?: string; error?: string }>;
       googleDrive?: GoogleDriveAPI;
+      updater?: UpdaterAPI;
     };
   }
 }

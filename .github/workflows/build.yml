@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Git tag to build and release (e.g. v2.7.23)'
+        description: 'Git tag to build and release (e.g. v2.7.30)'
         required: true
-        default: 'v2.7.23'
+        default: 'v2.7.30'
 
 jobs:
   build-windows:
@@ -64,69 +64,7 @@ jobs:
         env:
           DATABASE_URL: "file:./pos.db"
 
-      - name: Build Windows Installer
-        run: bunx electron-builder --win nsis --x64
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Find EXE file
-        id: find-exe
-        shell: pwsh
-        run: |
-          $exe = Get-ChildItem -Path "release" -Filter "Shop-POS-System-Setup-*.exe" | Select-Object -First 1
-          if ($exe) {
-            echo "EXE_PATH=$($exe.FullName)" >> $env:GITHUB_OUTPUT
-            echo "EXE_NAME=$($exe.Name)" >> $env:GITHUB_OUTPUT
-            echo "Found: $($exe.FullName) ($([math]::Round($exe.Length/1MB, 1)) MB)"
-          } else {
-            echo "ERROR: No Setup EXE found in release folder"
-            Get-ChildItem -Path "release" -Recurse | ForEach-Object { echo $_.FullName }
-            exit 1
-          }
-
-      - name: Delete existing release assets (if any)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          TAG="${{ steps.tag.outputs.TAG }}"
-          echo "Cleaning up existing release assets for $TAG..."
-          # Get release ID
-          RELEASE_DATA=$(curl -s -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
-          RELEASE_ID=$(echo "$RELEASE_DATA" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
-          if [ -n "$RELEASE_ID" ]; then
-            echo "Found release ID: $RELEASE_ID, cleaning old assets..."
-            ASSETS=$(curl -s -H "Authorization: token $GH_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets" | \
-              python3 -c "import json,sys; [print(a['id']) for a in json.load(sys.stdin)]" 2>/dev/null || echo "")
-            for ASSET_ID in $ASSETS; do
-              echo "Deleting asset $ASSET_ID..."
-              curl -s -X DELETE -H "Authorization: token $GH_TOKEN" \
-                "https://api.github.com/repos/${{ github.repository }}/releases/assets/$ASSET_ID"
-            done
-          else
-            echo "No existing release found for $TAG, will create new one"
-          fi
-
-      - name: Upload EXE to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.TAG }}
-          files: ${{ steps.find-exe.outputs.EXE_PATH }}
-          name: Shop POS System ${{ steps.tag.outputs.TAG }}
-          body: |
-            ## Shop POS System ${{ steps.tag.outputs.TAG }}
-
-            **Windows Installer (.exe)**
-
-            ### Installation:
-            1. Download `Shop-POS-System-Setup-${{ steps.tag.outputs.TAG }}.exe`
-            2. Double-click to run the installer
-            3. Follow the installation wizard
-
-            Built automatically via GitHub Actions.
-          draft: false
-          prerelease: false
+      - name: Build & Publish Windows Installer
+        run: bunx electron-builder --win nsis --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

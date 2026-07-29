@@ -32,6 +32,8 @@ export async function seedIfNeeded() {
           password: hash,
           role: "ADMIN",
           active: true,
+          securityQuestion: "What is your shop name?",
+          securityAnswer: "My Shop",
         },
       });
     }

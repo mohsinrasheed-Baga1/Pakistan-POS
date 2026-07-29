@@ -18,6 +18,17 @@ const os = require("os");
 // Google Drive backup module
 const gdrive = require("./google-drive.cjs");
 const http = require("http");
+
+// electron-updater for delta/differential updates
+let autoUpdater = null;
+try {
+  autoUpdater = require("electron-updater").autoUpdater;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  console.log("[POS] electron-updater loaded successfully");
+} catch (e) {
+  console.log("[POS] electron-updater not available, auto-update disabled:", e.message);
+}
 const { spawn } = require("child_process");
 
 // Old Hardware Fix: disable GPU acceleration for Pentium/Old PCs (black screen fix)
@@ -482,9 +493,88 @@ if (!gotLock) {
     }, 60 * 60 * 1000);
   }
 
-  // Auto-update checking is handled in-app via the Settings UI.
-  // This no-op stub prevents the ReferenceError that crashed the app.
-  function checkForUpdates() {}
+  // ============================================================
+  // electron-updater IPC handlers (delta/differential updates)
+  // ============================================================
+  if (autoUpdater) {
+    // Check for updates
+    ipcMain.handle("updater:check", async () => {
+      try {
+        const result = await autoUpdater.checkForUpdates();
+        if (result && result.updateInfo && result.updateInfo.version) {
+          const info = result.updateInfo;
+          // Format release notes
+          let notes = "";
+          if (info.releaseNotes) {
+            if (typeof info.releaseNotes === "string") {
+              notes = info.releaseNotes;
+            } else if (Array.isArray(info.releaseNotes)) {
+              notes = info.releaseNotes.map((n) => n.note || String(n)).join("\n");
+            } else if (info.releaseNotes.note) {
+              notes = info.releaseNotes.note;
+            }
+          }
+          return {
+            version: info.version,
+            releaseDate: info.releaseDate,
+            releaseNotes: notes || null,
+            downloadSize: info.files?.[0]?.size || null,
+          };
+        }
+        return null; // No update available
+      } catch (e) {
+        console.error("[POS] Update check failed:", e.message);
+        throw new Error(e.message);
+      }
+    });
+
+    // Download update
+    ipcMain.handle("updater:download", async () => {
+      try {
+        await autoUpdater.downloadUpdate();
+        return { ok: true };
+      } catch (e) {
+        console.error("[POS] Update download failed:", e.message);
+        throw new Error(e.message);
+      }
+    });
+
+    // Install update (quit and install)
+    ipcMain.handle("updater:install", async () => {
+      try {
+        autoUpdater.quitAndInstall();
+      } catch (e) {
+        console.error("[POS] Install failed:", e.message);
+        throw new Error(e.message);
+      }
+    });
+
+    // Forward download progress to renderer
+    autoUpdater.on("download-progress", (progress) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const percent = progress.percent ? Math.round(progress.percent) : 0;
+        mainWindow.webContents.send("updater:progress", percent);
+      }
+    });
+
+    // Notify renderer when download completes
+    autoUpdater.on("update-downloaded", () => {
+      console.log("[POS] Update downloaded, ready to install");
+    });
+
+    autoUpdater.on("error", (err) => {
+      console.error("[POS] Updater error:", err.message);
+    });
+  } else {
+    // Fallback no-op handlers when electron-updater is not available
+    ipcMain.handle("updater:check", async () => null);
+    ipcMain.handle("updater:download", async () => {
+      throw new Error("Auto-update is not available in this build");
+    });
+    ipcMain.handle("updater:install", async () => {
+      throw new Error("Auto-update is not available in this build");
+    });
+  }
 
   app.whenReady().then(async () => {
     // F1 shortcut: open POS view and focus barcode input
