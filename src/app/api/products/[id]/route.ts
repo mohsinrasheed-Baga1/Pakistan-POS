@@ -38,6 +38,9 @@ export async function PUT(
       hasBarcode: body.hasBarcode !== false,
       image: body.image || null,
       active: body.active !== false,
+      packBarcode: body.packBarcode !== undefined ? (body.packBarcode || null) : existing.packBarcode,
+      packQuantity: body.packQuantity !== undefined ? Number(body.packQuantity) || 0 : existing.packQuantity,
+      packPrice: body.packPrice !== undefined ? Number(body.packPrice) || 0 : existing.packPrice,
     },
     include: { category: true, vendor: true },
   });

@@ -113,7 +113,7 @@ export function AppShell({ user, settings }: AppShellProps) {
       case "store":
         return <StoreView />;
       case "vendors":
-        return <VendorsView />;
+        return <VendorsView userRole={user.role} />;
       case "expenses":
         return <ExpensesView />;
       case "loadbill":

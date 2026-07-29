@@ -81,6 +81,9 @@ export async function POST(req: NextRequest) {
       hasBarcode,
       image: body.image || null,
       active: body.active !== false,
+      packBarcode: body.packBarcode || null,
+      packQuantity: Number(body.packQuantity) || 0,
+      packPrice: Number(body.packPrice) || 0,
     },
     include: { category: true, vendor: true },
   });

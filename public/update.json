@@ -1,12 +1,16 @@
 {
-  "version": "2.7.30",
+  "version": "2.7.31",
   "changelog": [
+    "FIXED: Load & Bill Payment view loading issue",
+    "FIXED: Shop Cards view loading issue",
+    "FIXED: Vendors view loading issue",
+    "FIXED: Box/Piece barcode scanning in POS restored",
+    "FIXED: Box wizard in Products now saves packBarcode, packQuantity, packPrice to database",
+    "FIXED: Barcode API now detects box scans via packBarcode lookup",
+    "FIXED: Products API (POST & PUT) now saves pack fields",
     "NEW: Password Reset via Security Question on login page",
     "NEW: Security Question management in Settings",
-    "NEW: Delta/Differential updates — only changed data is downloaded",
-    "NEW: electron-updater integration for reliable in-app updates",
-    "IMPROVED: Update system now hides repo links and source code",
-    "IMPROVED: One-click Install & Restart after downloading update",
-    "IMPROVED: Smaller update downloads (only changes, not full 300MB)"
+    "NEW: Delta/Differential updates via electron-updater",
+    "IMPROVED: Update system hides repo links, downloads inside app"
   ]
 }

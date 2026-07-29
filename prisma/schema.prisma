@@ -90,6 +90,11 @@ model Product {
   saleItems       SaleItem[]
   stockLogs       StockLog[]
   storeTxns       StoreTransaction[]
+  // Box / Pack support: when a product is sold in boxes, these fields
+  // link the box barcode to the piece product and define the relationship.
+  packBarcode     String?                    // Barcode of the box (different from piece barcode)
+  packQuantity    Float    @default(0)        // Number of pieces per box (e.g. 80)
+  packPrice       Float    @default(0)        // Sale price of one box (regular retail)
 }
 
 model Sale {

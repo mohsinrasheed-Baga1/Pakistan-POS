@@ -31,6 +31,10 @@ export interface Product {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  // Box / Pack fields
+  packBarcode: string | null;
+  packQuantity: number;
+  packPrice: number;
 }
 
 export interface Category {
