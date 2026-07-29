@@ -932,7 +932,7 @@ export function CardVisual({
             width={1.2}
             displayValue={true}
             fontSize={10}
-            textMargin={1}
+            margin={1}
           />
         </div>
 

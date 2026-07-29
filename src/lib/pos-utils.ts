@@ -17,23 +17,40 @@ export function formatNumber(n: number, digits = 2): string {
 }
 
 /**
- * Generate an internal barcode for loose items (sugar, ghee, etc.)
- * Format: 2 + 12 digits (13 total) that are EAN-13 valid with checksum.
+ * Generate an internal barcode for loose items (sugar, ghee, etc.) using
+ * Code-128 format — the most universally scannable barcode type, supported
+ * by virtually every USB / Bluetooth / built-in barcode scanner on the market.
+ *
+ * Format: "20" + 10 random digits (12 digits total, all numeric — Code-128
+ * accepts any ASCII but numeric-only codes scan fastest and are shortest).
+ * The "20" prefix is reserved for in-store / internal use (GS1 prefix 2 =
+ * "variable measure products sold in retail stores"), so these barcodes will
+ * never collide with real manufacturer barcodes scanned from product boxes.
+ *
+ * Code-128 also has a built-in checksum that JsBarcode computes automatically
+ * when rendering, so we don't need to compute it ourselves.
  */
 export function generateInternalBarcode(): string {
-  // start with 2 (internal use prefix, in-store)
-  let base = "2";
-  for (let i = 0; i < 11; i++) {
-    base += Math.floor(Math.random() * 10).toString();
+  // Prefix "20" — internal retail range, won't clash with manufacturer barcodes
+  let code = "20";
+  for (let i = 0; i < 10; i++) {
+    code += Math.floor(Math.random() * 10).toString();
   }
-  // EAN-13 checksum
-  let sum = 0;
-  for (let i = 0; i < 12; i++) {
-    const d = parseInt(base[i], 10);
-    sum += i % 2 === 0 ? d : d * 3;
+  return code; // 12 digits, Code-128 compatible
+}
+
+/**
+ * Generate a Code-128 barcode for a box / pack product. Uses prefix "21"
+ * (in-store internal range) so it never clashes with piece-level barcodes.
+ *
+ * Format: "21" + 10 random digits.
+ */
+export function generateBoxBarcode(): string {
+  let code = "21";
+  for (let i = 0; i < 10; i++) {
+    code += Math.floor(Math.random() * 10).toString();
   }
-  const check = (10 - (sum % 10)) % 10;
-  return base + check.toString();
+  return code;
 }
 
 export function generateInvoiceNo(prefix = "INV", count = 0): string {

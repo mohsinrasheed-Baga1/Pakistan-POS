@@ -122,6 +122,56 @@ export async function POST(req: NextRequest) {
         note: isBoxSale ? `Box sale ${invoiceNo} (${it.quantity} box × ${product?.packQuantity} pcs = ${stockDeduction} pcs)` : `Sale ${invoiceNo}`,
       },
     });
+
+    // ─── AUTO-REFILL: when piece stock runs low and a linked box exists,
+    // automatically "open" one box — decrement box stock by 1 and increment
+    // piece stock by packQuantity. This keeps the piece product sellable
+    // without the cashier needing to manually restock.
+    if (!isBoxSale && product) {
+      // Find the linked box product — a box product is one whose
+      // packBarcode equals this piece product's barcode.
+      const boxProduct = await db.product.findFirst({
+        where: { packBarcode: product.barcode },
+      });
+      if (boxProduct && boxProduct.stock > 0) {
+        // Re-fetch piece product to get latest stock after decrement
+        const refreshedPiece = await db.product.findUnique({
+          where: { id: product.id },
+        });
+        // If piece stock fell below packQuantity, open one box so the
+        // next sale will not run out.
+        const pieceStockAfter = refreshedPiece?.stock ?? 0;
+        const packQty = boxProduct.packQuantity || 1;
+        if (pieceStockAfter < packQty) {
+          // Open the box
+          await db.product.update({
+            where: { id: boxProduct.id },
+            data: { stock: { decrement: 1 } },
+          });
+          await db.product.update({
+            where: { id: product.id },
+            data: { stock: { increment: packQty } },
+          });
+          // Log both movements
+          await db.stockLog.create({
+            data: {
+              productId: boxProduct.id,
+              type: "ADJUSTMENT",
+              quantity: -1,
+              note: `Auto-opened 1 box for ${product.name} after sale ${invoiceNo}`,
+            },
+          });
+          await db.stockLog.create({
+            data: {
+              productId: product.id,
+              type: "ADJUSTMENT",
+              quantity: packQty,
+              note: `Auto-refill from box after sale ${invoiceNo} (+${packQty} pcs)`,
+            },
+          });
+        }
+      }
+    }
   }
 
   // If linked to a card, deduct from balance (payment auto-deducted from card account)

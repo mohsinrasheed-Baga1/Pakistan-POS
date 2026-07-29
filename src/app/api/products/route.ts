@@ -44,11 +44,16 @@ export async function POST(req: NextRequest) {
   const hasBarcode = body.hasBarcode !== false;
 
   if (!barcode || barcode === "") {
-    // auto-generate an internal EAN-13 barcode for loose items (sugar, ghee, etc.)
+    // auto-generate an internal Code-128 barcode for loose items (sugar, ghee, etc.)
+    // Code-128 is the most universally scannable format — works with virtually
+    // every USB / Bluetooth / built-in scanner. EAN-13 was used previously but
+    // many low-cost Pakistani scanners fail to read EAN-13 reliably.
     barcode = generateInternalBarcode();
-    barcodeType = "EAN13";
+    barcodeType = "CODE128";
   } else {
-    barcodeType = "COMPANY";
+    // User scanned or typed a real manufacturer barcode — mark as COMPANY so
+    // the UI knows to render it as-is (Code-128 can encode it losslessly).
+    barcodeType = "CODE128";
   }
 
   // ensure unique

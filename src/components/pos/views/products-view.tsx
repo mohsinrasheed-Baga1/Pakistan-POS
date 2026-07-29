@@ -544,8 +544,9 @@ export function ProductsView({ userRole }: ProductsViewProps) {
                 <div className="bg-white rounded p-2 flex justify-center">
                   <BarcodeDisplay
                     value={form.barcode}
-                    format="EAN13"
-                    height={50}
+                    format="CODE128"
+                    height={60}
+                    width={2}
                   />
                 </div>
               )}
@@ -828,13 +829,13 @@ function BarcodePrintDialog({
     win.document.write(`
       <html dir="ltr"><head><title>Sticker ${product!.name}</title>
       <style>
-        @page { size: 50mm 25mm; margin: 0; }
+        @page { size: 50mm 30mm; margin: 0; }
         html, body { margin: 0; padding: 0; }
         body { width: 50mm; }
         * { box-sizing: border-box; }
         .sticker {
           width: 50mm;
-          height: 25mm;
+          height: 30mm;
           border: 1px dashed #999;
           padding: 1mm 1.5mm;
           display: flex;
@@ -864,8 +865,9 @@ function BarcodePrintDialog({
           overflow: hidden;
           margin: 1px 0;
         }
+        .barcode svg { max-width: 100%; height: auto; }
         .product-name {
-          font-size: 9px;
+          font-size: 8px;
           font-weight: bold;
           line-height: 1;
           width: 100%;
@@ -881,10 +883,14 @@ function BarcodePrintDialog({
     }, 350);
   }
 
-  // Inline sticker style — matches the printed layout exactly (50mm × 25mm).
+  // Inline sticker style — matches the printed layout exactly (50mm × 30mm).
+  // Slightly taller than before (was 25mm) so the barcode digits below the
+  // bars have room to render without being cut off — most USB / Bluetooth
+  // scanners in Pakistan cannot reliably read a barcode with no human-readable
+  // digits underneath, so we now show the digits below the bars.
   const stickerStyle: React.CSSProperties = {
     width: "50mm",
-    height: "25mm",
+    height: "30mm",
     border: "1px dashed #d1d5db",
     padding: "1mm 1.5mm",
     display: "flex",
@@ -905,7 +911,7 @@ function BarcodePrintDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div className="text-center text-xs text-muted-foreground">
-            Sticker size: 50mm × 25mm. Shop name (top) — Barcode (middle) —
+            Sticker size: 50mm × 30mm. Shop name (top) — Barcode + digits (middle) —
             Product name (bottom).
           </div>
           <div className="flex items-center gap-2">
@@ -941,7 +947,7 @@ function BarcodePrintDialog({
                 >
                   {shopName || "My Shop"}
                 </div>
-                {/* MIDDLE — barcode */}
+                {/* MIDDLE — barcode with digits below (Code-128, scanner-safe) */}
                 <div
                   className="barcode"
                   style={{
@@ -955,10 +961,12 @@ function BarcodePrintDialog({
                 >
                   <BarcodeDisplay
                     value={product.barcode}
-                    format={product.barcodeType === "EAN13" ? "EAN13" : "CODE128"}
-                    height={28}
-                    width={1}
-                    displayValue={false}
+                    format="CODE128"
+                    height={40}
+                    width={1.5}
+                    displayValue={true}
+                    fontSize={9}
+                    margin={2}
                   />
                 </div>
                 {/* BOTTOM — product name */}
@@ -1107,7 +1115,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
     setSaving(true);
     try {
       // Always save piece product first
-      const hasBox = boxBarcode.trim() && piecesPerBox.trim();
+      const hasBox = boxBarcode.trim() && piecesPerBox.trim() && Number(piecesPerBox) > 0;
       const stock = hasBox ? totalPieces : Number(pieceStock) || 0;
 
       const pieceBody = {
@@ -1123,38 +1131,165 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
         hasBarcode: true, active: true, image,
       };
 
-      const url = editId ? `/api/products/${editId}` : "/api/products";
-      const method = editId ? "PUT" : "POST";
-      const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(pieceBody) });
-      const data = await res.json();
-      if (!res.ok) {
-        const msg = data.error || "Failed";
-        toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
-        setSaving(false); return;
-      }
+      const boxBody = hasBox ? {
+        name: `${name} (Box)`, barcode: boxBarcode, categoryId: categoryId || null,
+        costPrice: Number(boxCostPrice) || 0, salePrice: Number(boxSalePrice) || 0,
+        wholesalePrice: Number(boxWholesalePrice) || 0, shopkeeperPrice: Number(boxShopkeeperPrice) || 0,
+        unit: "piece", stock: Number(boxQty) || 0,
+        minStock: Number(pieceMinStock) || 0,
+        expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
+        hasBarcode: true, active: true, image,
+        packBarcode: pieceBarcode, packQuantity: Number(piecesPerBox) || 0, packPrice: Number(boxSalePrice) || 0,
+      } : null;
 
-      // If box barcode filled, also save box product (only on new, not edit)
-      if (hasBox && !editId) {
-        const boxBody = {
-          name: `${name} (Box)`, barcode: boxBarcode, categoryId: categoryId || null,
-          costPrice: Number(boxCostPrice) || 0, salePrice: Number(boxSalePrice) || 0,
-          wholesalePrice: Number(boxWholesalePrice) || 0, shopkeeperPrice: Number(boxShopkeeperPrice) || 0,
-          unit: "piece", stock: Number(boxQty) || 0,
-          minStock: Number(pieceMinStock) || 0,
-          expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
-          hasBarcode: true, active: true, image,
-          packBarcode: pieceBarcode, packQuantity: Number(piecesPerBox) || 0, packPrice: Number(boxSalePrice) || 0,
-        };
-        const boxRes = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(boxBody) });
-        if (!boxRes.ok) {
-          const boxData = await boxRes.json();
-          toast.warning(`Piece saved! Box: ${boxData.error}`);
+      if (editId && editProduct) {
+        // ─── EDIT MODE ─────────────────────────────────────────────────────
+        // Two cases:
+        //  (a) editProduct.packBarcode is set → user opened the BOX product.
+        //      editId refers to the box. We need to also find & update the
+        //      linked piece product (by packBarcode = pieceBarcode).
+        //  (b) editProduct.packBarcode is null → user opened the PIECE product.
+        //      editId refers to the piece. If boxBody is provided, we also
+        //      need to find & update the linked box product (by packBarcode).
+        if (editProduct.packBarcode) {
+          // Case (a): opened box product — update both box and piece
+          // 1. Find piece product by barcode === packBarcode
+          const lookupRes = await fetch(
+            `/api/products?barcode=${encodeURIComponent(editProduct.packBarcode)}`,
+            { cache: "no-store" }
+          );
+          const lookupData = await lookupRes.json();
+          const pieceProd = lookupData.products?.[0];
+
+          // 2. Update piece product
+          if (pieceProd) {
+            const pieceRes = await fetch(`/api/products/${pieceProd.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(pieceBody),
+            });
+            if (!pieceRes.ok) {
+              const d = await pieceRes.json();
+              toast.error(d.error || "Failed to update piece product");
+              setSaving(false);
+              return;
+            }
+          } else {
+            // Piece product not found — create it
+            await fetch("/api/products", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(pieceBody),
+            });
+          }
+
+          // 3. Update box product (editId)
+          if (boxBody) {
+            const boxRes = await fetch(`/api/products/${editId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(boxBody),
+            });
+            if (!boxRes.ok) {
+              const d = await boxRes.json();
+              toast.warning(`Piece updated, Box: ${d.error}`);
+            } else {
+              toast.success(`${name} updated! Box + Piece both saved.`);
+            }
+          } else {
+            toast.success(`${name} updated!`);
+          }
         } else {
-          toast.success(`${name} added! Box + Piece saved.`);
+          // Case (b): opened piece product — update piece (editId)
+          const pieceRes = await fetch(`/api/products/${editId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(pieceBody),
+          });
+          const pieceData = await pieceRes.json();
+          if (!pieceRes.ok) {
+            const msg = pieceData.error || "Failed";
+            toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
+            setSaving(false);
+            return;
+          }
+
+          // If boxBody provided, find & update linked box product
+          if (boxBody) {
+            const lookupRes = await fetch(
+              `/api/products?barcode=${encodeURIComponent(editProduct.barcode)}`,
+              { cache: "no-store" }
+            );
+            const lookupData = await lookupRes.json();
+            // Note: lookup by piece barcode returns the piece itself; we need
+            // to find a box product whose packBarcode === pieceBarcode
+            const allProdsRes = await fetch("/api/products", { cache: "no-store" });
+            const allData = await allProdsRes.json();
+            const boxProd = (allData.products || []).find(
+              (p: any) => p.packBarcode === editProduct.barcode
+            );
+
+            if (boxProd) {
+              const boxRes = await fetch(`/api/products/${boxProd.id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(boxBody),
+              });
+              if (!boxRes.ok) {
+                const d = await boxRes.json();
+                toast.warning(`Piece updated, Box: ${d.error}`);
+              } else {
+                toast.success(`${name} updated! Box + Piece both saved.`);
+              }
+            } else {
+              // No existing box — create one
+              const newBoxRes = await fetch("/api/products", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(boxBody),
+              });
+              if (newBoxRes.ok) {
+                toast.success(`${name} updated! New box created.`);
+              } else {
+                toast.success(`${name} piece updated (box creation failed).`);
+              }
+            }
+          } else {
+            toast.success(`${name} updated!`);
+          }
         }
       } else {
-        toast.success(editId ? "Product updated!" : `${name} added!`);
+        // ─── CREATE MODE ───────────────────────────────────────────────────
+        const pieceRes = await fetch("/api/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pieceBody),
+        });
+        const pieceData = await pieceRes.json();
+        if (!pieceRes.ok) {
+          const msg = pieceData.error || "Failed";
+          toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
+          setSaving(false);
+          return;
+        }
+
+        if (hasBox) {
+          const boxRes = await fetch("/api/products", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(boxBody),
+          });
+          if (!boxRes.ok) {
+            const boxData = await boxRes.json();
+            toast.warning(`Piece saved! Box: ${boxData.error}`);
+          } else {
+            toast.success(`${name} added! Box + Piece saved.`);
+          }
+        } else {
+          toast.success(`${name} added!`);
+        }
       }
+
       onDone();
       onOpenChange(false);
     } catch { toast.error("Network error"); } finally { setSaving(false); }

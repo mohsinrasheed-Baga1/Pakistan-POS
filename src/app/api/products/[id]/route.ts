@@ -14,6 +14,18 @@ export async function PUT(
   const existing = await db.product.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Handle barcode change — ensure uniqueness if it differs from current
+  const newBarcode = body.barcode?.trim();
+  if (newBarcode && newBarcode !== existing.barcode) {
+    const dup = await db.product.findUnique({ where: { barcode: newBarcode } });
+    if (dup && dup.id !== id) {
+      return NextResponse.json(
+        { error: "This barcode already exists" },
+        { status: 400 }
+      );
+    }
+  }
+
   const prevStock = existing.stock;
   const newStock = Number(body.stock) || existing.stock;
   const stockDiff = newStock - prevStock;
@@ -22,6 +34,8 @@ export async function PUT(
     where: { id },
     data: {
       name: body.name,
+      barcode: newBarcode || existing.barcode,
+      barcodeType: body.barcodeType || existing.barcodeType,
       categoryId: body.categoryId || null,
       vendorId: body.vendorId || null,
       costPrice: Number(body.costPrice) || 0,

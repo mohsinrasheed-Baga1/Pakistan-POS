@@ -14,6 +14,12 @@ export const db =
 // Idempotent schema creation/migration for SQLite. Critical for the Electron
 // desktop app where a fresh DB may be created on first launch or an old DB
 // upgraded from a previous app version.
+//
+// ⚠️ KEEP IN SYNC WITH prisma/schema.prisma — every model + field there must
+// have a matching CREATE TABLE / ALTER TABLE here. The runtime uses this file
+// (NOT prisma migrate) because the desktop app cannot run migrations on the
+// user's machine — it can only run ad-hoc `CREATE TABLE IF NOT EXISTS` /
+// `ALTER TABLE ADD COLUMN` statements against the live SQLite file.
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS User (
   id TEXT PRIMARY KEY NOT NULL,
@@ -23,6 +29,8 @@ CREATE TABLE IF NOT EXISTS User (
   phone TEXT,
   role TEXT NOT NULL DEFAULT 'CASHIER',
   active BOOLEAN NOT NULL DEFAULT 1,
+  securityQuestion TEXT,
+  securityAnswer TEXT,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL
 );
@@ -45,8 +53,22 @@ CREATE TABLE IF NOT EXISTS Vendor (
   address TEXT,
   note TEXT,
   active BOOLEAN NOT NULL DEFAULT 1,
+  totalPurchased REAL NOT NULL DEFAULT 0,
+  totalPaid REAL NOT NULL DEFAULT 0,
+  balance REAL NOT NULL DEFAULT 0,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS VendorPurchase (
+  id TEXT PRIMARY KEY NOT NULL,
+  vendorId TEXT NOT NULL,
+  amount REAL NOT NULL,
+  type TEXT NOT NULL DEFAULT 'PURCHASE',
+  description TEXT,
+  paymentDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (vendorId) REFERENCES Vendor(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS Product (
@@ -70,6 +92,9 @@ CREATE TABLE IF NOT EXISTS Product (
   hasBarcode BOOLEAN NOT NULL DEFAULT 1,
   image TEXT,
   active BOOLEAN NOT NULL DEFAULT 1,
+  packBarcode TEXT,
+  packQuantity REAL NOT NULL DEFAULT 0,
+  packPrice REAL NOT NULL DEFAULT 0,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL,
   FOREIGN KEY (categoryId) REFERENCES Category(id) ON DELETE SET NULL,
@@ -141,6 +166,7 @@ CREATE TABLE IF NOT EXISTS StockLog (
 CREATE TABLE IF NOT EXISTS CustomerCard (
   id TEXT PRIMARY KEY NOT NULL,
   cardNumber TEXT NOT NULL,
+  customerId TEXT NOT NULL,
   name TEXT NOT NULL,
   phone TEXT,
   address TEXT,
@@ -153,6 +179,7 @@ CREATE TABLE IF NOT EXISTS CustomerCard (
   updatedAt DATETIME NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS CustomerCard_cardNumber_key ON CustomerCard(cardNumber);
+CREATE UNIQUE INDEX IF NOT EXISTS CustomerCard_customerId_key ON CustomerCard(customerId);
 
 CREATE TABLE IF NOT EXISTS CardTransaction (
   id TEXT PRIMARY KEY NOT NULL,
@@ -161,6 +188,8 @@ CREATE TABLE IF NOT EXISTS CardTransaction (
   amount REAL NOT NULL,
   description TEXT,
   saleId TEXT,
+  operatorName TEXT,
+  note TEXT,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (cardId) REFERENCES CustomerCard(id) ON DELETE CASCADE
 );
@@ -207,9 +236,81 @@ CREATE TABLE IF NOT EXISTS Settings (
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL
 );
+
+-- Load & Bill Payment module tables
+CREATE TABLE IF NOT EXISTS MobileLoadCompany (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  balance REAL NOT NULL DEFAULT 0,
+  totalPurchased REAL NOT NULL DEFAULT 0,
+  totalSold REAL NOT NULL DEFAULT 0,
+  totalProfit REAL NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT 1,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS MobileLoadCompany_name_key ON MobileLoadCompany(name);
+
+CREATE TABLE IF NOT EXISTS MobileLoadTxn (
+  id TEXT PRIMARY KEY NOT NULL,
+  companyId TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'SALE',
+  amount REAL NOT NULL,
+  costPrice REAL NOT NULL DEFAULT 0,
+  salePrice REAL NOT NULL DEFAULT 0,
+  profit REAL NOT NULL DEFAULT 0,
+  customerPhone TEXT,
+  customerName TEXT,
+  referenceNo TEXT,
+  operatorName TEXT,
+  note TEXT,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (companyId) REFERENCES MobileLoadCompany(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS BillPaymentTxn (
+  id TEXT PRIMARY KEY NOT NULL,
+  category TEXT NOT NULL,
+  consumerName TEXT,
+  consumerPhone TEXT,
+  accountNo TEXT,
+  billAmount REAL NOT NULL,
+  serviceCharge REAL NOT NULL DEFAULT 0,
+  totalPaid REAL NOT NULL,
+  referenceNo TEXT,
+  operatorName TEXT,
+  note TEXT,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS WalletTxn (
+  id TEXT PRIMARY KEY NOT NULL,
+  provider TEXT NOT NULL,
+  type TEXT NOT NULL,
+  amount REAL NOT NULL,
+  serviceCharge REAL NOT NULL DEFAULT 0,
+  customerName TEXT,
+  customerPhone TEXT,
+  referenceNo TEXT,
+  operatorName TEXT,
+  note TEXT,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
+// Columns added in later versions — run idempotent ALTER TABLE on every boot
+// so an old user database gets upgraded in place. Each entry is
+// [tableName, [columnName, columnDefinition]].
 const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
+  User: [
+    ["securityQuestion", "TEXT"],
+    ["securityAnswer", "TEXT"],
+  ],
+  Vendor: [
+    ["totalPurchased", "REAL NOT NULL DEFAULT 0"],
+    ["totalPaid", "REAL NOT NULL DEFAULT 0"],
+    ["balance", "REAL NOT NULL DEFAULT 0"],
+  ],
   Product: [
     ["wholesalePrice", "REAL NOT NULL DEFAULT 0"],
     ["shopkeeperPrice", "REAL NOT NULL DEFAULT 0"],
@@ -217,11 +318,25 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["expiryDate", "DATETIME"],
     ["manufacturingDate", "DATETIME"],
     ["vendorId", "TEXT"],
+    ["packBarcode", "TEXT"],
+    ["packQuantity", "REAL NOT NULL DEFAULT 0"],
+    ["packPrice", "REAL NOT NULL DEFAULT 0"],
   ],
   Sale: [
     ["cardId", "TEXT"],
     ["saleType", "TEXT NOT NULL DEFAULT 'RETAIL'"],
     ["originalSaleId", "TEXT"],
+    ["note", "TEXT"],
+  ],
+  SaleReturn: [
+    ["userId", "TEXT"],
+  ],
+  CustomerCard: [
+    ["customerId", "TEXT"],
+  ],
+  CardTransaction: [
+    ["operatorName", "TEXT"],
+    ["note", "TEXT"],
   ],
   Settings: [
     ["printerWidth", "INTEGER NOT NULL DEFAULT 58"],
