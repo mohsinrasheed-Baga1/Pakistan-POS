@@ -986,7 +986,14 @@ function BarcodePrintDialog({
 }
 
 // ============================================================
-// Product Wizard — Box/Bag + Piece dual entry
+// Product Wizard — Two-step (v2.7.15 style) with v2.7.34 improvements
+// Step 1: enter name + pick type (Piece OR Box/Bag)
+// Step 2: enter full details for that type
+// Improvements over v2.7.15:
+//   - Auto-generate Code-128 barcode toggle (no manual entry needed)
+//   - Per-piece price = boxPrice ÷ piecesPerBox (correct calc)
+//   - Edit mode loads linked box/piece data
+//   - Sticky Cancel/Save footer
 // ============================================================
 interface ProductWizardProps {
   open: boolean;
@@ -997,6 +1004,8 @@ interface ProductWizardProps {
 }
 
 function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: ProductWizardProps) {
+  const [step, setStep] = React.useState(1);
+  const [productType, setProductType] = React.useState<"piece" | "box">("piece");
   const [saving, setSaving] = React.useState(false);
   const [editId, setEditId] = React.useState<string | null>(null);
 
@@ -1028,12 +1037,9 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const [boxShopkeeperPrice, setBoxShopkeeperPrice] = React.useState("");
 
   // Auto-calculated piece prices from box prices.
-  // IMPORTANT: per-piece price = box price ÷ piecesPerBox (NOT ÷ totalPieces).
+  // Per-piece price = box price ÷ piecesPerBox (NOT ÷ totalPieces).
   //   - 1 box costs Rs 600, has 6 pieces → each piece costs Rs 100
-  //   - Total pieces (36) is only used for stock counting, never for price.
-  // The previous code divided by totalPieces (boxes × pieces) which gave
-  // Rs 600 ÷ 36 = Rs 16.67/piece — wildly wrong. This was the bug the user
-  // reported in their screenshot.
+  // Total pieces (boxes × piecesPerBox) is only used for stock counting.
   const piecesPerBoxNum = Number(piecesPerBox) || 0;
   const boxQtyNum = Number(boxQty) || 0;
   const totalPieces = piecesPerBoxNum * boxQtyNum;
@@ -1042,18 +1048,14 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const autoPieceWholesale = piecesPerBoxNum > 0 ? (Number(boxWholesalePrice) || 0) / piecesPerBoxNum : 0;
   const autoPieceShopkeeper = piecesPerBoxNum > 0 ? (Number(boxShopkeeperPrice) || 0) / piecesPerBoxNum : 0;
 
-  // Generate an internal Code-128 barcode when the user toggles "auto" on.
-  // We import the helper inline so this file stays self-contained for review.
-  function generateInternalBarcodeLocal(prefix: string): string {
+  function genBarcode(prefix: string): string {
     let code = prefix;
-    for (let i = 0; i < 10; i++) {
-      code += Math.floor(Math.random() * 10).toString();
-    }
+    for (let i = 0; i < 10; i++) code += Math.floor(Math.random() * 10).toString();
     return code;
   }
 
   function reset() {
-    setName(""); setCategoryId("");
+    setStep(1); setProductType("piece"); setName(""); setCategoryId("");
     setImage(null); setExpiryDate(""); setManufacturingDate("");
     setPieceBarcode(""); setPieceBarcodeAuto(false);
     setPieceCostPrice(""); setPieceSalePrice(""); setPieceWholesalePrice(""); setPieceShopkeeperPrice("");
@@ -1067,18 +1069,15 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   React.useEffect(() => {
     if (!open) { const t = setTimeout(reset, 200); return () => clearTimeout(t); }
     if (open && editProduct) {
-      // Pre-fill for editing
       setEditId(editProduct.id);
       setName(editProduct.name);
       setCategoryId(editProduct.categoryId || "");
       setImage(editProduct.image || null);
       setExpiryDate(editProduct.expiryDate ? new Date(editProduct.expiryDate).toISOString().slice(0, 10) : "");
       setManufacturingDate(editProduct.manufacturingDate ? new Date(editProduct.manufacturingDate).toISOString().slice(0, 10) : "");
-
       if (editProduct.packBarcode) {
-        // ─── User opened the BOX product ───────────────────────────────────
-        // Load box info from editProduct, and try to load piece info from
-        // the linked piece product (found by barcode === packBarcode).
+        // Box product
+        setProductType("box"); setStep(2);
         setBoxBarcode(editProduct.barcode);
         setBoxCostPrice(editProduct.costPrice.toString());
         setBoxSalePrice(editProduct.salePrice.toString());
@@ -1086,31 +1085,25 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
         setBoxShopkeeperPrice((editProduct.shopkeeperPrice || 0).toString());
         setPiecesPerBox((editProduct.packQuantity || 0).toString());
         setBoxQty(editProduct.stock > 0 ? editProduct.stock.toString() : "");
-
-        // Try to load the linked piece product's prices so the piece
-        // section shows actual saved values, not just auto-calculated ones.
+        setPieceBarcode(editProduct.packBarcode || "");
+        // Try to load piece product's saved prices
         fetch(`/api/products?barcode=${encodeURIComponent(editProduct.packBarcode)}`, { cache: "no-store" })
           .then(r => r.json())
           .then(d => {
             const p = d.products?.[0];
             if (p) {
-              setPieceBarcode(p.barcode);
               setPieceCostPrice(p.costPrice?.toString() || "");
               setPieceSalePrice(p.salePrice?.toString() || "");
               setPieceWholesalePrice((p.wholesalePrice || 0).toString());
               setPieceShopkeeperPrice((p.shopkeeperPrice || 0).toString());
               setPieceStock(p.stock?.toString() || "");
               setPieceMinStock(p.minStock?.toString() || "");
-            } else {
-              setPieceBarcode(editProduct.packBarcode || "");
             }
           })
-          .catch(() => setPieceBarcode(editProduct.packBarcode || ""));
+          .catch(() => {});
       } else {
-        // ─── User opened the PIECE product ─────────────────────────────────
-        // Load piece info from editProduct. Also check if there's a linked
-        // box product (some other product whose packBarcode === this
-        // product's barcode) and load box info too if found.
+        // Piece product — load it, plus check for linked box
+        setProductType("piece"); setStep(2);
         setPieceBarcode(editProduct.barcode);
         setPieceCostPrice(editProduct.costPrice.toString());
         setPieceSalePrice(editProduct.salePrice.toString());
@@ -1118,8 +1111,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
         setPieceShopkeeperPrice((editProduct.shopkeeperPrice || 0).toString());
         setPieceStock(editProduct.stock.toString());
         setPieceMinStock(editProduct.minStock.toString());
-
-        // Look for a linked box product
+        // Look for linked box
         fetch("/api/products", { cache: "no-store" })
           .then(r => r.json())
           .then(d => {
@@ -1139,227 +1131,121 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
     }
   }, [open, editProduct]);
 
-  // Auto-fill piece prices when box prices change (only if user hasn't
-  // manually overridden them — we detect override by checking if the
-  // current piece price differs from the previously-auto-computed value).
-  const prevAutoPieceSale = React.useRef(0);
-  const prevAutoPieceCost = React.useRef(0);
-  const prevAutoPieceWholesale = React.useRef(0);
-  const prevAutoPieceShopkeeper = React.useRef(0);
+  // Auto-fill piece prices when box prices change (only if user hasn't overridden)
+  const prevAuto = React.useRef({ sale: 0, cost: 0, ws: 0, sk: 0 });
   React.useEffect(() => {
-    // If piece price is empty OR matches the previous auto value, update it
-    if (piecesPerBoxNum > 0 && boxSalePrice) {
-      if (!pieceSalePrice || Number(pieceSalePrice) === prevAutoPieceSale.current) {
+    if (productType === "box" && step >= 2 && piecesPerBoxNum > 0) {
+      if (!pieceSalePrice || Number(pieceSalePrice) === prevAuto.current.sale)
         setPieceSalePrice(autoPieceSale ? autoPieceSale.toFixed(2) : "");
-      }
-      prevAutoPieceSale.current = autoPieceSale;
-    }
-    if (piecesPerBoxNum > 0 && boxCostPrice) {
-      if (!pieceCostPrice || Number(pieceCostPrice) === prevAutoPieceCost.current) {
+      if (!pieceCostPrice || Number(pieceCostPrice) === prevAuto.current.cost)
         setPieceCostPrice(autoPieceCost ? autoPieceCost.toFixed(2) : "");
-      }
-      prevAutoPieceCost.current = autoPieceCost;
-    }
-    if (piecesPerBoxNum > 0 && boxWholesalePrice) {
-      if (!pieceWholesalePrice || Number(pieceWholesalePrice) === prevAutoPieceWholesale.current) {
+      if (!pieceWholesalePrice || Number(pieceWholesalePrice) === prevAuto.current.ws)
         setPieceWholesalePrice(autoPieceWholesale ? autoPieceWholesale.toFixed(2) : "");
-      }
-      prevAutoPieceWholesale.current = autoPieceWholesale;
-    }
-    if (piecesPerBoxNum > 0 && boxShopkeeperPrice) {
-      if (!pieceShopkeeperPrice || Number(pieceShopkeeperPrice) === prevAutoPieceShopkeeper.current) {
+      if (!pieceShopkeeperPrice || Number(pieceShopkeeperPrice) === prevAuto.current.sk)
         setPieceShopkeeperPrice(autoPieceShopkeeper ? autoPieceShopkeeper.toFixed(2) : "");
-      }
-      prevAutoPieceShopkeeper.current = autoPieceShopkeeper;
+      prevAuto.current = { sale: autoPieceSale, cost: autoPieceCost, ws: autoPieceWholesale, sk: autoPieceShopkeeper };
     }
   }, [boxSalePrice, boxCostPrice, boxWholesalePrice, boxShopkeeperPrice, piecesPerBoxNum]);
-
-  // Auto-generate barcodes when toggled on
-  React.useEffect(() => {
-    if (pieceBarcodeAuto && !pieceBarcode) {
-      setPieceBarcode(generateInternalBarcodeLocal("20"));
-    }
-    if (!pieceBarcodeAuto) {
-      // when toggled off, clear auto-generated barcode if user hasn't saved
-      // (we can't tell, so just leave it)
-    }
-  }, [pieceBarcodeAuto]);
-  React.useEffect(() => {
-    if (boxBarcodeAuto && !boxBarcode) {
-      setBoxBarcode(generateInternalBarcodeLocal("21"));
-    }
-  }, [boxBarcodeAuto]);
 
   async function saveProducts() {
     setSaving(true);
     try {
-      // A product is considered a "box product" if box barcode + piecesPerBox
-      // are both provided. Box barcode can be auto-generated.
-      const hasBox = (boxBarcode.trim() || boxBarcodeAuto) && piecesPerBox.trim() && Number(piecesPerBox) > 0;
-      const finalPieceBarcode = pieceBarcode.trim() || (pieceBarcodeAuto ? generateInternalBarcodeLocal("20") : "");
-      const finalBoxBarcode = hasBox ? (boxBarcode.trim() || (boxBarcodeAuto ? generateInternalBarcodeLocal("21") : "")) : "";
+      // Resolve auto-generated barcodes
+      const finalPieceBarcode = pieceBarcode.trim() || (pieceBarcodeAuto ? genBarcode("20") : "");
+      const finalBoxBarcode = boxBarcode.trim() || (boxBarcodeAuto ? genBarcode("21") : "");
 
       if (!finalPieceBarcode) {
         toast.error("Piece barcode is required (or enable auto-generate)");
-        setSaving(false);
-        return;
+        setSaving(false); return;
       }
 
-      const stock = hasBox ? totalPieces : Number(pieceStock) || 0;
-
-      const pieceBody = {
-        name, barcode: finalPieceBarcode, categoryId: categoryId || null,
-        costPrice: hasBox ? (Number(pieceCostPrice) || autoPieceCost) : Number(pieceCostPrice) || 0,
-        salePrice: hasBox ? (Number(pieceSalePrice) || autoPieceSale) : Number(pieceSalePrice) || 0,
-        wholesalePrice: hasBox ? (Number(pieceWholesalePrice) || autoPieceWholesale) : Number(pieceWholesalePrice) || 0,
-        shopkeeperPrice: hasBox ? (Number(pieceShopkeeperPrice) || autoPieceShopkeeper) : Number(pieceShopkeeperPrice) || 0,
-        unit: "piece", stock,
-        minStock: Number(pieceMinStock) || 0,
-        expiryDate: expiryDate || null,
-        manufacturingDate: manufacturingDate || null,
-        hasBarcode: true, active: true, image,
-      };
-
-      const boxBody = hasBox ? {
-        name: `${name} (Box)`, barcode: finalBoxBarcode, categoryId: categoryId || null,
-        costPrice: Number(boxCostPrice) || 0, salePrice: Number(boxSalePrice) || 0,
-        wholesalePrice: Number(boxWholesalePrice) || 0, shopkeeperPrice: Number(boxShopkeeperPrice) || 0,
-        unit: "piece", stock: Number(boxQty) || 0,
-        minStock: Number(pieceMinStock) || 0,
-        expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
-        hasBarcode: true, active: true, image,
-        packBarcode: finalPieceBarcode, packQuantity: Number(piecesPerBox) || 0, packPrice: Number(boxSalePrice) || 0,
-      } : null;
-
-      if (editId && editProduct) {
-        // ─── EDIT MODE ─────────────────────────────────────────────────────
-        if (editProduct.packBarcode) {
-          // Case (a): opened BOX product — update box (editId) + linked piece
-          const lookupRes = await fetch(
-            `/api/products?barcode=${encodeURIComponent(editProduct.packBarcode)}`,
-            { cache: "no-store" }
-          );
-          const lookupData = await lookupRes.json();
-          const pieceProd = lookupData.products?.[0];
-
-          if (pieceProd) {
-            const pieceRes = await fetch(`/api/products/${pieceProd.id}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(pieceBody),
-            });
-            if (!pieceRes.ok) {
-              const d = await pieceRes.json();
-              toast.error(d.error || "Failed to update piece product");
-              setSaving(false);
-              return;
-            }
-          } else {
-            await fetch("/api/products", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(pieceBody),
-            });
-          }
-
-          if (boxBody) {
-            const boxRes = await fetch(`/api/products/${editId}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(boxBody),
-            });
-            if (!boxRes.ok) {
-              const d = await boxRes.json();
-              toast.warning(`Piece updated, Box: ${d.error}`);
-            } else {
-              toast.success(`${name} updated! Box + Piece both saved.`);
-            }
-          } else {
-            toast.success(`${name} updated!`);
-          }
-        } else {
-          // Case (b): opened PIECE product — update piece (editId) + linked box
-          const pieceRes = await fetch(`/api/products/${editId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(pieceBody),
-          });
-          const pieceData = await pieceRes.json();
-          if (!pieceRes.ok) {
-            const msg = pieceData.error || "Failed";
-            toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
-            setSaving(false);
-            return;
-          }
-
-          if (boxBody) {
-            // Find the linked box product
-            const allProdsRes = await fetch("/api/products", { cache: "no-store" });
-            const allData = await allProdsRes.json();
-            const boxProd = (allData.products || []).find(
-              (p: any) => p.packBarcode === editProduct.barcode
-            );
-
-            if (boxProd) {
-              const boxRes = await fetch(`/api/products/${boxProd.id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(boxBody),
-              });
-              if (!boxRes.ok) {
-                const d = await boxRes.json();
-                toast.warning(`Piece updated, Box: ${d.error}`);
-              } else {
-                toast.success(`${name} updated! Box + Piece both saved.`);
-              }
-            } else {
-              const newBoxRes = await fetch("/api/products", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(boxBody),
-              });
-              if (newBoxRes.ok) {
-                toast.success(`${name} updated! New box created.`);
-              } else {
-                toast.success(`${name} piece updated (box creation failed).`);
-              }
-            }
-          } else {
-            toast.success(`${name} updated!`);
-          }
-        }
-      } else {
-        // ─── CREATE MODE ───────────────────────────────────────────────────
-        const pieceRes = await fetch("/api/products", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(pieceBody),
-        });
-        const pieceData = await pieceRes.json();
-        if (!pieceRes.ok) {
-          const msg = pieceData.error || "Failed";
+      if (productType === "piece") {
+        // ─── PIECE-ONLY SAVE ───────────────────────────────────────────────
+        const body = {
+          name, barcode: finalPieceBarcode, categoryId: categoryId || null,
+          costPrice: Number(pieceCostPrice) || 0,
+          salePrice: Number(pieceSalePrice) || 0,
+          wholesalePrice: Number(pieceWholesalePrice) || 0,
+          shopkeeperPrice: Number(pieceShopkeeperPrice) || 0,
+          unit: "piece", stock: Number(pieceStock) || 0,
+          minStock: Number(pieceMinStock) || 0,
+          expiryDate: expiryDate || null,
+          manufacturingDate: manufacturingDate || null,
+          hasBarcode: true, active: true, image,
+        };
+        const url = editId ? `/api/products/${editId}` : "/api/products";
+        const method = editId ? "PUT" : "POST";
+        const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!res.ok) {
+          const msg = data.error || "Failed";
           toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
-          setSaving(false);
-          return;
+          setSaving(false); return;
+        }
+        toast.success(editId ? "Product updated!" : `${name} added!`);
+      } else {
+        // ─── BOX SAVE (saves both box + linked piece) ──────────────────────
+        if (!finalBoxBarcode) {
+          toast.error("Box barcode is required (or enable auto-generate)");
+          setSaving(false); return;
+        }
+        // 1. Save/Update box product
+        const boxBody = {
+          name: editId ? name : `${name} (Box)`,
+          barcode: finalBoxBarcode, categoryId: categoryId || null,
+          costPrice: Number(boxCostPrice) || 0, salePrice: Number(boxSalePrice) || 0,
+          wholesalePrice: Number(boxWholesalePrice) || 0, shopkeeperPrice: Number(boxShopkeeperPrice) || 0,
+          unit: "piece", stock: Number(boxQty) || 0,
+          minStock: Number(pieceMinStock) || 0,
+          expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
+          hasBarcode: true, active: true, image,
+          packBarcode: finalPieceBarcode, packQuantity: Number(piecesPerBox) || 0, packPrice: Number(boxSalePrice) || 0,
+        };
+        const boxUrl = editId ? `/api/products/${editId}` : "/api/products";
+        const boxMethod = editId ? "PUT" : "POST";
+        const boxRes = await fetch(boxUrl, { method: boxMethod, headers: { "Content-Type": "application/json" }, body: JSON.stringify(boxBody) });
+        const boxData = await boxRes.json();
+        if (!boxRes.ok) {
+          const msg = boxData.error || "Box save failed";
+          toast.error(msg.includes("barcode") ? "This barcode already exists!" : msg);
+          setSaving(false); return;
         }
 
-        if (hasBox) {
-          const boxRes = await fetch("/api/products", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(boxBody),
-          });
-          if (!boxRes.ok) {
-            const boxData = await boxRes.json();
-            toast.warning(`Piece saved! Box: ${boxData.error}`);
+        // 2. Save/Update linked piece product (by packBarcode lookup)
+        const lookupRes = await fetch(`/api/products?barcode=${encodeURIComponent(finalPieceBarcode)}`, { cache: "no-store" });
+        const lookupData = await lookupRes.json();
+        const existingPiece = lookupData.products?.[0];
+
+        const pieceBody = {
+          name, barcode: finalPieceBarcode, categoryId: categoryId || null,
+          costPrice: Number(pieceCostPrice) || autoPieceCost,
+          salePrice: Number(pieceSalePrice) || autoPieceSale,
+          wholesalePrice: Number(pieceWholesalePrice) || autoPieceWholesale,
+          shopkeeperPrice: Number(pieceShopkeeperPrice) || autoPieceShopkeeper,
+          unit: "piece", stock: totalPieces || Number(pieceStock) || 0,
+          minStock: Number(pieceMinStock) || 0,
+          expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
+          hasBarcode: true, active: true, image,
+        };
+
+        if (existingPiece) {
+          const pieceRes = await fetch(`/api/products/${existingPiece.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pieceBody) });
+          if (!pieceRes.ok) {
+            const d = await pieceRes.json();
+            toast.warning(`Box saved! Piece: ${d.error}`);
           } else {
-            toast.success(`${name} added! Box + Piece saved.`);
+            toast.success(editId ? "Product updated!" : `${name} added! Box + Piece saved.`);
           }
         } else {
-          toast.success(`${name} added!`);
+          const pieceRes = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pieceBody) });
+          if (!pieceRes.ok) {
+            const d = await pieceRes.json();
+            toast.warning(`Box saved! Piece: ${d.error}`);
+          } else {
+            toast.success(editId ? "Product updated!" : `${name} added! Box + Piece saved.`);
+          }
         }
       }
-
       onDone();
       onOpenChange(false);
     } catch { toast.error("Network error"); } finally { setSaving(false); }
@@ -1367,215 +1253,195 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{editId ? "Edit Product" : "Add Product"}</DialogTitle>
+      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+        <DialogHeader className="flex-shrink-0">
+          <DialogTitle>{editId ? "Edit Product" : "Add Product"} — Step {step}/2</DialogTitle>
         </DialogHeader>
 
-        {/* Single combined form - Piece + Box together */}
-        <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Product Name *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Biscuit, Sugar" autoFocus />
-            </div>
-            <div className="space-y-2">
-              <Label>Category</Label>
-              <Select value={categoryId || "none"} onValueChange={(v) => setCategoryId(v === "none" ? "" : v)}>
-                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No category</SelectItem>
-                  {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* BOX section (primary - on top) */}
-            <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3 space-y-3">
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-amber-600" />
-                <Label className="font-bold text-amber-800">Box Details</Label>
-                <span className="text-xs text-muted-foreground">— leave empty if not sold by box</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2">
-                  <Label>Pieces per Box</Label>
-                  <Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 6" className="text-left" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Number of Boxes</Label>
-                  <Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" />
-                </div>
-              </div>
-
-              {/* Box Barcode — with Auto toggle */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {/* STEP 1 — name + type selection */}
+          {step === 1 && (
+            <div className="space-y-4">
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Box Barcode</Label>
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={boxBarcodeAuto}
-                      onChange={(e) => {
-                        setBoxBarcodeAuto(e.target.checked);
-                        if (e.target.checked) setBoxBarcode("");
-                      }}
-                      className="rounded"
-                    />
-                    <span className="text-amber-700">Auto-generate</span>
-                  </label>
-                </div>
-                <Input
-                  value={boxBarcodeAuto ? (boxBarcode || "(will auto-generate)") : boxBarcode}
-                  onChange={(e) => setBoxBarcode(e.target.value)}
-                  placeholder={boxBarcodeAuto ? "Auto-generated on save" : "Scan box barcode"}
-                  data-barcode-input="true"
-                  className="text-left"
-                  disabled={boxBarcodeAuto}
-                  readOnly={boxBarcodeAuto}
-                />
+                <Label>Product Name *</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Biscuit, Sugar" autoFocus />
               </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select value={categoryId || "none"} onValueChange={(v) => setCategoryId(v === "none" ? "" : v)}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No category</SelectItem>
+                    {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>What are you saving? *</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => setProductType("piece")} className={`rounded-lg border-2 p-4 text-center transition-all ${productType === "piece" ? "border-emerald-500 bg-emerald-50" : "border-border hover:bg-muted"}`}>
+                    <Package className="w-6 h-6 mx-auto mb-1 text-emerald-600" />
+                    <div className="font-bold">Piece</div>
+                    <div className="text-xs text-muted-foreground">Single item</div>
+                  </button>
+                  <button type="button" onClick={() => setProductType("box")} className={`rounded-lg border-2 p-4 text-center transition-all ${productType === "box" ? "border-amber-500 bg-amber-50" : "border-border hover:bg-muted"}`}>
+                    <Package className="w-6 h-6 mx-auto mb-1 text-amber-600" />
+                    <div className="font-bold">Box / Bag</div>
+                    <div className="text-xs text-muted-foreground">Contains pieces</div>
+                  </button>
+                </div>
+              </div>
+              <Button className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={!name.trim()} onClick={() => setStep(2)}>Next →</Button>
+            </div>
+          )}
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2">
-                  <Label>Box Cost Price</Label>
-                  <Input type="number" value={boxCostPrice} onChange={(e) => setBoxCostPrice(e.target.value)} placeholder="0" className="text-left" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Box Sale Price (Regular)</Label>
-                  <Input type="number" value={boxSalePrice} onChange={(e) => setBoxSalePrice(e.target.value)} placeholder="0" className="text-left" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2"><Label>Box Wholesale</Label><Input type="number" value={boxWholesalePrice} onChange={(e) => setBoxWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
-                <div className="space-y-2"><Label>Box Shopkeeper</Label><Input type="number" value={boxShopkeeperPrice} onChange={(e) => setBoxShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
-              </div>
-              {totalPieces > 0 && (
-                <div className="rounded bg-amber-200 p-2 text-center text-base font-bold text-amber-900">
-                  Total: {boxQty || 0} boxes × {piecesPerBox || 0} pcs = <span className="text-lg">{totalPieces}</span> pieces
+          {/* STEP 2 — full details for the chosen type */}
+          {step === 2 && (
+            <div className="space-y-4">
+              {/* PIECE form */}
+              {productType === "piece" && (
+                <div className="space-y-3">
+                  {/* Piece Barcode with Auto toggle */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Barcode *</Label>
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" checked={pieceBarcodeAuto} onChange={(e) => { setPieceBarcodeAuto(e.target.checked); if (e.target.checked) setPieceBarcode(""); }} className="rounded" />
+                        <span className="text-emerald-700">Auto-generate (Code-128)</span>
+                      </label>
+                    </div>
+                    <Input
+                      value={pieceBarcodeAuto ? (pieceBarcode || "(will auto-generate)") : pieceBarcode}
+                      onChange={(e) => setPieceBarcode(e.target.value)}
+                      placeholder={pieceBarcodeAuto ? "Auto-generated on save" : "Scan or type barcode"}
+                      data-barcode-input="true"
+                      className="text-left"
+                      disabled={pieceBarcodeAuto}
+                      readOnly={pieceBarcodeAuto}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2"><Label>Cost Price</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                    <div className="space-y-2"><Label>Sale Price (Regular) *</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2"><Label>Wholesale Price</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                    <div className="space-y-2"><Label>Shopkeeper Price</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2"><Label>Stock Quantity</Label><Input type="number" value={pieceStock} onChange={(e) => setPieceStock(e.target.value)} placeholder="0" className="text-left" /></div>
+                    <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2"><Label>Manufacturing Date</Label><Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} className="text-left" /></div>
+                    <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
+                  </div>
+                  <ImageUpload value={image} onChange={setImage} label="Product Image" />
                 </div>
               )}
-            </div>
 
-            {/* Piece Barcode — with Auto toggle */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Piece Barcode *</Label>
-                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={pieceBarcodeAuto}
-                    onChange={(e) => {
-                      setPieceBarcodeAuto(e.target.checked);
-                      if (e.target.checked) setPieceBarcode("");
-                    }}
-                    className="rounded"
-                  />
-                  <span className="text-emerald-700">Auto-generate</span>
-                </label>
-              </div>
-              <Input
-                value={pieceBarcodeAuto ? (pieceBarcode || "(will auto-generate)") : pieceBarcode}
-                onChange={(e) => setPieceBarcode(e.target.value)}
-                placeholder={pieceBarcodeAuto ? "Auto-generated on save" : "Scan or type piece barcode"}
-                data-barcode-input="true"
-                className="text-left"
-                disabled={pieceBarcodeAuto}
-                readOnly={pieceBarcodeAuto}
-              />
-              <p className="text-[10px] text-muted-foreground">
-                If the product has no company barcode, enable "Auto-generate" and the software will create its own barcode automatically.
-              </p>
-            </div>
+              {/* BOX form */}
+              {productType === "box" && (
+                <>
+                  <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-3 space-y-3">
+                    <div className="flex items-center gap-2"><Package className="w-4 h-4 text-amber-600" /><Label className="font-bold text-amber-800">Box Details</Label></div>
 
-            {/* PIECE section (auto-calculated from box) - on bottom */}
-            <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50 p-3 space-y-3">
-              <div className="flex items-center gap-2"><Package className="w-4 h-4 text-emerald-600" /><Label className="font-bold text-emerald-800">Piece Details</Label></div>
-              <div className="text-xs text-muted-foreground">
-                {piecesPerBoxNum > 0 ? (
-                  <>Prices below are auto-derived from box prices ÷ {piecesPerBoxNum} pieces per box. You can override any value.</>
-                ) : (
-                  <>Enter piece prices directly. If you fill box details above, these will auto-calculate.</>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2">
-                  <Label>Cost Price / Piece</Label>
-                  <Input
-                    type="number"
-                    value={pieceCostPrice}
-                    onChange={(e) => setPieceCostPrice(e.target.value)}
-                    placeholder="0"
-                    className="text-left bg-emerald-100/70 font-medium"
-                  />
-                  {autoPieceCost > 0 && <div className="text-[10px] text-emerald-700">Auto: Rs {autoPieceCost.toFixed(2)}</div>}
-                </div>
-                <div className="space-y-2">
-                  <Label>Sale Price (Regular) / Piece *</Label>
-                  <Input
-                    type="number"
-                    value={pieceSalePrice}
-                    onChange={(e) => setPieceSalePrice(e.target.value)}
-                    placeholder="0"
-                    className="text-left bg-emerald-100/70 font-medium"
-                  />
-                  {autoPieceSale > 0 && <div className="text-[10px] text-emerald-700">Auto: Rs {autoPieceSale.toFixed(2)}</div>}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2">
-                  <Label>Wholesale Price / Piece</Label>
-                  <Input
-                    type="number"
-                    value={pieceWholesalePrice}
-                    onChange={(e) => setPieceWholesalePrice(e.target.value)}
-                    placeholder="0"
-                    className="text-left bg-emerald-100/70 font-medium"
-                  />
-                  {autoPieceWholesale > 0 && <div className="text-[10px] text-emerald-700">Auto: Rs {autoPieceWholesale.toFixed(2)}</div>}
-                </div>
-                <div className="space-y-2">
-                  <Label>Shopkeeper Price / Piece</Label>
-                  <Input
-                    type="number"
-                    value={pieceShopkeeperPrice}
-                    onChange={(e) => setPieceShopkeeperPrice(e.target.value)}
-                    placeholder="0"
-                    className="text-left bg-emerald-100/70 font-medium"
-                  />
-                  {autoPieceShopkeeper > 0 && <div className="text-[10px] text-emerald-700">Auto: Rs {autoPieceShopkeeper.toFixed(2)}</div>}
-                </div>
-              </div>
-              {/* Total Stock FIRST, then Low Stock — matches user's expected order */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2">
-                  <Label>Total Stock (pieces)</Label>
-                  <Input
-                    type="number"
-                    value={totalPieces > 0 ? totalPieces.toString() : pieceStock}
-                    onChange={(e) => setPieceStock(e.target.value)}
-                    placeholder="0"
-                    className="text-left bg-muted"
-                    readOnly={totalPieces > 0}
-                  />
-                  {totalPieces > 0 && <div className="text-[10px] text-amber-700">Auto from boxes</div>}
-                </div>
-                <div className="space-y-2">
-                  <Label>Low Stock Alert</Label>
-                  <Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" />
-                </div>
-              </div>
-            </div>
+                    {/* Box Barcode with Auto toggle */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Box Barcode *</Label>
+                        <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                          <input type="checkbox" checked={boxBarcodeAuto} onChange={(e) => { setBoxBarcodeAuto(e.target.checked); if (e.target.checked) setBoxBarcode(""); }} className="rounded" />
+                          <span className="text-amber-700">Auto-generate (Code-128)</span>
+                        </label>
+                      </div>
+                      <Input
+                        value={boxBarcodeAuto ? (boxBarcode || "(will auto-generate)") : boxBarcode}
+                        onChange={(e) => setBoxBarcode(e.target.value)}
+                        placeholder={boxBarcodeAuto ? "Auto-generated on save" : "Scan box barcode"}
+                        data-barcode-input="true"
+                        className="text-left"
+                        disabled={boxBarcodeAuto}
+                        readOnly={boxBarcodeAuto}
+                      />
+                    </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-2"><Label>Manufacturing Date</Label><Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} className="text-left" /></div>
-              <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
-            </div>
-            <ImageUpload value={image} onChange={setImage} label="Product Image" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2"><Label>Pieces per Box *</Label><Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 6" className="text-left" /></div>
+                      <div className="space-y-2"><Label>Number of Boxes</Label><Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2"><Label>Box Cost Price</Label><Input type="number" value={boxCostPrice} onChange={(e) => setBoxCostPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                      <div className="space-y-2"><Label>Box Sale Price</Label><Input type="number" value={boxSalePrice} onChange={(e) => setBoxSalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2"><Label>Box Wholesale</Label><Input type="number" value={boxWholesalePrice} onChange={(e) => setBoxWholesalePrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                      <div className="space-y-2"><Label>Box Shopkeeper</Label><Input type="number" value={boxShopkeeperPrice} onChange={(e) => setBoxShopkeeperPrice(e.target.value)} placeholder="0" className="text-left" /></div>
+                    </div>
+                    {totalPieces > 0 && <div className="rounded bg-amber-100 p-2 text-center text-sm font-bold text-amber-800">Total: {boxQty || 0} boxes × {piecesPerBox || 0} pcs = {totalPieces} pieces</div>}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2"><Label>Low Stock Alert</Label><Input type="number" value={pieceMinStock} onChange={(e) => setPieceMinStock(e.target.value)} placeholder="0" className="text-left" /></div>
+                      <div className="space-y-2"><Label>Expiry Date</Label><Input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="text-left" /></div>
+                    </div>
+                  </div>
 
-            <div className="flex gap-2 sticky bottom-0 bg-background pt-2 -mx-1 px-1">
-              <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving || (!pieceBarcode.trim() && !pieceBarcodeAuto) || !name.trim()} onClick={saveProducts}>{saving ? "Saving..." : editId ? "Update" : "Add Product"}</Button>
+                  <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-3 space-y-3">
+                    <div className="flex items-center gap-2"><Package className="w-4 h-4 text-emerald-600" /><Label className="font-bold text-emerald-800">Piece Details (auto-calculated)</Label></div>
+                    {/* Piece Barcode with Auto toggle */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Piece Barcode *</Label>
+                        <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                          <input type="checkbox" checked={pieceBarcodeAuto} onChange={(e) => { setPieceBarcodeAuto(e.target.checked); if (e.target.checked) setPieceBarcode(""); }} className="rounded" />
+                          <span className="text-emerald-700">Auto-generate</span>
+                        </label>
+                      </div>
+                      <Input
+                        value={pieceBarcodeAuto ? (pieceBarcode || "(will auto-generate)") : pieceBarcode}
+                        onChange={(e) => setPieceBarcode(e.target.value)}
+                        placeholder={pieceBarcodeAuto ? "Auto-generated on save" : "Scan piece barcode"}
+                        data-barcode-input="true"
+                        className="text-left"
+                        disabled={pieceBarcodeAuto}
+                        readOnly={pieceBarcodeAuto}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2"><Label>Cost/Pc</Label><Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder={autoPieceCost ? autoPieceCost.toFixed(2) : "0"} className="text-left" /></div>
+                      <div className="space-y-2"><Label>Regular/Pc</Label><Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder={autoPieceSale ? autoPieceSale.toFixed(2) : "0"} className="text-left" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2"><Label>Wholesale/Pc</Label><Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder={autoPieceWholesale ? autoPieceWholesale.toFixed(2) : "0"} className="text-left" /></div>
+                      <div className="space-y-2"><Label>Shopkeeper/Pc</Label><Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder={autoPieceShopkeeper ? autoPieceShopkeeper.toFixed(2) : "0"} className="text-left" /></div>
+                    </div>
+                    <div className="text-xs text-emerald-600">Prices auto-calculated from box ÷ pieces per box. Override allowed.</div>
+                  </div>
+                  <ImageUpload value={image} onChange={setImage} label="Product Image" />
+                </>
+              )}
             </div>
+          )}
+        </div>
+
+        {/* Sticky footer with Back/Cancel + Save */}
+        <div className="flex gap-2 flex-shrink-0 border-t pt-3 mt-2 bg-background">
+          {step === 2 && (
+            <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>← Back</Button>
+          )}
+          {step === 1 && (
+            <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>Cancel</Button>
+          )}
+          {step === 2 && (
+            <Button
+              className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+              disabled={saving || (productType === "piece"
+                ? (!pieceBarcode.trim() && !pieceBarcodeAuto)
+                : ((!boxBarcode.trim() && !boxBarcodeAuto) || (!pieceBarcode.trim() && !pieceBarcodeAuto)))}
+              onClick={saveProducts}
+            >
+              {saving ? "Saving..." : editId ? "Update Product" : "Save Product"}
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>

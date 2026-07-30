@@ -576,84 +576,83 @@ export function PosView({ settings }: PosViewProps) {
                 <>
                   <ScrollArea className="h-[40vh] pr-2">
                     <div className="space-y-2">
-                      {cart.items.map((item) => (
-                        <div
-                          key={item.product.id}
-                          className="flex items-center gap-2 rounded-lg border p-2 bg-background"
-                        >
-                          <div className="flex-1 min-w-0 max-w-[45%]">
-                            <div className="text-sm font-medium truncate" title={item.product.name}>
-                              {item.product.name}
-                            </div>
-                            <div className="text-xs text-muted-foreground whitespace-nowrap">
-                              {formatMoney(
-                                cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
-                                  ? item.product.wholesalePrice
-                                  : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
-                                  ? item.product.shopkeeperPrice
-                                  : item.product.salePrice,
-                                currency
-                              )} /{" "}
-                              {unitLabel(item.product.unit)}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() =>
-                                cart.setQty(
-                                  item.product.id,
-                                  item.quantity - (isLooseUnit(item.product.unit) ? 0.5 : 1)
-                                )
-                              }
-                            >
-                              <Minus className="w-3 h-3" />
-                            </Button>
-                            <Input
-                              className="h-7 w-14 text-center px-1"
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const v = Number(e.target.value);
-                                if (!isNaN(v))
-                                  cart.setQty(item.product.id, v);
-                              }}
-                            />
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() =>
-                                cart.setQty(
-                                  item.product.id,
-                                  item.quantity + (isLooseUnit(item.product.unit) ? 0.5 : 1)
-                                )
-                              }
-                            >
-                              <Plus className="w-3 h-3" />
-                            </Button>
-                          </div>
-                          <div className="text-sm font-bold text-emerald-700 w-20 text-right flex-shrink-0">
-                            {formatMoney(
-                              (cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
-                                ? item.product.wholesalePrice
-                                : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
-                                ? item.product.shopkeeperPrice
-                                : item.product.salePrice) * item.quantity,
-                              currency
-                            )}
-                          </div>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-red-600 hover:bg-red-50 flex-shrink-0"
-                            onClick={() => cart.removeItem(item.product.id)}
+                      {cart.items.map((item) => {
+                        // Per-unit price based on sale type
+                        const unitPrice =
+                          cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
+                            ? item.product.wholesalePrice
+                            : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
+                            ? item.product.shopkeeperPrice
+                            : item.product.salePrice;
+                        const lineTotal = unitPrice * item.quantity;
+                        return (
+                          <div
+                            key={item.product.id}
+                            className="rounded-lg border p-2 bg-background space-y-1"
                           >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      ))}
+                            {/* Top row: product name (left, truncate) + remove button (right) */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="text-sm font-medium leading-tight line-clamp-2 min-w-0 flex-1" title={item.product.name}>
+                                {item.product.name}
+                              </div>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-red-600 hover:bg-red-50 flex-shrink-0"
+                                onClick={() => cart.removeItem(item.product.id)}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                            {/* Bottom row: unit price (always visible, left) + qty controls (middle) + line total (right, always visible) */}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
+                                {formatMoney(unitPrice, currency)} / {unitLabel(item.product.unit)}
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-6 w-6"
+                                  onClick={() =>
+                                    cart.setQty(
+                                      item.product.id,
+                                      item.quantity - (isLooseUnit(item.product.unit) ? 0.5 : 1)
+                                    )
+                                  }
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </Button>
+                                <Input
+                                  className="h-6 w-12 text-center px-1 text-xs"
+                                  value={item.quantity}
+                                  onChange={(e) => {
+                                    const v = Number(e.target.value);
+                                    if (!isNaN(v))
+                                      cart.setQty(item.product.id, v);
+                                  }}
+                                />
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-6 w-6"
+                                  onClick={() =>
+                                    cart.setQty(
+                                      item.product.id,
+                                      item.quantity + (isLooseUnit(item.product.unit) ? 0.5 : 1)
+                                    )
+                                  }
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </Button>
+                              </div>
+                              <div className="text-sm font-bold text-emerald-700 whitespace-nowrap flex-shrink-0 text-right">
+                                {formatMoney(lineTotal, currency)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </ScrollArea>
 
