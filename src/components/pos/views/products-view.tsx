@@ -117,6 +117,10 @@ export function ProductsView({ userRole }: ProductsViewProps) {
   const [q, setQ] = React.useState("");
   const [activeCat, setActiveCat] = React.useState("all");
   const [loading, setLoading] = React.useState(true);
+  // Filter mode: "all" | "lowStock" | "expiry"
+  // When set to "lowStock", only products with stock <= minStock are shown.
+  // When set to "expiry", only products with expiry within 30 days (or expired) are shown.
+  const [filterMode, setFilterMode] = React.useState<"all" | "lowStock" | "expiry">("all");
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editId, setEditId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState<any>(emptyForm);
@@ -284,10 +288,34 @@ export function ProductsView({ userRole }: ProductsViewProps) {
           <Button variant="outline" onClick={loadProducts}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button variant="outline" className="border-amber-300 text-amber-700" onClick={() => { setActiveCat("all"); setQ(""); }}>
+          <Button
+            variant={filterMode === "lowStock" ? "default" : "outline"}
+            className={filterMode === "lowStock" ? "bg-amber-600 hover:bg-amber-700 text-white" : "border-amber-300 text-amber-700"}
+            onClick={() => {
+              if (filterMode === "lowStock") {
+                setFilterMode("all");
+              } else {
+                setFilterMode("lowStock");
+                setActiveCat("all");
+                setQ("");
+              }
+            }}
+          >
             <AlertTriangle className="w-4 h-4 mr-2" /> Low Stock
           </Button>
-          <Button variant="outline" className="border-rose-300 text-rose-700" onClick={() => { setActiveCat("all"); setQ(""); }}>
+          <Button
+            variant={filterMode === "expiry" ? "default" : "outline"}
+            className={filterMode === "expiry" ? "bg-rose-600 hover:bg-rose-700 text-white" : "border-rose-300 text-rose-700"}
+            onClick={() => {
+              if (filterMode === "expiry") {
+                setFilterMode("all");
+              } else {
+                setFilterMode("expiry");
+                setActiveCat("all");
+                setQ("");
+              }
+            }}
+          >
             <Calendar className="w-4 h-4 mr-2" /> Expiry
           </Button>
           {canManage && (
@@ -325,155 +353,184 @@ export function ProductsView({ userRole }: ProductsViewProps) {
 
       <Card>
         <CardContent className="p-0">
-          {loading ? (
-            <div className="p-8 space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-12 rounded bg-muted animate-pulse" />
-              ))}
-            </div>
-          ) : products.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              <Package className="w-10 h-10 mx-auto mb-2 opacity-50" />
-              No products found
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Barcode</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead className="text-right">Cost</TableHead>
-                    <TableHead className="text-right">Sale</TableHead>
-                    <TableHead className="text-right">Stock</TableHead>
-                    <TableHead>Expiry</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {products.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
-                            <Package className="w-4 h-4 text-emerald-600" />
-                          </div>
-                          <div>
-                            <div>{p.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {unitLabel(p.unit)}
+          {(() => {
+            // Apply client-side filtering based on filterMode
+            const filteredProducts = products.filter((p) => {
+              if (filterMode === "lowStock") {
+                return p.stock <= (p.minStock || 0);
+              }
+              if (filterMode === "expiry") {
+                if (!p.expiryDate) return false;
+                const d = new Date(p.expiryDate);
+                if (isNaN(d.getTime())) return false;
+                const now = new Date();
+                const diffMs = d.getTime() - now.getTime();
+                const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                return days <= 30; // expired or expiring within 30 days
+              }
+              return true; // "all" — no filtering
+            });
+
+            if (loading) {
+              return (
+                <div className="p-8 space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="h-12 rounded bg-muted animate-pulse" />
+                  ))}
+                </div>
+              );
+            }
+            if (filteredProducts.length === 0) {
+              return (
+                <div className="py-12 text-center text-muted-foreground">
+                  <Package className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                  {filterMode === "lowStock"
+                    ? "No low-stock products found"
+                    : filterMode === "expiry"
+                    ? "No products expiring within 30 days"
+                    : "No products found"}
+                </div>
+              );
+            }
+            return (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Barcode</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead className="text-right">Cost</TableHead>
+                      <TableHead className="text-right">Sale</TableHead>
+                      <TableHead className="text-right">Stock</TableHead>
+                      <TableHead>Expiry</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredProducts.map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                              <Package className="w-4 h-4 text-emerald-600" />
+                            </div>
+                            <div>
+                              <div>{p.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {unitLabel(p.unit)}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs font-mono">
-                        {p.barcode}
-                        {p.barcodeType !== "COMPANY" && (
-                          <Badge variant="outline" className="ml-1 text-[10px]">
-                            Auto
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>{p.category?.name || "-"}</TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {formatMoney(p.costPrice)}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-emerald-700">
-                        {formatMoney(p.salePrice)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <span
-                          className={`font-medium ${
-                            p.stock <= 0
-                              ? "text-red-600"
-                              : p.stock <= p.minStock
-                              ? "text-amber-600"
-                              : ""
-                          }`}
-                        >
-                          {p.stock}
-                        </span>
-                        {p.stock <= p.minStock && (
-                          <AlertTriangle className="w-3 h-3 inline mr-1 text-amber-500" />
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {(() => {
-                          const exp = formatExpiryBadge(p.expiryDate);
-                          if (!exp) {
-                            return (
-                              <span className="text-muted-foreground text-xs">
-                                -
-                              </span>
-                            );
-                          }
-                          if (exp.tone === "red") {
-                            return (
-                              <Badge
-                                variant="outline"
-                                className="text-red-700 border-red-300 bg-red-50"
-                              >
-                                {exp.label} · Expired
-                              </Badge>
-                            );
-                          }
-                          if (exp.tone === "amber") {
-                            return (
-                              <Badge
-                                variant="outline"
-                                className="text-amber-700 border-amber-300 bg-amber-50"
-                              >
-                                {exp.label} · {exp.days}d
-                              </Badge>
-                            );
-                          }
-                          return (
-                            <Badge variant="outline" className="font-mono">
-                              {exp.label}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono">
+                          {p.barcode}
+                          {p.barcodeType !== "COMPANY" && (
+                            <Badge variant="outline" className="ml-1 text-[10px]">
+                              Auto
                             </Badge>
-                          );
-                        })()}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex gap-1 justify-end">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            onClick={() => setPrintProduct(p)}
-                            title="Print Barcode"
-                          >
-                            <BarcodeIcon className="w-4 h-4 text-emerald-600" />
-                          </Button>
-                          {canManage && (
-                            <>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8"
-                                onClick={() => openEdit(p)}
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 text-red-600 hover:bg-red-50"
-                                onClick={() => setDeleteId(p.id)}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </>
                           )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                        </TableCell>
+                        <TableCell>{p.category?.name || "-"}</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatMoney(p.costPrice)}
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-emerald-700">
+                          {formatMoney(p.salePrice)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span
+                            className={`font-medium ${
+                              p.stock <= 0
+                                ? "text-red-600"
+                                : p.stock <= p.minStock
+                                ? "text-amber-600"
+                                : ""
+                            }`}
+                          >
+                            {p.stock}
+                          </span>
+                          {p.stock <= p.minStock && (
+                            <AlertTriangle className="w-3 h-3 inline mr-1 text-amber-500" />
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const exp = formatExpiryBadge(p.expiryDate);
+                            if (!exp) {
+                              return (
+                                <span className="text-muted-foreground text-xs">
+                                  -
+                                </span>
+                              );
+                            }
+                            if (exp.tone === "red") {
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="text-red-700 border-red-300 bg-red-50"
+                                >
+                                  {exp.label} · Expired
+                                </Badge>
+                              );
+                            }
+                            if (exp.tone === "amber") {
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="text-amber-700 border-amber-300 bg-amber-50"
+                                >
+                                  {exp.label} · {exp.days}d
+                                </Badge>
+                              );
+                            }
+                            return (
+                              <Badge variant="outline" className="font-mono">
+                                {exp.label}
+                              </Badge>
+                            );
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex gap-1 justify-end">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={() => setPrintProduct(p)}
+                              title="Print Barcode"
+                            >
+                              <BarcodeIcon className="w-4 h-4 text-emerald-600" />
+                            </Button>
+                            {canManage && (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8"
+                                  onClick={() => openEdit(p)}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-red-600 hover:bg-red-50"
+                                  onClick={() => setDeleteId(p.id)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
@@ -816,11 +873,11 @@ function BarcodePrintDialog({
           width: 50mm;
           height: 35mm;
           border: 1px dashed #999;
-          padding: 2.5mm 2mm 2mm 2mm;
+          padding: 2mm 2mm 2mm 2mm;
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: flex-start;
+          justify-content: space-between;
           font-family: Tahoma, Arial, sans-serif;
           color: #000;
           background: #fff;
@@ -829,32 +886,32 @@ function BarcodePrintDialog({
           page-break-inside: avoid;
         }
         .shop-name {
-          font-size: 10px;
+          font-size: 9px;
           font-weight: bold;
           line-height: 1.1;
           width: 100%;
-          margin-bottom: 1.5mm;
           padding: 0 1mm;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
         .barcode {
-          flex: 0 0 auto;
+          flex: 1;
           display: flex;
           align-items: center;
           justify-content: center;
           width: 100%;
           overflow: hidden;
-          margin: 0.5mm 0;
         }
-        .barcode svg { max-width: 100%; height: auto; }
+        .barcode svg {
+          width: 100%;
+          height: auto;
+        }
         .product-name {
-          font-size: 10px;
+          font-size: 9px;
           font-weight: bold;
           line-height: 1.1;
           width: 100%;
-          margin-top: 1.5mm;
           padding: 0 1mm;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -872,18 +929,17 @@ function BarcodePrintDialog({
     }, 350);
   }
 
-  // Inline sticker style — 50mm × 35mm (taller than before for better
-  // spacing). Content is pushed down from the top so the shop name is
-  // not cut off when printing, and there's breathing room at the bottom.
+  // Inline sticker style — 50mm × 35mm, content distributed with
+  // space-between so there's no empty gap at the bottom.
   const stickerStyle: React.CSSProperties = {
     width: "50mm",
     height: "35mm",
     border: "1px dashed #d1d5db",
-    padding: "2.5mm 2mm 2mm 2mm",
+    padding: "2mm",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    justifyContent: "flex-start",
+    justifyContent: "space-between",
     color: "#000",
     background: "#fff",
     textAlign: "center",
@@ -923,15 +979,14 @@ function BarcodePrintDialog({
           >
             {Array.from({ length: count }).map((_, i) => (
               <div key={i} className="sticker" style={stickerStyle}>
-                {/* TOP — shop name (pushed down from edge by sticker padding) */}
+                {/* TOP — shop name */}
                 <div
                   className="shop-name"
                   style={{
-                    fontSize: "10px",
+                    fontSize: "9px",
                     fontWeight: "bold",
                     lineHeight: 1.1,
                     width: "100%",
-                    marginBottom: "1.5mm",
                     padding: "0 1mm",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
@@ -940,38 +995,36 @@ function BarcodePrintDialog({
                 >
                   {shopName || "My Shop"}
                 </div>
-                {/* MIDDLE — barcode with digits below (Code-128, scanner-safe) */}
+                {/* MIDDLE — barcode (scanner-safe: width=2, margin=10 for proper quiet zone) */}
                 <div
                   className="barcode"
                   style={{
-                    flex: "0 0 auto",
+                    flex: 1,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     width: "100%",
                     overflow: "hidden",
-                    margin: "0.5mm 0",
                   }}
                 >
                   <BarcodeDisplay
                     value={product.barcode}
                     format="CODE128"
-                    height={45}
-                    width={1.5}
+                    height={50}
+                    width={2}
                     displayValue={true}
-                    fontSize={10}
-                    margin={2}
+                    fontSize={11}
+                    margin={10}
                   />
                 </div>
-                {/* BOTTOM — product name (bigger, can wrap 2 lines) */}
+                {/* BOTTOM — product name */}
                 <div
                   className="product-name"
                   style={{
-                    fontSize: "10px",
+                    fontSize: "9px",
                     fontWeight: "bold",
                     lineHeight: 1.1,
                     width: "100%",
-                    marginTop: "1.5mm",
                     padding: "0 1mm",
                     overflow: "hidden",
                     display: "-webkit-box",
