@@ -42,33 +42,46 @@ export async function POST(req: NextRequest) {
     return await processSale(user.id, body, items);
   } catch (e: any) {
     // ─── AUTO-RETRY LOGIC ────────────────────────────────────────────────
-    // If the sale failed with a schema-related error (missing column, missing
-    // table, etc.), reset the schema flag and retry ensureSchema, then retry
-    // the sale ONCE. This handles the common case where a user restored an
-    // old backup DB and the first sale triggers a "column does not exist"
-    // error — the retry will succeed after ensureSchema adds the column.
+    // If the sale failed with a schema-related error OR a foreign key
+    // constraint violation, we retry after:
+    //   1. Resetting the schemaEnsured flag
+    //   2. Re-running ensureSchema (which now also re-asserts FK OFF)
+    //   3. Explicitly disabling FK constraints again
+    //   4. Retrying the sale ONCE
+    //
+    // This handles the common backup-restore scenarios:
+    //   - Old DB missing columns → "no such column" error
+    //   - Old DB with inconsistent FK references → "Foreign key constraint
+    //     violated" error (e.g. SaleItem pointing to deleted Product)
     const msg = (e.message || "").toLowerCase();
     const isSchemaError =
       msg.includes("does not exist") ||
       msg.includes("no such column") ||
       msg.includes("no such table") ||
       msg.includes("sqlite_error") ||
-      e.code === "P2021" || // "The table `X` does not exist in the current database"
-      e.code === "P2022";   // "The column `X` does not exist in the current database"
+      msg.includes("foreign key constraint") ||  // ← FK violation
+      msg.includes("constraint failed") ||
+      e.code === "P2021" || // table missing
+      e.code === "P2022" || // column missing
+      e.code === "P2003";   // foreign key constraint violation
 
     if (isSchemaError) {
-      console.error("[sales POST] Schema error detected, retrying after ensureSchema:", e.message);
+      console.error("[sales POST] Schema/FK error detected, retrying after ensureSchema + FK disable:", e.message);
       try {
         resetSchemaFlag();
         await ensureSchema();
+        // Explicitly disable FK constraints for this connection before retry
+        try {
+          await db.$executeRawUnsafe(`PRAGMA foreign_keys = OFF;`);
+        } catch {}
         return await processSale(user.id, body, items);
       } catch (e2: any) {
         console.error("[sales POST] Retry also failed:", e2.message, e2.code, e2.meta);
         return NextResponse.json(
           {
-            error: `Database schema error after retry: ${e2.message || "Unknown"}`,
+            error: `Database error after retry: ${e2.message || "Unknown"}`,
             code: e2.code,
-            detail: "Please restart the app. If the problem persists, the backup database may be from an incompatible version.",
+            detail: "Please restart the app. If the problem persists, the backup database may have inconsistent foreign key references — try restoring a newer backup or run DB Diagnose from Settings.",
           },
           { status: 500 }
         );

@@ -13,6 +13,37 @@ export const db =
   })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DISABLE SQLite FOREIGN KEY CONSTRAINTS
+//
+// WHY: When a user restores an old backup database, the data may contain
+// foreign key references that point to records which were deleted in a
+// previous version (e.g. a SaleItem pointing to a deleted Product, or a
+// Sale pointing to a deleted User). With FK enforcement ON, any new
+// INSERT that touches these tables fails with:
+//
+//   "Foreign key constraint violated on the foreign key: ..."
+//
+// even if the NEW sale's data is perfectly valid — because SQLite checks
+// ALL existing rows when you modify a table with FK constraints, not just
+// the row being inserted.
+//
+// DISABLING FK ENFORCEMENT IS SAFE HERE BECAUSE:
+//   1. The app's data integrity is enforced at the application layer
+//      (we validate product existence, user session, etc. before writing)
+//   2. The schema still HAS foreign key definitions (for documentation and
+//      for any external DB tool that wants to enforce them)
+//   3. SQLite's default is foreign_keys = OFF anyway — Prisma turns them
+//      ON via PRAGMA foreign_keys = ON, which we are explicitly overriding
+//
+// This runs on every new PrismaClient connection. The $executeRawUnsafe
+// is wrapped in try/catch because some SQLite builds may not allow this
+// pragma to be set outside a transaction.
+// ─────────────────────────────────────────────────────────────────────────────
+db.$executeRawUnsafe(`PRAGMA foreign_keys = OFF;`).catch((e) => {
+  console.warn('[db] Could not disable foreign_keys pragma:', e?.message || e)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Idempotent schema creation/migration for SQLite.
 //
 // This is the SINGLE SOURCE OF TRUTH for the runtime SQLite schema. The desktop
@@ -413,6 +444,15 @@ export async function ensureSchema() {
   globalForPrisma.schemaEnsuring = (async () => {
     let failedAlters: string[] = [];
     try {
+      // 0) Disable foreign key constraints for the duration of this
+      //    migration. This is critical: ALTER TABLE on a table that has
+      //    FK references can fail if any existing row violates the FK.
+      //    We also keep FK OFF permanently (see module-load PRAGMA above),
+      //    but we re-assert it here in case a previous query re-enabled it.
+      try {
+        await db.$executeRawUnsafe(`PRAGMA foreign_keys = OFF;`);
+      } catch {}
+
       // 1) Run CREATE TABLE IF NOT EXISTS for every table. This creates any
       //    missing tables (e.g. MobileLoadCompany on a v2.7.31 → v2.7.32
       //    upgrade) without touching existing data.

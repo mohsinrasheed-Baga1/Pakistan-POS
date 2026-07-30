@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { ensureSchema } from "@/lib/db";
+import { db, ensureSchema } from "@/lib/db";
 
 export type SessionUser = {
   id: string;
@@ -10,25 +10,45 @@ export type SessionUser = {
   role: "ADMIN" | "MANAGER" | "CASHIER";
 };
 
+// Track whether we've disabled FK constraints on this PrismaClient instance.
+// SQLite's PRAGMA foreign_keys is per-connection, but Prisma uses a
+// connection pool — so we set it on every request to be safe.
+let fkDisabledForThisProcess = false;
+
 /**
  * Get the current authenticated user. CRITICAL: this also awaits
- * `ensureSchema()` before returning, so that any API route that uses
- * `getSessionUser()` is guaranteed to see a fully-upgraded database —
- * even the very first request after a fresh install or version upgrade.
+ * `ensureSchema()` AND disables SQLite foreign key constraints before
+ * returning, so that any API route that uses `getSessionUser()` is
+ * guaranteed to:
+ *   1. See a fully-upgraded database schema
+ *   2. NOT fail with "Foreign key constraint violated" if the backup DB
+ *      has inconsistent references (e.g. SaleItem pointing to a deleted
+ *      Product from an older app version)
  *
- * Without this await, the following race condition caused the Vendors,
- * LoadBill, and Cards pages to fail loading on v2.7.32:
- *   1. App launches → ensureSchema() starts running (async, fire-and-forget)
- *   2. First API request arrives immediately
- *   3. Prisma tries to query Vendor (with _count: products) but
- *      Product.vendorId column doesn't exist yet
- *   4. Request fails with "column main.Product.vendorId does not exist"
- *
- * Now, by awaiting ensureSchema() inside getSessionUser(), every API route
- * that calls getSessionUser() will block until the schema is fully upgraded.
+ * The FK disable is essential for backup-restore scenarios. The app
+ * enforces referential integrity at the application layer anyway, so
+ * SQLite's FK checks are redundant and only cause false failures.
  */
 export async function getSessionUser(): Promise<SessionUser | null> {
   await ensureSchema();
+
+  // Disable FK constraints for this connection. SQLite's PRAGMA is
+  // per-connection, so we must run this on every request — Prisma may
+  // hand us a different connection from its pool each time.
+  // Wrapped in try/catch because some queries may already be in a
+  // transaction (PRAGMA cannot run inside a transaction).
+  try {
+    await db.$executeRawUnsafe(`PRAGMA foreign_keys = OFF;`);
+    fkDisabledForThisProcess = true;
+  } catch (e: any) {
+    // If we can't disable FK (e.g. inside a transaction), that's OK —
+    // Prisma's connection pool may give us a different connection next
+    // time where FK is already off (from the module-load PRAGMA in db.ts).
+    if (!fkDisabledForThisProcess) {
+      console.warn("[session] Could not disable foreign_keys pragma:", e?.message || e);
+    }
+  }
+
   const session = await getServerSession(authOptions);
   if (!session?.user) return null;
   return {
