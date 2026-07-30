@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, ensureSchema, resetSchemaFlag } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
 import { generateInvoiceNo, todayRange } from "@/lib/pos-utils";
 
@@ -38,6 +38,63 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Cart is empty" }, { status: 400 });
   }
 
+  try {
+    return await processSale(user.id, body, items);
+  } catch (e: any) {
+    // ─── AUTO-RETRY LOGIC ────────────────────────────────────────────────
+    // If the sale failed with a schema-related error (missing column, missing
+    // table, etc.), reset the schema flag and retry ensureSchema, then retry
+    // the sale ONCE. This handles the common case where a user restored an
+    // old backup DB and the first sale triggers a "column does not exist"
+    // error — the retry will succeed after ensureSchema adds the column.
+    const msg = (e.message || "").toLowerCase();
+    const isSchemaError =
+      msg.includes("does not exist") ||
+      msg.includes("no such column") ||
+      msg.includes("no such table") ||
+      msg.includes("sqlite_error") ||
+      e.code === "P2021" || // "The table `X` does not exist in the current database"
+      e.code === "P2022";   // "The column `X` does not exist in the current database"
+
+    if (isSchemaError) {
+      console.error("[sales POST] Schema error detected, retrying after ensureSchema:", e.message);
+      try {
+        resetSchemaFlag();
+        await ensureSchema();
+        return await processSale(user.id, body, items);
+      } catch (e2: any) {
+        console.error("[sales POST] Retry also failed:", e2.message, e2.code, e2.meta);
+        return NextResponse.json(
+          {
+            error: `Database schema error after retry: ${e2.message || "Unknown"}`,
+            code: e2.code,
+            detail: "Please restart the app. If the problem persists, the backup database may be from an incompatible version.",
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Non-schema error — return the actual error so the user can see what
+    // went wrong (previously this became a generic "network error" on the
+    // frontend because the response had no parseable body).
+    console.error("[sales POST] Error:", e.message, e.code, e.meta);
+    return NextResponse.json(
+      {
+        error: e.message || "Failed to complete sale",
+        code: e.code,
+        meta: e.meta,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * The actual sale-processing logic, extracted into a separate function so
+ * the POST handler can wrap it in try/catch and retry on schema errors.
+ */
+async function processSale(userId: string, body: any, items: any[]) {
   // count today's sales to build invoice number
   const { start, end } = todayRange();
   const todayCount = await db.sale.count({
@@ -59,7 +116,6 @@ export async function POST(req: NextRequest) {
     if (qty <= 0) {
       return NextResponse.json({ error: "Invalid quantity" }, { status: 400 });
     }
-    // stock check for non-loose items handled loosely; deduct anyway
     const price = Number(it.price ?? product.salePrice);
     const lineTotal = price * qty;
     subtotal += lineTotal;
@@ -86,7 +142,7 @@ export async function POST(req: NextRequest) {
   const sale = await db.sale.create({
     data: {
       invoiceNo,
-      userId: user.id,
+      userId,
       customerName: body.customerName || null,
       customerPhone: body.customerPhone || null,
       subtotal,
@@ -105,30 +161,13 @@ export async function POST(req: NextRequest) {
 
   // deduct stock + log
   for (const it of saleItemsData) {
-    // Re-fetch the product (it may be either a PIECE product or a BOX product).
     const product = await db.product.findUnique({ where: { id: it.productId } });
     if (!product) continue;
 
-    // ─── Determine sale type ───────────────────────────────────────────────
-    // A "box sale" is when the user scanned a BOX product's barcode (a product
-    // whose `packBarcode` is set — i.e. this product represents a box, and it
-    // links to a separate piece product via packBarcode).
-    //
-    // When selling 1 box:
-    //   - The BOX product's stock (counted in BOXES) decrements by `it.quantity`
-    //   - The PIECE product's stock (counted in PIECES) also decrements by
-    //     packQuantity × it.quantity (because those pieces are now gone)
-    //
-    // This is the fix for the user's "Lemon Biscuit" bug:
-    //   - 6 boxes × 6 pieces = 36 pieces total
-    //   - User sells 1 box → box stock 6→5, piece stock 36→30
-    //   - (Previously the code was decrementing the BOX stock by
-    //     packQuantity×qty = 6, wiping out all 6 boxes in one sale!)
     const isBoxSale = !!product.packBarcode && product.packQuantity > 0;
 
     if (isBoxSale) {
       // ─── BOX SALE ─────────────────────────────────────────────────────────
-      // 1. Decrement BOX product stock by number of boxes sold
       const boxQty = it.quantity;
       await db.product.update({
         where: { id: product.id },
@@ -143,8 +182,6 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // 2. Find the linked PIECE product and decrement its stock by
-      //    packQuantity × boxQty (the pieces that were in those boxes)
       const pieceProduct = await db.product.findUnique({
         where: { barcode: product.packBarcode! },
       });
@@ -179,10 +216,8 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // ─── AUTO-REFILL: when piece stock runs low and a linked box exists,
-      // automatically "open" one box — decrement box stock by 1 and increment
-      // piece stock by packQuantity. This keeps the piece product sellable
-      // without the cashier needing to manually restock.
+      // AUTO-REFILL: when piece stock runs low and a linked box exists,
+      // automatically "open" one box.
       const boxProduct = await db.product.findFirst({
         where: { packBarcode: product.barcode },
       });
@@ -193,7 +228,6 @@ export async function POST(req: NextRequest) {
         const pieceStockAfter = refreshedPiece?.stock ?? 0;
         const packQty = boxProduct.packQuantity || 1;
         if (pieceStockAfter < packQty) {
-          // Open the box
           await db.product.update({
             where: { id: boxProduct.id },
             data: { stock: { decrement: 1 } },
@@ -223,12 +257,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // If linked to a card, deduct from balance (payment auto-deducted from card account)
+  // If linked to a card, deduct from balance
   if (body.cardId) {
     const card = await db.customerCard.findUnique({ where: { id: body.cardId } });
     if (card) {
-      // Deduct total from balance. Balance can go negative (customer owes).
-      // If they have advance (positive balance), it reduces their credit.
       await db.customerCard.update({
         where: { id: body.cardId },
         data: {

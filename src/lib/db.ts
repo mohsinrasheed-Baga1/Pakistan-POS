@@ -411,6 +411,7 @@ export async function ensureSchema() {
     return;
   }
   globalForPrisma.schemaEnsuring = (async () => {
+    let failedAlters: string[] = [];
     try {
       // 1) Run CREATE TABLE IF NOT EXISTS for every table. This creates any
       //    missing tables (e.g. MobileLoadCompany on a v2.7.31 → v2.7.32
@@ -448,16 +449,25 @@ export async function ensureSchema() {
           } catch (e: any) {
             const msg = e.message || "";
             if (msg.includes("duplicate")) continue;
-            // "no such table: X" means the table doesn't exist yet — but
-            // we just created it in step 1, so this shouldn't happen.
-            // Log and continue.
-            if (!msg.includes("no such table")) {
-              console.error(`[ensureSchema] ALTER ${table}.${col} failed:`, msg);
-            }
+            // Record the failure so we can retry on the next request.
+            // The schemaEnsured flag will NOT be set, so the next API
+            // request will re-attempt the full migration.
+            failedAlters.push(`${table}.${col}: ${msg.slice(0, 100)}`);
+            console.error(`[ensureSchema] ALTER ${table}.${col} failed:`, msg);
           }
         }
       }
-      globalForPrisma.schemaEnsured = true;
+
+      // 3) Only set the schemaEnsured flag if ALL ALTERs succeeded.
+      //    If any failed, leave it false so the next request retries —
+      //    this is critical for backup-restore scenarios where the old
+      //    DB might have partial schema that needs multiple passes.
+      if (failedAlters.length === 0) {
+        globalForPrisma.schemaEnsured = true;
+      } else {
+        console.error(`[ensureSchema] ${failedAlters.length} ALTER(s) failed — will retry on next request:`);
+        for (const f of failedAlters) console.error("  -", f);
+      }
     } catch (e) {
       console.error("[ensureSchema] Failed:", e);
     } finally {
@@ -465,6 +475,16 @@ export async function ensureSchema() {
     }
   })();
   await globalForPrisma.schemaEnsuring;
+}
+
+/**
+ * Force a fresh schema check on the next request, regardless of the
+ * schemaEnsured flag. Useful when a query fails with a schema-related
+ * error (e.g. "column X does not exist") — the API can call this to
+ * reset the flag, then retry ensureSchema, then retry the query.
+ */
+export function resetSchemaFlag() {
+  globalForPrisma.schemaEnsured = false;
 }
 
 // Kick off schema creation on module load. The APIs also `await ensureSchema()`

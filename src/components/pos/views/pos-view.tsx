@@ -323,9 +323,35 @@ export function PosView({ settings }: PosViewProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      // Try to parse JSON even if the response is not ok — the new sales
+      // API returns the actual error message in { error, code, meta }.
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        // Response was not JSON (rare — server crash). Show a helpful
+        // message telling the user to check the DB diagnose endpoint.
+        toast.error(`Server returned status ${res.status}. Try restarting the app, or run DB Diagnose from Settings.`);
+        setSubmitting(false);
+        return;
+      }
       if (!res.ok) {
-        toast.error(data.error || "Sale failed");
+        // Build a user-friendly error message from the server response.
+        // The sales API now returns { error, code, detail } for schema
+        // errors and other failures.
+        let errMsg = data.error || "Sale failed";
+        // If this looks like a database schema error, suggest running the
+        // DB repair endpoint.
+        if (
+          typeof errMsg === "string" &&
+          (errMsg.toLowerCase().includes("does not exist") ||
+            errMsg.toLowerCase().includes("no such column") ||
+            errMsg.toLowerCase().includes("no such table") ||
+            errMsg.toLowerCase().includes("schema"))
+        ) {
+          errMsg = `${errMsg}\n\nPlease go to Settings → DB Repair, or visit /api/db-diagnose to fix the database.`;
+        }
+        toast.error(errMsg, { duration: 8000 });
         setSubmitting(false);
         return;
       }
@@ -337,8 +363,9 @@ export function PosView({ settings }: PosViewProps) {
       setPaidAmount("");
       toast.success("Sale completed!");
       loadProducts();
-    } catch (e) {
-      toast.error("Network error");
+    } catch (e: any) {
+      // True network error (server unreachable, DNS failure, etc.)
+      toast.error(`Network error: ${e.message || "Could not reach server"}`);
     } finally {
       setSubmitting(false);
     }
