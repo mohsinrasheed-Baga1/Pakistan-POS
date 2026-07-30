@@ -64,7 +64,113 @@ jobs:
         env:
           DATABASE_URL: "file:./pos.db"
 
-      - name: Build & Publish Windows Installer
-        run: bunx electron-builder --win nsis --x64 --publish always
+      - name: Build Windows Installer (no auto-publish)
+        run: bunx electron-builder --win nsis --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify installer was built
+        shell: bash
+        run: |
+          echo "=== Files in release/ ==="
+          ls -la release/ || true
+          echo ""
+          echo "=== Looking for .exe ==="
+          find release/ -name "*.exe" -type f 2>/dev/null || true
+          echo ""
+          # Verify the .exe exists and has reasonable size (>10MB)
+          EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+          if [ -z "$EXE_FILE" ]; then
+            echo "ERROR: No .exe file found in release/"
+            exit 1
+          fi
+          EXE_SIZE=$(stat -c%s "$EXE_FILE" 2>/dev/null || wc -c < "$EXE_FILE")
+          echo "Found: $EXE_FILE ($EXE_SIZE bytes)"
+          if [ "$EXE_SIZE" -lt 10000000 ]; then
+            echo "ERROR: .exe file is too small ($EXE_SIZE bytes < 10MB) — build likely incomplete"
+            exit 1
+          fi
+          echo "✓ Installer verified"
+
+      - name: Create release and upload assets with retry
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          # Install GitHub CLI if not present (it should be pre-installed on windows-latest)
+          # but just in case:
+          where gh 2>/dev/null || (
+            echo "GitHub CLI not found, trying winget..."
+            winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements 2>/dev/null || true
+          )
+
+          # Find the .exe and .blockmap files
+          EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+          BLOCKMAP_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe.blockmap" -type f | head -1)
+          LATEST_YML="release/latest.yml"
+
+          echo "Files to upload:"
+          echo "  EXE: $EXE_FILE"
+          echo "  BLOCKMAP: $BLOCKMAP_FILE"
+          echo "  LATEST_YML: $LATEST_YML"
+
+          # Delete existing release (if any) so we get a clean upload.
+          # The tag stays — we just recreate the release object.
+          echo "=== Deleting existing release for $TAG (if any) ==="
+          gh release delete "$TAG" --yes --cleanup-tag=false 2>/dev/null || echo "No existing release to delete"
+
+          # Create a fresh release
+          echo "=== Creating new release $TAG ==="
+          gh release create "$TAG" \
+            --title "${TAG#v}" \
+            --notes "Auto-release for $TAG" \
+            --verify-tag
+
+          # Upload each asset with retry logic (up to 5 attempts)
+          upload_with_retry() {
+            local file="$1"
+            local filename=$(basename "$file")
+            echo ""
+            echo "=== Uploading $filename ==="
+            for attempt in 1 2 3 4 5; do
+              echo "Attempt $attempt..."
+              if gh release upload "$TAG" "$file" --clobber 2>&1; then
+                echo "✓ $filename uploaded successfully"
+                # Verify the upload by checking the asset exists
+                sleep 3
+                if gh release view "$TAG" --json assets --jq ".assets[].name" 2>/dev/null | grep -q "^${filename}$"; then
+                  echo "✓ Verified: $filename is in the release"
+                  return 0
+                else
+                  echo "⚠ Upload reported success but asset not found — retrying"
+                fi
+              else
+                echo "✗ Attempt $attempt failed for $filename"
+              fi
+              echo "Waiting 10s before retry..."
+              sleep 10
+            done
+            echo "ERROR: Failed to upload $filename after 5 attempts"
+            return 1
+          }
+
+          # Upload the .exe FIRST (most important, largest file)
+          upload_with_retry "$EXE_FILE" || exit 1
+
+          # Upload .blockmap
+          if [ -n "$BLOCKMAP_FILE" ] && [ -f "$BLOCKMAP_FILE" ]; then
+            upload_with_retry "$BLOCKMAP_FILE" || echo "WARNING: blockmap upload failed (non-fatal)"
+          fi
+
+          # Upload latest.yml (needed for auto-update)
+          if [ -f "$LATEST_YML" ]; then
+            upload_with_retry "$LATEST_YML" || echo "WARNING: latest.yml upload failed (non-fatal)"
+          fi
+
+          # Final verification
+          echo ""
+          echo "=== Final release assets ==="
+          gh release view "$TAG" --json assets --jq ".assets[] | \"\(.name) — \(.size) bytes\""
+          echo ""
+          echo "✓ Release $TAG is ready!"
