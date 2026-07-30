@@ -581,11 +581,11 @@ export function PosView({ settings }: PosViewProps) {
                           key={item.product.id}
                           className="flex items-center gap-2 rounded-lg border p-2 bg-background"
                         >
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">
+                          <div className="flex-1 min-w-0 max-w-[45%]">
+                            <div className="text-sm font-medium truncate" title={item.product.name}>
                               {item.product.name}
                             </div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-xs text-muted-foreground whitespace-nowrap">
                               {formatMoney(
                                 cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
                                   ? item.product.wholesalePrice
@@ -597,7 +597,7 @@ export function PosView({ settings }: PosViewProps) {
                               {unitLabel(item.product.unit)}
                             </div>
                           </div>
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 flex-shrink-0">
                             <Button
                               size="icon"
                               variant="outline"
@@ -634,7 +634,7 @@ export function PosView({ settings }: PosViewProps) {
                               <Plus className="w-3 h-3" />
                             </Button>
                           </div>
-                          <div className="text-sm font-bold text-emerald-700 w-16 text-right">
+                          <div className="text-sm font-bold text-emerald-700 w-20 text-right flex-shrink-0">
                             {formatMoney(
                               (cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
                                 ? item.product.wholesalePrice
@@ -647,7 +647,7 @@ export function PosView({ settings }: PosViewProps) {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-7 w-7 text-red-600 hover:bg-red-50"
+                            className="h-7 w-7 text-red-600 hover:bg-red-50 flex-shrink-0"
                             onClick={() => cart.removeItem(item.product.id)}
                           >
                             <X className="w-4 h-4" />

@@ -51,11 +51,11 @@ interface AppShellProps {
 const NAV: { id: View; label: string; icon: any; minRole?: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "pos", label: "Sell (POS)", icon: ShoppingCart },
+  { id: "loadbill", label: "Load & Bill", icon: Smartphone },
   { id: "products", label: "Products", icon: Package },
   { id: "store", label: "Main Store", icon: Warehouse },
   { id: "vendors", label: "Vendors", icon: Truck },
   { id: "expenses", label: "Expenses", icon: TrendingDown },
-  { id: "loadbill", label: "Load & Bill", icon: Smartphone },
   { id: "cards", label: "Shop Cards", icon: CreditCard },
   { id: "sales", label: "Sales History", icon: Receipt },
   { id: "reports", label: "Reports", icon: BarChart3 },

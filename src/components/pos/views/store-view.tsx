@@ -13,6 +13,8 @@ import {
   Store,
   TrendingUp,
   AlertTriangle,
+  Barcode as BarcodeIcon,
+  ShoppingCart,
 } from "lucide-react";
 import {
   Card,
@@ -194,6 +196,17 @@ export function StoreView() {
   const [note, setNote] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
+  // Box Purchase dialog state
+  const [boxPurchaseOpen, setBoxPurchaseOpen] = React.useState(false);
+  const [boxPurchaseBarcode, setBoxPurchaseBarcode] = React.useState("");
+  const [boxPurchaseCount, setBoxPurchaseCount] = React.useState("");
+  const [boxPurchasePrice, setBoxPurchasePrice] = React.useState("");
+  const [boxPurchaseExpiry, setBoxPurchaseExpiry] = React.useState("");
+  const [boxPurchaseNote, setBoxPurchaseNote] = React.useState("");
+  const [boxPurchaseLookup, setBoxPurchaseLookup] = React.useState<any>(null);
+  const [boxPurchaseLooking, setBoxPurchaseLooking] = React.useState(false);
+  const [boxPurchaseSaving, setBoxPurchaseSaving] = React.useState(false);
+
   const load = React.useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     if (silent) setRefreshing(true);
@@ -305,6 +318,104 @@ export function StoreView() {
     }
   }
 
+  // ─── Box Purchase handlers ────────────────────────────────────────────────
+  // When the user scans a box barcode in Main Store, we look up the box
+  // product and pre-fill the previous purchase price + expiry date so the
+  // user can quickly confirm or change them, then enter the box count.
+  async function lookupBoxBarcode() {
+    const code = boxPurchaseBarcode.trim();
+    if (!code) return;
+    setBoxPurchaseLooking(true);
+    setBoxPurchaseLookup(null);
+    try {
+      const res = await fetch(`/api/products?barcode=${encodeURIComponent(code)}`, { cache: "no-store" });
+      const data = await res.json();
+      const p = data.products?.[0];
+      if (!p) {
+        toast.error("No product found with this barcode");
+        setBoxPurchaseLooking(false);
+        return;
+      }
+      if (!p.packBarcode || p.packQuantity <= 0) {
+        toast.error("This is not a box product. Box products have a linked piece product.");
+        setBoxPurchaseLooking(false);
+        return;
+      }
+      setBoxPurchaseLookup(p);
+      // Pre-fill previous purchase price + expiry date
+      if (p.costPrice > 0) setBoxPurchasePrice(p.costPrice.toString());
+      if (p.expiryDate) {
+        setBoxPurchaseExpiry(new Date(p.expiryDate).toISOString().slice(0, 10));
+      }
+      setBoxPurchaseCount("");
+      setBoxPurchaseNote("");
+      toast.success(`Found: ${p.name} (pack of ${p.packQuantity})`);
+    } catch {
+      toast.error("Failed to look up barcode");
+    } finally {
+      setBoxPurchaseLooking(false);
+    }
+  }
+
+  async function handleBoxPurchaseSave() {
+    if (!boxPurchaseLookup) {
+      toast.error("Look up a box barcode first");
+      return;
+    }
+    const count = Number(boxPurchaseCount);
+    if (!count || count <= 0) {
+      toast.error("Enter number of boxes");
+      return;
+    }
+    setBoxPurchaseSaving(true);
+    try {
+      const res = await fetch("/api/stock/box-purchase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          barcode: boxPurchaseBarcode.trim(),
+          boxCount: count,
+          purchasePrice: boxPurchasePrice || undefined,
+          expiryDate: boxPurchaseExpiry || undefined,
+          note: boxPurchaseNote.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to record box purchase");
+        setBoxPurchaseSaving(false);
+        return;
+      }
+      const totalPieces = count * (boxPurchaseLookup.packQuantity || 0);
+      toast.success(
+        `Purchase recorded: ${count} boxes × ${boxPurchaseLookup.packQuantity} pcs = ${totalPieces} pieces added`
+      );
+      // Reset & close
+      setBoxPurchaseOpen(false);
+      setBoxPurchaseBarcode("");
+      setBoxPurchaseCount("");
+      setBoxPurchasePrice("");
+      setBoxPurchaseExpiry("");
+      setBoxPurchaseNote("");
+      setBoxPurchaseLookup(null);
+      await load(true);
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setBoxPurchaseSaving(false);
+    }
+  }
+
+  function openBoxPurchase() {
+    setBoxPurchaseBarcode("");
+    setBoxPurchaseCount("");
+    setBoxPurchasePrice("");
+    setBoxPurchaseExpiry("");
+    setBoxPurchaseNote("");
+    setBoxPurchaseLookup(null);
+    setBoxPurchaseOpen(true);
+  }
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
       {/* Header */}
@@ -321,18 +432,28 @@ export function StoreView() {
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => load(true)}
-          disabled={refreshing}
-          className="self-start sm:self-auto"
-        >
-          <RefreshCw
-            className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-          />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            className="bg-emerald-600 text-white hover:bg-emerald-700"
+            size="sm"
+            onClick={openBoxPurchase}
+          >
+            <BarcodeIcon className="h-4 w-4 mr-1.5" />
+            Box Purchase
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => load(true)}
+            disabled={refreshing}
+            className="self-start sm:self-auto"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -716,6 +837,145 @@ export function StoreView() {
               }
             >
               {saving ? "Saving..." : dialog?.kind === "receive" ? "Receive" : "Transfer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Box Purchase Dialog ───────────────────────────────────────────────
+          Scan a box barcode → look up the box product → pre-fill previous
+          purchase price + expiry date → enter box count → auto-divide into
+          pieces. Both the box product and the linked piece product get
+          their stock incremented. */}
+      <Dialog open={boxPurchaseOpen} onOpenChange={setBoxPurchaseOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <BarcodeIcon className="h-5 w-5 text-emerald-600" />
+              Box Purchase — باکس خرید
+            </DialogTitle>
+            <DialogDescription>
+              Scan a box barcode to record a new purchase. The system will
+              auto-divide the boxes into pieces and update both the box and
+              piece product stock.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-4 min-h-0">
+            {/* Step 1: Scan box barcode */}
+            <div className="space-y-2">
+              <Label>Box Barcode *</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={boxPurchaseBarcode}
+                  onChange={(e) => setBoxPurchaseBarcode(e.target.value)}
+                  placeholder="Scan or type box barcode"
+                  data-barcode-input="true"
+                  className="flex-1"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      lookupBoxBarcode();
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  onClick={lookupBoxBarcode}
+                  disabled={boxPurchaseLooking || !boxPurchaseBarcode.trim()}
+                >
+                  {boxPurchaseLooking ? "..." : "Look up"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Step 2: After lookup — show product info + ask for details */}
+            {boxPurchaseLookup && (
+              <div className="space-y-3 border-t pt-3">
+                <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-1">
+                  <div className="font-bold text-emerald-900">{boxPurchaseLookup.name}</div>
+                  <div className="text-xs text-emerald-700">
+                    Pieces per box: <strong>{boxPurchaseLookup.packQuantity}</strong>
+                    {" • "}
+                    Current box stock: <strong>{boxPurchaseLookup.stock}</strong>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Number of Boxes *</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={boxPurchaseCount}
+                      onChange={(e) => setBoxPurchaseCount(e.target.value)}
+                      placeholder="e.g. 10"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Purchase Price / Box</Label>
+                    <Input
+                      type="number"
+                      value={boxPurchasePrice}
+                      onChange={(e) => setBoxPurchasePrice(e.target.value)}
+                      placeholder="0 (previous price shown)"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Previous: Rs {boxPurchaseLookup.costPrice || 0}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Expiry Date</Label>
+                  <Input
+                    type="date"
+                    value={boxPurchaseExpiry}
+                    onChange={(e) => setBoxPurchaseExpiry(e.target.value)}
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    {boxPurchaseLookup.expiryDate
+                      ? `Previous: ${new Date(boxPurchaseLookup.expiryDate).toISOString().slice(0, 10)}`
+                      : "No previous expiry date"}
+                  </p>
+                </div>
+
+                {boxPurchaseCount && Number(boxPurchaseCount) > 0 && (
+                  <div className="rounded bg-amber-100 border border-amber-300 p-2 text-center text-sm font-bold text-amber-900">
+                    {boxPurchaseCount} boxes × {boxPurchaseLookup.packQuantity} pcs = {" "}
+                    <span className="text-base">
+                      {Number(boxPurchaseCount) * boxPurchaseLookup.packQuantity}
+                    </span>{" "}
+                    pieces total
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label>Note (optional)</Label>
+                  <Input
+                    value={boxPurchaseNote}
+                    onChange={(e) => setBoxPurchaseNote(e.target.value)}
+                    placeholder="e.g. Supplier invoice #, batch number"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="flex-shrink-0 border-t pt-3 mt-2 bg-background">
+            <Button
+              variant="outline"
+              onClick={() => setBoxPurchaseOpen(false)}
+              disabled={boxPurchaseSaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={handleBoxPurchaseSave}
+              disabled={boxPurchaseSaving || !boxPurchaseLookup || !boxPurchaseCount}
+            >
+              {boxPurchaseSaving ? "Saving..." : "Record Purchase"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -936,14 +936,17 @@ function BillPaymentTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
   );
 
   async function handleSave() {
-    if (!form.billAmount || !form.serviceCharge) {
-      toast.error("Bill Amount and Service Charge are required");
+    if (!form.billAmount) {
+      toast.error("Bill Amount is required");
       return;
     }
+    // serviceCharge is OPTIONAL — defaults to 0 if left blank. The user
+    // requested that Bill Payment only needs bill amount + extra charges,
+    // and extra charges can be 0 for transactions with no commission.
     setSaving(true);
     try {
       const billAmount = parseFloat(form.billAmount);
-      const serviceCharge = parseFloat(form.serviceCharge);
+      const serviceCharge = parseFloat(form.serviceCharge || "0");
       const res = await fetch("/api/load-bill/bill-payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

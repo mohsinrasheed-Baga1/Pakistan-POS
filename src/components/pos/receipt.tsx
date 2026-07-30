@@ -76,13 +76,17 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
+      <DialogContent className="max-w-sm max-h-[90vh] flex flex-col">
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2 text-emerald-700">
             <CheckCircle2 className="w-5 h-5" />
             Sale Successful
           </DialogTitle>
         </DialogHeader>
+        {/* Scrollable receipt area — page itself never moves, only the
+            receipt content scrolls inside this container. This fixes the
+            bug where long receipts pushed the Print/Close buttons off-screen. */}
+        <div className="flex-1 overflow-y-auto min-h-0">
         <div
           ref={printRef}
           className="bg-white text-black p-3 rounded-lg space-y-1"
@@ -228,7 +232,9 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
             {settings?.receiptFooter || "Thank you! Please come again."}
           </div>
         </div>
-        <div className="flex gap-2">
+        </div>
+        {/* Sticky footer — always visible regardless of receipt length */}
+        <div className="flex gap-2 flex-shrink-0 border-t pt-3 mt-2 bg-background">
           <Button
             variant="outline"
             className="flex-1"

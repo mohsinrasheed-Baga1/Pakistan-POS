@@ -105,41 +105,91 @@ export async function POST(req: NextRequest) {
 
   // deduct stock + log
   for (const it of saleItemsData) {
-    // If item was sold at packPrice (box sale), deduct packQuantity pieces from stock
+    // Re-fetch the product (it may be either a PIECE product or a BOX product).
     const product = await db.product.findUnique({ where: { id: it.productId } });
-    const isBoxSale = product && product.packPrice > 0 && it.price === product.packPrice;
-    const stockDeduction = isBoxSale ? (product?.packQuantity || 1) * it.quantity : it.quantity;
+    if (!product) continue;
 
-    await db.product.update({
-      where: { id: it.productId },
-      data: { stock: { decrement: stockDeduction } },
-    });
-    await db.stockLog.create({
-      data: {
-        productId: it.productId,
-        type: "SALE",
-        quantity: -stockDeduction,
-        note: isBoxSale ? `Box sale ${invoiceNo} (${it.quantity} box × ${product?.packQuantity} pcs = ${stockDeduction} pcs)` : `Sale ${invoiceNo}`,
-      },
-    });
+    // ─── Determine sale type ───────────────────────────────────────────────
+    // A "box sale" is when the user scanned a BOX product's barcode (a product
+    // whose `packBarcode` is set — i.e. this product represents a box, and it
+    // links to a separate piece product via packBarcode).
+    //
+    // When selling 1 box:
+    //   - The BOX product's stock (counted in BOXES) decrements by `it.quantity`
+    //   - The PIECE product's stock (counted in PIECES) also decrements by
+    //     packQuantity × it.quantity (because those pieces are now gone)
+    //
+    // This is the fix for the user's "Lemon Biscuit" bug:
+    //   - 6 boxes × 6 pieces = 36 pieces total
+    //   - User sells 1 box → box stock 6→5, piece stock 36→30
+    //   - (Previously the code was decrementing the BOX stock by
+    //     packQuantity×qty = 6, wiping out all 6 boxes in one sale!)
+    const isBoxSale = !!product.packBarcode && product.packQuantity > 0;
 
-    // ─── AUTO-REFILL: when piece stock runs low and a linked box exists,
-    // automatically "open" one box — decrement box stock by 1 and increment
-    // piece stock by packQuantity. This keeps the piece product sellable
-    // without the cashier needing to manually restock.
-    if (!isBoxSale && product) {
-      // Find the linked box product — a box product is one whose
-      // packBarcode equals this piece product's barcode.
+    if (isBoxSale) {
+      // ─── BOX SALE ─────────────────────────────────────────────────────────
+      // 1. Decrement BOX product stock by number of boxes sold
+      const boxQty = it.quantity;
+      await db.product.update({
+        where: { id: product.id },
+        data: { stock: { decrement: boxQty } },
+      });
+      await db.stockLog.create({
+        data: {
+          productId: product.id,
+          type: "SALE",
+          quantity: -boxQty,
+          note: `Box sale ${invoiceNo} (${boxQty} box × ${product.packQuantity} pcs = ${boxQty * product.packQuantity} pcs)`,
+        },
+      });
+
+      // 2. Find the linked PIECE product and decrement its stock by
+      //    packQuantity × boxQty (the pieces that were in those boxes)
+      const pieceProduct = await db.product.findUnique({
+        where: { barcode: product.packBarcode! },
+      });
+      if (pieceProduct) {
+        const pieceDeduction = product.packQuantity * boxQty;
+        await db.product.update({
+          where: { id: pieceProduct.id },
+          data: { stock: { decrement: pieceDeduction } },
+        });
+        await db.stockLog.create({
+          data: {
+            productId: pieceProduct.id,
+            type: "SALE",
+            quantity: -pieceDeduction,
+            note: `Box sale ${invoiceNo} (sold as ${boxQty} box × ${product.packQuantity} pcs)`,
+          },
+        });
+      }
+    } else {
+      // ─── PIECE SALE (regular) ─────────────────────────────────────────────
+      const stockDeduction = it.quantity;
+      await db.product.update({
+        where: { id: it.productId },
+        data: { stock: { decrement: stockDeduction } },
+      });
+      await db.stockLog.create({
+        data: {
+          productId: it.productId,
+          type: "SALE",
+          quantity: -stockDeduction,
+          note: `Sale ${invoiceNo}`,
+        },
+      });
+
+      // ─── AUTO-REFILL: when piece stock runs low and a linked box exists,
+      // automatically "open" one box — decrement box stock by 1 and increment
+      // piece stock by packQuantity. This keeps the piece product sellable
+      // without the cashier needing to manually restock.
       const boxProduct = await db.product.findFirst({
         where: { packBarcode: product.barcode },
       });
       if (boxProduct && boxProduct.stock > 0) {
-        // Re-fetch piece product to get latest stock after decrement
         const refreshedPiece = await db.product.findUnique({
           where: { id: product.id },
         });
-        // If piece stock fell below packQuantity, open one box so the
-        // next sale will not run out.
         const pieceStockAfter = refreshedPiece?.stock ?? 0;
         const packQty = boxProduct.packQuantity || 1;
         if (pieceStockAfter < packQty) {
@@ -152,7 +202,6 @@ export async function POST(req: NextRequest) {
             where: { id: product.id },
             data: { stock: { increment: packQty } },
           });
-          // Log both movements
           await db.stockLog.create({
             data: {
               productId: boxProduct.id,
