@@ -808,19 +808,19 @@ function BarcodePrintDialog({
     win.document.write(`
       <html dir="ltr"><head><title>Sticker ${product!.name}</title>
       <style>
-        @page { size: 50mm 30mm; margin: 0; }
+        @page { size: 50mm 35mm; margin: 0; }
         html, body { margin: 0; padding: 0; }
         body { width: 50mm; }
         * { box-sizing: border-box; }
         .sticker {
           width: 50mm;
-          height: 30mm;
+          height: 35mm;
           border: 1px dashed #999;
-          padding: 1mm 1.5mm;
+          padding: 2.5mm 2mm 2mm 2mm;
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: space-between;
+          justify-content: flex-start;
           font-family: Tahoma, Arial, sans-serif;
           color: #000;
           background: #fff;
@@ -829,28 +829,38 @@ function BarcodePrintDialog({
           page-break-inside: avoid;
         }
         .shop-name {
-          font-size: 8px;
+          font-size: 10px;
           font-weight: bold;
-          line-height: 1;
+          line-height: 1.1;
           width: 100%;
-          margin-bottom: 1px;
+          margin-bottom: 1.5mm;
+          padding: 0 1mm;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .barcode {
-          flex: 1;
+          flex: 0 0 auto;
           display: flex;
           align-items: center;
           justify-content: center;
           width: 100%;
           overflow: hidden;
-          margin: 1px 0;
+          margin: 0.5mm 0;
         }
         .barcode svg { max-width: 100%; height: auto; }
         .product-name {
-          font-size: 8px;
+          font-size: 10px;
           font-weight: bold;
-          line-height: 1;
+          line-height: 1.1;
           width: 100%;
-          margin-top: 1px;
+          margin-top: 1.5mm;
+          padding: 0 1mm;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
         }
       </style></head><body>${content.innerHTML}</body></html>
     `);
@@ -862,20 +872,18 @@ function BarcodePrintDialog({
     }, 350);
   }
 
-  // Inline sticker style — matches the printed layout exactly (50mm × 30mm).
-  // Slightly taller than before (was 25mm) so the barcode digits below the
-  // bars have room to render without being cut off — most USB / Bluetooth
-  // scanners in Pakistan cannot reliably read a barcode with no human-readable
-  // digits underneath, so we now show the digits below the bars.
+  // Inline sticker style — 50mm × 35mm (taller than before for better
+  // spacing). Content is pushed down from the top so the shop name is
+  // not cut off when printing, and there's breathing room at the bottom.
   const stickerStyle: React.CSSProperties = {
     width: "50mm",
-    height: "30mm",
+    height: "35mm",
     border: "1px dashed #d1d5db",
-    padding: "1mm 1.5mm",
+    padding: "2.5mm 2mm 2mm 2mm",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     color: "#000",
     background: "#fff",
     textAlign: "center",
@@ -891,8 +899,8 @@ function BarcodePrintDialog({
         {/* Scrollable sticker preview area — page itself never moves */}
         <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
           <div className="text-center text-xs text-muted-foreground">
-            Sticker size: 50mm × 30mm. Shop name (top) — Barcode + digits (middle) —
-            Product name (bottom).
+            Sticker size: 50mm × 35mm. Shop name (top, with padding) — Barcode + digits (middle) —
+            Product name (bottom, larger font).
           </div>
           <div className="flex items-center gap-2">
             <Label className="whitespace-nowrap">Quantity</Label>
@@ -915,14 +923,19 @@ function BarcodePrintDialog({
           >
             {Array.from({ length: count }).map((_, i) => (
               <div key={i} className="sticker" style={stickerStyle}>
-                {/* TOP — shop name */}
+                {/* TOP — shop name (pushed down from edge by sticker padding) */}
                 <div
                   className="shop-name"
                   style={{
-                    fontSize: "7px",
+                    fontSize: "10px",
                     fontWeight: "bold",
-                    lineHeight: 1.05,
+                    lineHeight: 1.1,
                     width: "100%",
+                    marginBottom: "1.5mm",
+                    padding: "0 1mm",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
                   }}
                 >
                   {shopName || "My Shop"}
@@ -931,35 +944,39 @@ function BarcodePrintDialog({
                 <div
                   className="barcode"
                   style={{
-                    flex: 1,
+                    flex: "0 0 auto",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     width: "100%",
                     overflow: "hidden",
+                    margin: "0.5mm 0",
                   }}
                 >
                   <BarcodeDisplay
                     value={product.barcode}
                     format="CODE128"
-                    height={40}
+                    height={45}
                     width={1.5}
                     displayValue={true}
-                    fontSize={9}
+                    fontSize={10}
                     margin={2}
                   />
                 </div>
-                {/* BOTTOM — product name */}
+                {/* BOTTOM — product name (bigger, can wrap 2 lines) */}
                 <div
                   className="product-name"
                   style={{
-                    fontSize: "7px",
-                    fontWeight: 600,
-                    lineHeight: 1.05,
+                    fontSize: "10px",
+                    fontWeight: "bold",
+                    lineHeight: 1.1,
                     width: "100%",
+                    marginTop: "1.5mm",
+                    padding: "0 1mm",
                     overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical" as any,
                   }}
                 >
                   {product.name}
@@ -1063,6 +1080,8 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
     setPiecesPerBox(""); setBoxQty("");
     setBoxCostPrice(""); setBoxSalePrice(""); setBoxWholesalePrice(""); setBoxShopkeeperPrice("");
     setEditId(null);
+    // Reset user-edited flags so auto-calc works again on next open
+    userEdited.current = { cost: false, sale: false, ws: false, sk: false };
   }
 
   React.useEffect(() => {
@@ -1135,30 +1154,38 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   }, [open, editProduct]);
 
   // Auto-fill piece prices from box prices.
-  // ALWAYS update unless the user has manually typed a DIFFERENT value
-  // (detected by comparing current value to the last auto-computed value).
-  const prevAuto = React.useRef({ sale: 0, cost: 0, ws: 0, sk: 0 });
+  //
+  // We track whether the user has MANUALLY edited each piece price field.
+  // If they haven't, we always update from auto-calc. If they have, we
+  // leave their value alone. This is more reliable than comparing rounded
+  // string values to unrounded numbers (which was the old buggy approach
+  // that caused auto-calc to stop updating when piecesPerBox changed).
+  const userEdited = React.useRef({ cost: false, sale: false, ws: false, sk: false });
+
+  // Reset userEdited flags when the wizard opens fresh (not editing)
+  React.useEffect(() => {
+    if (open && !editProduct) {
+      userEdited.current = { cost: false, sale: false, ws: false, sk: false };
+    }
+  }, [open, editProduct]);
+
   React.useEffect(() => {
     if (piecesPerBoxNum > 0 && hasBox) {
-      // Cost
-      if (!pieceCostPrice || Number(pieceCostPrice) === prevAuto.current.cost) {
+      // Only auto-fill if the user hasn't manually edited this field
+      if (!userEdited.current.cost) {
         setPieceCostPrice(autoPieceCost ? autoPieceCost.toFixed(2) : "");
       }
-      // Sale
-      if (!pieceSalePrice || Number(pieceSalePrice) === prevAuto.current.sale) {
+      if (!userEdited.current.sale) {
         setPieceSalePrice(autoPieceSale ? autoPieceSale.toFixed(2) : "");
       }
-      // Wholesale
-      if (!pieceWholesalePrice || Number(pieceWholesalePrice) === prevAuto.current.ws) {
+      if (!userEdited.current.ws) {
         setPieceWholesalePrice(autoPieceWholesale ? autoPieceWholesale.toFixed(2) : "");
       }
-      // Shopkeeper
-      if (!pieceShopkeeperPrice || Number(pieceShopkeeperPrice) === prevAuto.current.sk) {
+      if (!userEdited.current.sk) {
         setPieceShopkeeperPrice(autoPieceShopkeeper ? autoPieceShopkeeper.toFixed(2) : "");
       }
-      prevAuto.current = { sale: autoPieceSale, cost: autoPieceCost, ws: autoPieceWholesale, sk: autoPieceShopkeeper };
     }
-  }, [boxSalePrice, boxCostPrice, boxWholesalePrice, boxShopkeeperPrice, piecesPerBoxNum, hasBox]);
+  }, [boxSalePrice, boxCostPrice, boxWholesalePrice, boxShopkeeperPrice, piecesPerBoxNum, hasBox, autoPieceCost, autoPieceSale, autoPieceWholesale, autoPieceShopkeeper]);
 
   async function saveProducts() {
     setSaving(true);
@@ -1439,21 +1466,21 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-2">
                 <Label>Cost Price / Piece</Label>
-                <Input type="number" value={pieceCostPrice} onChange={(e) => setPieceCostPrice(e.target.value)} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
+                <Input type="number" value={pieceCostPrice} onChange={(e) => { userEdited.current.cost = true; setPieceCostPrice(e.target.value); }} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
               </div>
               <div className="space-y-2">
                 <Label>Sale Price (Regular) / Piece *</Label>
-                <Input type="number" value={pieceSalePrice} onChange={(e) => setPieceSalePrice(e.target.value)} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
+                <Input type="number" value={pieceSalePrice} onChange={(e) => { userEdited.current.sale = true; setPieceSalePrice(e.target.value); }} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-2">
                 <Label>Wholesale Price / Piece</Label>
-                <Input type="number" value={pieceWholesalePrice} onChange={(e) => setPieceWholesalePrice(e.target.value)} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
+                <Input type="number" value={pieceWholesalePrice} onChange={(e) => { userEdited.current.ws = true; setPieceWholesalePrice(e.target.value); }} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
               </div>
               <div className="space-y-2">
                 <Label>Shopkeeper Price / Piece</Label>
-                <Input type="number" value={pieceShopkeeperPrice} onChange={(e) => setPieceShopkeeperPrice(e.target.value)} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
+                <Input type="number" value={pieceShopkeeperPrice} onChange={(e) => { userEdited.current.sk = true; setPieceShopkeeperPrice(e.target.value); }} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
               </div>
             </div>
 
