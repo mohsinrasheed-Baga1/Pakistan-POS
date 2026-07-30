@@ -244,6 +244,26 @@ async function processSale(userId: string, body: any, items: any[]) {
   };
 
   // deduct stock + log
+  // ────────────────────────────────────────────────────────────────────────
+  // Stock model:
+  //   - BOX product (has packBarcode set): stock counted in BOXES
+  //   - PIECE product (no packBarcode): stock counted in PIECES
+  //
+  // When selling a BOX:
+  //   - Decrement BOX product stock by qty (boxes sold)
+  //   - Decrement linked PIECE product stock by packQuantity × qty
+  //
+  // When selling a PIECE:
+  //   - Decrement PIECE product stock by qty
+  //   - If piece stock falls below packQuantity AND a linked box exists,
+  //     auto-open 1 box (decrement box stock by 1, increment piece stock
+  //     by packQuantity) so the next sale won't run out.
+  //
+  // Example (user's spec):
+  //   9 boxes × 80 pcs = 720 total pieces
+  //   Sell 1 box → box stock 9→8, piece stock 720→640
+  //   Sell 1 piece → piece stock 640→639
+  // ────────────────────────────────────────────────────────────────────────
   for (const it of saleItemsData) {
     const product = await db.product.findUnique({ where: { id: it.productId } });
     if (!product) continue;
@@ -252,6 +272,7 @@ async function processSale(userId: string, body: any, items: any[]) {
 
     if (isBoxSale) {
       // ─── BOX SALE ─────────────────────────────────────────────────────────
+      // 1. Decrement BOX product stock by number of boxes sold
       const boxQty = it.quantity;
       await db.product.update({
         where: { id: product.id },
@@ -266,6 +287,8 @@ async function processSale(userId: string, body: any, items: any[]) {
         },
       });
 
+      // 2. Find the linked PIECE product by its barcode (= packBarcode)
+      //    and decrement its stock by packQuantity × boxQty
       const pieceProduct = await db.product.findUnique({
         where: { barcode: product.packBarcode! },
       });
@@ -300,8 +323,11 @@ async function processSale(userId: string, body: any, items: any[]) {
         },
       });
 
-      // AUTO-REFILL: when piece stock runs low and a linked box exists,
-      // automatically "open" one box.
+      // ─── AUTO-REFILL ──────────────────────────────────────────────────────
+      // When piece stock runs low and a linked box exists with stock > 0,
+      // automatically "open" one box: decrement box stock by 1, increment
+      // piece stock by packQuantity. This keeps the piece product sellable
+      // without the cashier needing to manually restock.
       const boxProduct = await db.product.findFirst({
         where: { packBarcode: product.barcode },
       });
@@ -312,6 +338,7 @@ async function processSale(userId: string, body: any, items: any[]) {
         const pieceStockAfter = refreshedPiece?.stock ?? 0;
         const packQty = boxProduct.packQuantity || 1;
         if (pieceStockAfter < packQty) {
+          // Open the box
           await db.product.update({
             where: { id: boxProduct.id },
             data: { stock: { decrement: 1 } },

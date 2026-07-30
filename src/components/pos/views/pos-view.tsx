@@ -115,11 +115,32 @@ export function PosView({ settings }: PosViewProps) {
     }
     const existingItem = cart.items.find((i) => i.product.id === product.id);
     const currentInCart = existingItem ? existingItem.quantity : 0;
-    const isPack = product.packPrice > 0 && product.salePrice === product.packPrice;
-    const effectiveQty = isPack ? qty * (product.packQuantity || 1) : qty;
-    if (!isLooseUnit(product.unit) && currentInCart + effectiveQty > product.stock) {
-      toast.error(`Low stock! Only ${product.stock} ${unitLabel(product.unit)} available`);
-      return;
+
+    // ─── Stock check ──────────────────────────────────────────────────────
+    // A BOX product (has packBarcode set) has its stock counted in BOXES,
+    // not pieces. So if box stock = 2, we can sell up to 2 boxes — even
+    // though those 2 boxes contain 120 pieces.
+    //
+    // A PIECE product has its stock counted in PIECES. The check is a
+    // straightforward "qty requested <= stock available".
+    //
+    // For loose items (kg, gram, litre, etc.) we skip the check entirely
+    // — the shopkeeper can sell fractional amounts from a bulk bin.
+    const isBoxProduct = !!product.packBarcode && product.packQuantity > 0;
+    if (!isLooseUnit(product.unit)) {
+      if (isBoxProduct) {
+        // Box product: stock is in boxes. Check box count directly.
+        if (currentInCart + qty > product.stock) {
+          toast.error(`Low stock! Only ${product.stock} boxes available`);
+          return;
+        }
+      } else {
+        // Piece product: stock is in pieces. Check piece count.
+        if (currentInCart + qty > product.stock) {
+          toast.error(`Low stock! Only ${product.stock} ${unitLabel(product.unit)} available`);
+          return;
+        }
+      }
     }
     cart.addItem(product, qty);
     // After adding, clear search and refocus for next product
@@ -170,13 +191,27 @@ export function PosView({ settings }: PosViewProps) {
       if (data.found && data.kind === "product" && data.product) {
         const product = data.product as Product;
         if (data.isPack && product.packQuantity > 0) {
-          // Box scan: add 1 box = deduct packQuantity pieces from stock
-          // Use packPrice as the price, add as 1 unit
-          const boxProduct = { ...product, salePrice: product.packPrice };
-          cart.addItem(boxProduct, 1);
-          toast.success(`Box: ${product.name} (${product.packQuantity} pcs)`);
+          // ─── BOX SCAN ────────────────────────────────────────────────────
+          // The scanned barcode matched a BOX product (a product whose
+          // packBarcode is set). We add the BOX product to the cart.
+          //
+          // The box product's own salePrice IS the box price (set when the
+          // product was created via the wizard). We do NOT override it with
+          // packPrice here — packPrice and salePrice should already be the
+          // same value, but using salePrice directly is more correct.
+          //
+          // Stock check: the box product's stock is counted in BOXES, so
+          // adding 1 box to cart requires box stock >= 1.
+          const existingItem = cart.items.find((i) => i.product.id === product.id);
+          const currentInCart = existingItem ? existingItem.quantity : 0;
+          if (!isLooseUnit(product.unit) && currentInCart + 1 > product.stock) {
+            toast.error(`Low stock! Only ${product.stock} boxes available`);
+          } else {
+            cart.addItem(product, 1);
+            toast.success(`Box: ${product.name} (${product.packQuantity} pcs)`);
+          }
         } else {
-          // Show quantity prompt for scanned product
+          // ─── PIECE SCAN — show quantity prompt ───────────────────────────
           setQtyProduct(product);
           setQtyValue("1");
           setQtyOpen(true);
