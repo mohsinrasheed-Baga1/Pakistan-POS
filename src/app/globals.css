@@ -120,3 +120,44 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Urdu / Arabic text direction handling
+   ─────────────────────────────────────────────────────────────────────────
+   The app's primary UI is English (LTR), but many labels contain inline
+   Urdu text (e.g. "Cash In — جمع"). Without this rule, the browser's
+   Unicode bidirectional algorithm can render mixed text in a confusing
+   order — Urdu words may appear LTR when they should be RTL.
+
+   We use the `unicode-bidi: isolate` property on text containers so that
+   each text run is directionally isolated. The browser then correctly
+   renders English LTR and Urdu RTL within the same string.
+
+   For elements that are PURELY Urdu (no English), we explicitly set
+   dir="rtl" via the .urdu utility class below.
+   ───────────────────────────────────────────────────────────────────── */
+@layer utilities {
+  /* Isolate bidirectional text so mixed English+Urdu strings render
+     correctly without manually wrapping every Urdu word. */
+  .text-sm,
+  .text-xs,
+  .text-base,
+  .text-lg,
+  .text-xl,
+  .font-medium,
+  .font-bold,
+  button,
+  label,
+  span,
+  p,
+  div {
+    unicode-bidi: plaintext;
+  }
+
+  /* Explicit Urdu container — use dir="rtl" + text-align right */
+  .urdu {
+    direction: rtl;
+    text-align: right;
+    unicode-bidi: isolate;
+  }
+}

@@ -16,16 +16,33 @@ export async function GET(req: NextRequest) {
     where.createdAt = { gte: start, lte: end };
   }
 
+  // Fetch sales WITHOUT `include: { user }` to avoid the
+  // "Field user is required to return data, got null instead" error when
+  // a restored backup DB has Sale rows pointing to deleted User records.
+  // We fetch user names separately and attach them manually.
   const sales = await db.sale.findMany({
     where,
     include: {
       items: true,
-      user: { select: { name: true } },
     },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
-  return NextResponse.json({ sales });
+
+  // Collect all unique userIds and fetch their names in one query
+  const userIds = [...new Set(sales.map((s: any) => s.userId).filter(Boolean))];
+  const users: any[] = userIds.length > 0
+    ? await db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+    : [];
+  const userMap = new Map(users.map((u) => [u.id, u.name || "Unknown"]));
+
+  // Attach user name to each sale
+  const salesWithUser = sales.map((s: any) => ({
+    ...s,
+    user: { name: userMap.get(s.userId) || "Unknown" },
+  }));
+
+  return NextResponse.json({ sales: salesWithUser });
 }
 
 export async function POST(req: NextRequest) {
@@ -108,6 +125,50 @@ export async function POST(req: NextRequest) {
  * the POST handler can wrap it in try/catch and retry on schema errors.
  */
 async function processSale(userId: string, body: any, items: any[]) {
+  // ─── Ensure the user record exists ──────────────────────────────────────
+  // When restoring an old backup DB, the User table may be empty or the
+  // logged-in user's row may have been deleted. Prisma's `include: { user }`
+  // then fails with "Field user is required to return data, got null instead"
+  // because the Sale row references a userId that doesn't exist in User.
+  //
+  // We do two things:
+  //   1. Verify the user exists. If not, create a stub user record so the
+  //      FK reference is valid.
+  //   2. Don't use `include: { user }` in the sale.create — fetch the user
+  //      name separately afterwards, with a fallback to "Unknown" if the
+  //      user row is missing.
+  let userName = "Unknown";
+  try {
+    const existingUser = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+    if (existingUser) {
+      userName = existingUser.name || "Unknown";
+    } else {
+      // User row missing — create a stub so the Sale FK is valid.
+      // This preserves the sale even if the user record was lost.
+      console.warn(`[sales] User ${userId} not found in DB — creating stub`);
+      try {
+        await db.user.create({
+          data: {
+            id: userId,
+            email: `restored-${userId.substring(0, 8)}@pos.local`,
+            name: "Restored User",
+            password: "restored",
+            role: "CASHIER",
+            active: true,
+          },
+        });
+        userName = "Restored User";
+      } catch (createErr: any) {
+        // If we can't create the user (e.g. id conflict), the sale will
+        // still go through but with userName = "Unknown". The FK violation
+        // is already handled by PRAGMA foreign_keys = OFF.
+        console.warn(`[sales] Could not create stub user:`, createErr.message);
+      }
+    }
+  } catch (e: any) {
+    console.warn(`[sales] Could not verify user ${userId}:`, e.message);
+  }
+
   // count today's sales to build invoice number
   const { start, end } = todayRange();
   const todayCount = await db.sale.count({
@@ -152,6 +213,10 @@ async function processSale(userId: string, body: any, items: any[]) {
   const paidAmount = Number(body.paidAmount) || total;
   const change = Math.max(0, paidAmount - total);
 
+  // Create the sale WITHOUT `include: { user }` to avoid the
+  // "Field user is required to return data, got null instead" error when
+  // the user row is missing from a restored backup DB.
+  // We fetch items separately and construct the user field manually.
   const sale = await db.sale.create({
     data: {
       invoiceNo,
@@ -169,8 +234,14 @@ async function processSale(userId: string, body: any, items: any[]) {
       note: body.note || null,
       items: { create: saleItemsData },
     },
-    include: { items: true, user: { select: { name: true } } },
+    include: { items: true },
   });
+
+  // Attach the user name manually (no Prisma relation lookup)
+  const saleWithUser = {
+    ...sale,
+    user: { name: userName },
+  };
 
   // deduct stock + log
   for (const it of saleItemsData) {
@@ -293,5 +364,5 @@ async function processSale(userId: string, body: any, items: any[]) {
     }
   }
 
-  return NextResponse.json({ sale });
+  return NextResponse.json({ sale: saleWithUser });
 }
