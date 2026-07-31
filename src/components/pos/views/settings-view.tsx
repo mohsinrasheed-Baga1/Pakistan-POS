@@ -2869,7 +2869,7 @@ function SoftwareUpdatesCard() {
         }
       } catch {}
       // Last resort: use a hardcoded fallback (will be wrong but non-empty)
-      setCurrentVersion("2.7.46");
+      setCurrentVersion("2.7.47");
     }
     fetchVersion();
   }, []);
@@ -2982,7 +2982,7 @@ function SoftwareUpdatesCard() {
     setErrorMsg("");
   }
 
-  const displayVersion = currentVersion || "2.7.46";
+  const displayVersion = currentVersion || "2.7.47";
 
   return (
     <Card className="shadow-sm">

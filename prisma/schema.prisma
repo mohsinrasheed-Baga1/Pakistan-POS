@@ -234,6 +234,7 @@ model MobileLoadTxn {
   costPrice     Float    @default(0)          // Cost price (for purchase) or 0
   salePrice     Float    @default(0)          // Sale price to customer (for sale) or 0
   profit        Float    @default(0)          // salePrice - costPrice for SALE
+  due           Float    @default(0)          // Remaining unpaid amount (if customer didn't pay full)
   customerPhone String?
   customerName  String?
   referenceNo   String?
@@ -250,7 +251,9 @@ model BillPaymentTxn {
   accountNo     String?                      // Bill reference / consumer ID
   billAmount    Float                        // Actual bill amount (liability to company)
   serviceCharge Float    @default(0)          // Service charge / commission (our income)
-  totalPaid     Float                        // billAmount + serviceCharge (what customer paid)
+  totalPaid     Float                        // billAmount + serviceCharge (what customer should pay)
+  amountReceived Float   @default(0)          // Amount actually received from customer
+  due           Float    @default(0)          // Remaining unpaid amount
   referenceNo   String?
   operatorName  String?
   note          String?
@@ -259,16 +262,51 @@ model BillPaymentTxn {
 
 model WalletTxn {
   id            String   @id @default(cuid())
-  provider      String                       // JAZZCASH | EASYPAISA
+  accountId     String?                      // Link to WalletAccount (null for legacy txns)
+  provider      String                       // JAZZCASH | EASYPAISA | BANK
   type          String                       // SEND | RECEIVE
   amount        Float                        // Principal amount sent/received
   serviceCharge Float    @default(0)          // Editable service fee (profit)
+  due           Float    @default(0)          // Remaining unpaid amount
   customerName  String?
   customerPhone String?
   referenceNo   String?
   operatorName  String?
   note          String?
   createdAt     DateTime @default(now())
+}
+
+// Multiple wallet accounts (JazzCash, Easypaisa, Bank)
+model WalletAccount {
+  id            String   @id @default(cuid())
+  name          String                       // Account label (e.g. "JazzCash 03001234567")
+  provider      String                       // JAZZCASH | EASYPAISA | BANK
+  phoneNumber   String?                      // For JazzCash/Easypaisa
+  accountNumber String?                      // For Bank
+  balance       Float    @default(0)          // Current balance
+  totalReceived Float    @default(0)          // Total received
+  totalSent     Float    @default(0)          // Total sent
+  totalCharges  Float    @default(0)          // Total service charges earned
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// SIM stock management (new SIMs + replacements)
+model SimStock {
+  id            String   @id @default(cuid())
+  company       String                       // Jazz | Zong | Ufone | Telenor
+  type          String                       // NEW | REPLACEMENT
+  phoneNumber   String?                      // SIM phone number (if pre-allocated)
+  costPrice     Float    @default(0)          // Purchase cost
+  salePrice     Float    @default(0)          // Sale price to customer
+  status        String   @default("IN_STOCK") // IN_STOCK | SOLD
+  soldAt        DateTime?
+  customerName  String?
+  customerPhone String?
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Settings {

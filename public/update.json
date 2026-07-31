@@ -1,10 +1,17 @@
 {
-  "version": "2.7.46",
+  "version": "2.7.47",
   "changelog": [
-    "FIXED: Settings check-update now reads version from package.json at runtime (not env var)",
-    "NEW: Load & Bill checkout — live total (amount + extra charges) shown in dialog",
-    "NEW: Today's total sales displayed at top of Mobile Load, Bill Payment, and Wallet tabs",
-    "NEW: Checkout button shows total amount to collect from customer",
-    "IMPROVED: Version display fallback updated to 2.7.46"
+    "COMPLETE REDESIGN: Load & Bill Management module — professional POS-style interface",
+    "NEW: Dashboard Summary — today's total load, bills, wallet received/sent, profit, due, grand total",
+    "NEW: Load Management — receive load from company, sell with extra charges + due tracking, live company balances",
+    "NEW: Bill Payment — amount + service charge + due tracking, auto-separates bill amount from profit",
+    "NEW: Digital Wallet Management — multiple JazzCash/Easypaisa/Bank accounts, receive/send with charges, per-account ledger",
+    "NEW: SIM Management — add SIMs to stock (New/Replacement), sell SIMs, per-company stock summary",
+    "NEW: Unified Checkout — every transaction shows live total (amount + charges) before confirming",
+    "NEW: Reports tab — load/bill/wallet/SIM profit summary, total due, grand total profit",
+    "NEW: Due tracking on all transaction types (load, bill, wallet) — record partial payments",
+    "NEW: Database tables: WalletAccount (multiple accounts), SimStock (SIM inventory)",
+    "NEW: API endpoints: /api/load-bill/wallet-accounts (CRUD), /api/load-bill/sim-stock (CRUD + sell)",
+    "FIXED: Settings version display — reads package.json from filesystem at runtime"
   ]
 }

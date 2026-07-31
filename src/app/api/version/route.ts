@@ -13,7 +13,7 @@ import { join } from "path";
 // If reading fails for any reason, we fall back to a hardcoded version
 // that should be updated with each release.
 export async function GET() {
-  let version = "2.7.46"; // fallback — update with each release
+  let version = "2.7.47"; // fallback — update with each release
 
   // Try reading from package.json in the current working directory
   try {

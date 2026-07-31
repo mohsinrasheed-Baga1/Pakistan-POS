@@ -2,484 +2,305 @@
 
 import * as React from "react";
 import {
-  Smartphone,
-  Plus,
-  Trash2,
-  RefreshCw,
-  Wallet,
-  FileText,
-  ArrowDownLeft,
-  ArrowUpRight,
-  Phone,
-  User,
+  Smartphone, Plus, RefreshCw, Wallet, FileText, ArrowDownLeft, ArrowUpRight,
+  TrendingUp, TrendingDown, CreditCard, BarChart3, DollarSign,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/pos-utils";
 
-interface LoadBillViewProps {
-  userRole: string;
-}
+interface LoadBillViewProps { userRole: string; }
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface Company {
-  id: string;
-  name: string;
-  balance: number;
-  totalPurchased: number;
-  totalSold: number;
-  totalProfit: number;
-}
-
-interface SimCard {
-  id: string;
-  companyId: string;
-  companyName: string;
-  number: string;
-  balance: number;
-  active: boolean;
-}
-
-// ─── Component ───────────────────────────────────────────────────────────────
+interface Company { id: string; name: string; balance: number; totalPurchased: number; totalSold: number; totalProfit: number; }
+interface WalletAccount { id: string; name: string; provider: string; phoneNumber: string|null; accountNumber: string|null; balance: number; totalReceived: number; totalSent: number; totalCharges: number; active: boolean; }
 
 export function LoadBillView({ userRole }: LoadBillViewProps) {
-  const isAdminOrManager = userRole === "ADMIN" || userRole === "MANAGER";
+  const isAdmin = userRole === "ADMIN" || userRole === "MANAGER";
+  const [refresh, setRefresh] = React.useState(0);
+  const triggerRefresh = () => setRefresh(r => r + 1);
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Smartphone className="w-6 h-6 text-emerald-600" />
-            Load & Bill Payment
+            Load & Bill Management
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage SIM cards, mobile load, bill payments, and wallet transactions
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">Mobile Load • Bill Payment • Wallet • SIM — ایک جگہ سے سب</p>
         </div>
+        <Button variant="outline" size="sm" onClick={triggerRefresh}><RefreshCw className="w-4 h-4 mr-1" /> Refresh</Button>
       </div>
 
-      <Tabs defaultValue="sims" className="w-full">
-        <TabsList className="w-full sm:w-auto flex flex-wrap">
-          <TabsTrigger value="sims">SIM Cards</TabsTrigger>
-          <TabsTrigger value="load">Mobile Load</TabsTrigger>
-          <TabsTrigger value="bill">Bill Payment</TabsTrigger>
-          <TabsTrigger value="wallet">Wallet</TabsTrigger>
-        </TabsList>
+      <DashboardSummary refreshKey={refresh} />
 
-        <TabsContent value="sims">
-          <SimTab isAdminOrManager={isAdminOrManager} />
-        </TabsContent>
-        <TabsContent value="load">
-          <LoadTab isAdminOrManager={isAdminOrManager} />
-        </TabsContent>
-        <TabsContent value="bill">
-          <BillTab />
-        </TabsContent>
-        <TabsContent value="wallet">
-          <WalletTab />
-        </TabsContent>
+      <Tabs defaultValue="load" className="w-full">
+        <TabsList className="w-full sm:w-auto flex flex-wrap">
+          <TabsTrigger value="load"><Smartphone className="w-4 h-4 mr-1" /> Load</TabsTrigger>
+          <TabsTrigger value="bill"><FileText className="w-4 h-4 mr-1" /> Bill</TabsTrigger>
+          <TabsTrigger value="wallet"><Wallet className="w-4 h-4 mr-1" /> Wallet</TabsTrigger>
+          <TabsTrigger value="sim"><CreditCard className="w-4 h-4 mr-1" /> SIM</TabsTrigger>
+          <TabsTrigger value="reports"><BarChart3 className="w-4 h-4 mr-1" /> Reports</TabsTrigger>
+        </TabsList>
+        <TabsContent value="load"><LoadTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+        <TabsContent value="bill"><BillTab refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+        <TabsContent value="wallet"><WalletTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+        <TabsContent value="sim"><SimTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+        <TabsContent value="reports"><ReportsTab refreshKey={refresh} /></TabsContent>
       </Tabs>
     </div>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TAB 1: SIM CARDS — add SIM, balance in/out, replacement, per-SIM balance
+// DASHBOARD SUMMARY — today's totals at a glance
 // ═════════════════════════════════════════════════════════════════════════════
-
-function SimTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
-  const [companies, setCompanies] = React.useState<Company[]>([]);
+function DashboardSummary({ refreshKey }: { refreshKey: number }) {
+  const [data, setData] = React.useState<any>({});
   const [loading, setLoading] = React.useState(true);
 
-  const loadCompanies = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/load-bill/companies", { cache: "no-store" });
-      const data = await res.json();
-      setCompanies(data.companies || []);
-    } catch {
-      toast.error("Failed to load companies");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   React.useEffect(() => {
-    loadCompanies();
-  }, [loadCompanies]);
+    (async () => {
+      try {
+        const [loadRes, billRes, walletRes] = await Promise.all([
+          fetch("/api/load-bill/mobile-load?limit=500", { cache: "no-store" }),
+          fetch("/api/load-bill/bill-payment?limit=500", { cache: "no-store" }),
+          fetch("/api/load-bill/wallet?limit=500", { cache: "no-store" }),
+        ]);
+        const loadData = await loadRes.json();
+        const billData = await billRes.json();
+        const walletData = await walletRes.json();
+        const loads = loadData.transactions || [];
+        const bills = billData.transactions || billData.payments || [];
+        const wallets = walletData.transactions || [];
 
-  // Add company dialog
-  const [addOpen, setAddOpen] = React.useState(false);
-  const [newName, setNewName] = React.useState("");
-  const [saving, setSaving] = React.useState(false);
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const isToday = (d: string) => new Date(d) >= today;
 
-  async function handleAddCompany() {
-    if (!newName.trim()) {
-      toast.error("Company name is required");
-      return;
-    }
-    setSaving(true);
-    try {
-      const res = await fetch("/api/load-bill/companies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "Failed to add company");
-        setSaving(false);
-        return;
-      }
-      toast.success(`${newName} added`);
-      setNewName("");
-      setAddOpen(false);
-      loadCompanies();
-    } catch {
-      toast.error("Network error");
-    } finally {
-      setSaving(false);
-    }
-  }
+        const todayLoads = loads.filter((t: any) => isToday(t.createdAt));
+        const todayBills = bills.filter((t: any) => isToday(t.createdAt));
+        const todayWallets = wallets.filter((t: any) => isToday(t.createdAt));
 
-  // Balance in/out dialog
-  const [balanceOpen, setBalanceOpen] = React.useState(false);
-  const [balanceCompany, setBalanceCompany] = React.useState<Company | null>(null);
-  const [balanceType, setBalanceType] = React.useState<"IN" | "OUT">("IN");
-  const [balanceAmount, setBalanceAmount] = React.useState("");
+        const totalLoad = todayLoads.reduce((s: number, t: any) => s + (t.salePrice || t.amount || 0), 0);
+        const totalBill = todayBills.reduce((s: number, t: any) => s + (t.totalPaid || 0), 0);
+        const totalReceived = todayWallets.filter((t: any) => t.type === "RECEIVE").reduce((s: number, t: any) => s + (t.amount + (t.serviceCharge || 0)), 0);
+        const totalSent = todayWallets.filter((t: any) => t.type === "SEND").reduce((s: number, t: any) => s + (t.amount + (t.serviceCharge || 0)), 0);
+        const totalCharges = [...todayLoads, ...todayBills, ...todayWallets].reduce((s: number, t: any) => {
+          if (t.salePrice && t.amount) return s + (t.salePrice - t.amount);
+          if (t.serviceCharge) return s + t.serviceCharge;
+          return s;
+        }, 0);
+        const totalDue = [...todayLoads, ...todayBills, ...todayWallets].reduce((s: number, t: any) => s + (t.due || 0), 0);
+        const grandTotal = totalLoad + totalBill + totalReceived;
 
-  function openBalanceDialog(c: Company, type: "IN" | "OUT") {
-    setBalanceCompany(c);
-    setBalanceType(type);
-    setBalanceAmount("");
-    setBalanceOpen(true);
-  }
+        setData({ totalLoad, totalBill, totalReceived, totalSent, totalCharges, totalDue, grandTotal });
+      } catch { setData({}); }
+      finally { setLoading(false); }
+    })();
+  }, [refreshKey]);
 
-  async function handleBalanceSave() {
-    if (!balanceCompany) return;
-    const amt = parseFloat(balanceAmount);
-    if (!amt || amt <= 0) {
-      toast.error("Enter a valid amount");
-      return;
-    }
-    setSaving(true);
-    try {
-      // Use the mobile-load endpoint with type=PURCHASE for IN, type=SALE for OUT
-      const endpoint = balanceType === "IN" ? "mobile-load" : "mobile-load";
-      const type = balanceType === "IN" ? "PURCHASE" : "SALE";
-      const body: any = {
-        companyId: balanceCompany.id,
-        type,
-        amount: amt,
-        costPrice: balanceType === "IN" ? amt : 0,
-        salePrice: balanceType === "OUT" ? amt : 0,
-      };
-      const res = await fetch(`/api/load-bill/${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "Failed");
-        setSaving(false);
-        return;
-      }
-      toast.success(`${balanceType === "IN" ? "Balance added" : "Balance removed"}: Rs ${amt}`);
-      setBalanceOpen(false);
-      loadCompanies();
-    } catch {
-      toast.error("Network error");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const stats = [
+    { label: "آج کا کل لوڈ", value: data.totalLoad || 0, icon: Smartphone, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+    { label: "آج کے بل", value: data.totalBill || 0, icon: FileText, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
+    { label: "وصول شدہ (Wallet)", value: data.totalReceived || 0, icon: ArrowDownLeft, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+    { label: "بھیجی گئی (Wallet)", value: data.totalSent || 0, icon: ArrowUpRight, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
+    { label: "کل سروس چارج (منافع)", value: data.totalCharges || 0, icon: TrendingUp, color: "text-amber-700", bg: "bg-amber-50 border-amber-200" },
+    { label: "آج کی کل سیل", value: data.grandTotal || 0, icon: DollarSign, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+    { label: "بقایا وصولی", value: data.totalDue || 0, icon: TrendingDown, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
+  ];
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Smartphone className="w-5 h-5 text-emerald-600" />
-            SIM Companies
-          </CardTitle>
-          {isAdminOrManager && (
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setAddOpen(true)}>
-              <Plus className="w-4 h-4 mr-1" /> Add SIM Company
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-12 rounded bg-muted animate-pulse" />
-            ))}
-          </div>
-        ) : companies.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            <Smartphone className="w-10 h-10 mx-auto mb-2 opacity-50" />
-            No SIM companies added yet. Click "Add SIM Company" to get started.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {companies.map((c) => (
-              <div key={c.id} className="rounded-lg border p-3 flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{c.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Balance: <span className="font-bold text-emerald-700">Rs {c.balance.toLocaleString()}</span>
-                    {" • "}Purchased: Rs {c.totalPurchased.toLocaleString()}
-                    {" • "}Sold: Rs {c.totalSold.toLocaleString()}
-                    {" • "}Profit: Rs {c.totalProfit.toLocaleString()}
-                  </div>
-                </div>
-                {isAdminOrManager && (
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="border-emerald-300 text-emerald-700" onClick={() => openBalanceDialog(c, "IN")}>
-                      <ArrowDownLeft className="w-3 h-3 mr-1" /> Balance In
-                    </Button>
-                    <Button size="sm" variant="outline" className="border-rose-300 text-rose-700" onClick={() => openBalanceDialog(c, "OUT")}>
-                      <ArrowUpRight className="w-3 h-3 mr-1" /> Balance Out
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-
-      {/* Add Company Dialog */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Add SIM Company</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>Company Name *</Label>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Jazz, Ufone, Zong, Telenor" autoFocus />
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+      {stats.map((s, i) => (
+        <Card key={i} className={s.bg}>
+          <CardContent className="p-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <s.icon className={`w-3.5 h-3.5 ${s.color}`} />
+              <span className="text-[10px] font-medium text-muted-foreground">{s.label}</span>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleAddCompany}>
-              {saving ? "Adding..." : "Add"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Balance In/Out Dialog */}
-      <Dialog open={balanceOpen} onOpenChange={setBalanceOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{balanceType === "IN" ? "Balance In" : "Balance Out"} — {balanceCompany?.name}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="text-sm text-muted-foreground">
-              Current balance: <span className="font-bold">Rs {balanceCompany?.balance.toLocaleString()}</span>
+            <div className={`text-base font-bold ${s.color}`}>
+              {loading ? "..." : `Rs ${(s.value || 0).toLocaleString("en-PK")}`}
             </div>
-            <div className="space-y-2">
-              <Label>Amount *</Label>
-              <Input type="number" value={balanceAmount} onChange={(e) => setBalanceAmount(e.target.value)} placeholder="0" autoFocus />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {balanceType === "IN"
-                ? "Adding balance means you loaded money into this SIM (e.g. from bank deposit)"
-                : "Removing balance means you sent money out of this SIM (e.g. to customer)"}
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBalanceOpen(false)}>Cancel</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleBalanceSave}>
-              {saving ? "Saving..." : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Card>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TAB 2: MOBILE LOAD — sell load to customer (amount + extra charges)
+// CHECKOUT DIALOG — unified checkout for all transaction types
 // ═════════════════════════════════════════════════════════════════════════════
+interface CheckoutProps {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  fields: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string }[];
+  totals: { label: string; value: number }[];
+  onConfirm: () => void;
+  saving: boolean;
+}
 
-function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
+function CheckoutDialog({ open, onClose, title, fields, totals, onConfirm, saving }: CheckoutProps) {
+  const grandTotal = totals.reduce((s, t) => s + t.value, 0);
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          {fields.map((f, i) => (
+            <div key={i} className="space-y-1">
+              <Label className="text-xs">{f.label}</Label>
+              <Input type={f.type || "text"} value={f.value} onChange={(e) => f.onChange(e.target.value)} placeholder={f.placeholder} className="h-9" autoFocus={i === 0} />
+            </div>
+          ))}
+          {/* Live totals */}
+          <div className="rounded-lg bg-emerald-50 border border-emerald-300 p-3 space-y-1">
+            {totals.map((t, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span className="text-muted-foreground">{t.label}:</span>
+                <span className="font-mono">Rs {t.value.toLocaleString()}</span>
+              </div>
+            ))}
+            <div className="border-t border-emerald-300 mt-1 pt-1 flex justify-between">
+              <span className="font-bold">کل وصول:</span>
+              <span className="font-bold text-emerald-700 text-lg">Rs {grandTotal.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={onConfirm}>
+            {saving ? "..." : `Checkout — Rs ${grandTotal.toLocaleString()}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB 1: LOAD MANAGEMENT
+// ═════════════════════════════════════════════════════════════════════════════
+function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshKey: number; onRefresh: () => void }) {
   const [companies, setCompanies] = React.useState<Company[]>([]);
-  const [transactions, setTransactions] = React.useState<any[]>([]);
+  const [txns, setTxns] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [todayTotal, setTodayTotal] = React.useState(0);
+  const [sellOpen, setSellOpen] = React.useState(false);
+  const [recvOpen, setRecvOpen] = React.useState(false);
+  const [selCompany, setSelCompany] = React.useState("");
+  const [amount, setAmount] = React.useState("");
+  const [extra, setExtra] = React.useState("");
+  const [due, setDue] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const [cRes, tRes] = await Promise.all([
+      const [c, t] = await Promise.all([
         fetch("/api/load-bill/companies", { cache: "no-store" }),
-        fetch("/api/load-bill/mobile-load?limit=50", { cache: "no-store" }),
+        fetch("/api/load-bill/mobile-load?limit=30", { cache: "no-store" }),
       ]);
-      const cData = await cRes.json();
-      const tData = await tRes.json();
-      const txns = tData.transactions || [];
-      setCompanies(cData.companies || []);
-      setTransactions(txns);
-
-      // Calculate today's total (sum of salePrice for today's transactions)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayTxns = txns.filter((t: any) => new Date(t.createdAt) >= today);
-      const total = todayTxns.reduce((s: number, t: any) => s + (t.salePrice || t.amount || 0), 0);
-      setTodayTotal(total);
-    } catch {
-      toast.error("Failed to load data");
-    } finally {
-      setLoading(false);
-    }
+      const cd = await c.json(); const td = await t.json();
+      setCompanies(cd.companies || []); setTxns(td.transactions || []);
+    } catch { toast.error("Failed to load"); }
+    finally { setLoading(false); }
   }, []);
 
-  React.useEffect(() => {
-    load();
-  }, [load]);
+  React.useEffect(() => { load(); }, [load, refreshKey]);
 
-  // Sell load dialog
-  const [sellOpen, setSellOpen] = React.useState(false);
-  const [sellCompany, setSellCompany] = React.useState("");
-  const [sellAmount, setSellAmount] = React.useState("");
-  const [sellExtra, setSellExtra] = React.useState("");
-  const [sellPhone, setSellPhone] = React.useState("");
-  const [saving, setSaving] = React.useState(false);
+  const amtNum = parseFloat(amount) || 0;
+  const extraNum = parseFloat(extra) || 0;
+  const dueNum = parseFloat(due) || 0;
+  const total = amtNum + extraNum;
 
-  // Live total calculation for the checkout dialog
-  const sellAmountNum = parseFloat(sellAmount) || 0;
-  const sellExtraNum = parseFloat(sellExtra) || 0;
-  const sellTotal = sellAmountNum + sellExtraNum;
-
-  async function handleSellLoad() {
-    if (!sellCompany) {
-      toast.error("Select a company");
-      return;
-    }
-    const amt = parseFloat(sellAmount);
-    if (!amt || amt <= 0) {
-      toast.error("Enter a valid amount");
-      return;
-    }
-    const extra = parseFloat(sellExtra) || 0;
+  async function handleSell() {
+    if (!selCompany) { toast.error("Select company"); return; }
+    if (amtNum <= 0) { toast.error("Enter amount"); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/load-bill/mobile-load", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyId: sellCompany,
-          type: "SALE",
-          amount: amt,
-          salePrice: amt + extra,
-          customerPhone: sellPhone || undefined,
-        }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: selCompany, type: "SALE", amount: amtNum, salePrice: total, due: dueNum, customerPhone: phone || undefined }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "Failed");
-        setSaving(false);
-        return;
-      }
-      toast.success(`Load sold: Rs ${amt}${extra > 0 ? ` + Rs ${extra} extra` : ""} = Rs ${amt + extra} total`);
-      setSellOpen(false);
-      setSellCompany("");
-      setSellAmount("");
-      setSellExtra("");
-      setSellPhone("");
-      load();
-    } catch {
-      toast.error("Network error");
-    } finally {
-      setSaving(false);
-    }
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error); setSaving(false); return; }
+      toast.success(`Load sold: Rs ${total}${dueNum > 0 ? ` (Due: Rs ${dueNum})` : ""}`);
+      setSellOpen(false); setSelCompany(""); setAmount(""); setExtra(""); setDue(""); setPhone("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setSaving(false); }
+  }
+
+  async function handleReceive() {
+    if (!selCompany) { toast.error("Select company"); return; }
+    if (amtNum <= 0) { toast.error("Enter amount"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/load-bill/mobile-load", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: selCompany, type: "PURCHASE", amount: amtNum, costPrice: amtNum }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error); setSaving(false); return; }
+      toast.success(`Load received: Rs ${amtNum}`);
+      setRecvOpen(false); setSelCompany(""); setAmount("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setSaving(false); }
   }
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Smartphone className="w-5 h-5 text-emerald-600" />
-            Mobile Load
-          </CardTitle>
-          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setSellOpen(true)}>
-            <Plus className="w-4 h-4 mr-1" /> Sell Load
-          </Button>
+          <CardTitle className="flex items-center gap-2"><Smartphone className="w-5 h-5 text-emerald-600" /> Mobile Load</CardTitle>
+          <div className="flex gap-2">
+            {isAdmin && <Button size="sm" variant="outline" className="border-blue-300 text-blue-700" onClick={() => { setSelCompany(""); setAmount(""); setRecvOpen(true); }}><ArrowDownLeft className="w-4 h-4 mr-1" /> Receive</Button>}
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setSelCompany(""); setAmount(""); setExtra(""); setDue(""); setPhone(""); setSellOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Sell Load</Button>
+          </div>
         </div>
       </CardHeader>
-      <CardContent>
-        {/* Today's total summary */}
-        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 mb-4 flex items-center justify-between">
-          <div>
-            <div className="text-xs text-emerald-700 font-medium">آج کی کل سیل (Today's Total Sales)</div>
-            <div className="text-2xl font-bold text-emerald-700">Rs {todayTotal.toLocaleString("en-PK")}</div>
-          </div>
-          <Smartphone className="w-8 h-8 text-emerald-400" />
+      <CardContent className="space-y-4">
+        {/* Company balances */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {companies.map(c => (
+            <div key={c.id} className="rounded-lg border p-2 text-center">
+              <div className="text-sm font-bold">{c.name}</div>
+              <div className="text-lg font-bold text-emerald-700">Rs {c.balance.toLocaleString()}</div>
+              <div className="text-[10px] text-muted-foreground">Sold: Rs {c.totalSold.toLocaleString()}</div>
+            </div>
+          ))}
+          {companies.length === 0 && <div className="col-span-4 text-center text-muted-foreground py-4">No companies added yet</div>}
         </div>
 
-        {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-10 rounded bg-muted animate-pulse" />
-            ))}
-          </div>
-        ) : transactions.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            No load transactions yet
-          </div>
+        {/* Recent transactions */}
+        {loading ? <div className="h-20 rounded bg-muted animate-pulse" /> : txns.length === 0 ? (
+          <div className="text-center text-muted-foreground py-4">No transactions yet</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Extra</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                </TableRow>
-              </TableHeader>
+              <TableHeader><TableRow>
+                <TableHead>Date</TableHead><TableHead>Company</TableHead><TableHead>Type</TableHead>
+                <TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Extra</TableHead><TableHead className="text-right">Due</TableHead>
+              </TableRow></TableHeader>
               <TableBody>
-                {transactions.map((t) => (
+                {txns.map(t => (
                   <TableRow key={t.id}>
                     <TableCell className="text-xs">{new Date(t.createdAt).toLocaleString("en-PK")}</TableCell>
                     <TableCell>{t.companyName || "-"}</TableCell>
-                    <TableCell className="text-xs">{t.customerPhone || "-"}</TableCell>
+                    <TableCell><Badge variant={t.type === "SALE" ? "default" : "secondary"}>{t.type}</Badge></TableCell>
                     <TableCell className="text-right font-mono">Rs {t.amount.toLocaleString()}</TableCell>
-                    <TableCell className="text-right font-mono text-emerald-700">
-                      Rs {(t.salePrice - t.amount).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right font-mono font-bold">Rs {t.salePrice.toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono text-emerald-700">{t.type === "SALE" ? `Rs ${(t.salePrice - t.amount).toLocaleString()}` : "-"}</TableCell>
+                    <TableCell className="text-right font-mono text-rose-600">{(t.due || 0) > 0 ? `Rs ${t.due.toLocaleString()}` : "-"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -488,199 +309,109 @@ function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
         )}
       </CardContent>
 
-      {/* Sell Load Dialog — checkout style with live total */}
-      <Dialog open={sellOpen} onOpenChange={setSellOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Sell Mobile Load — لوڈ بیچیں</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>Company *</Label>
-              <select
-                className="w-full rounded-md border border-input px-3 py-2 text-sm"
-                value={sellCompany}
-                onChange={(e) => setSellCompany(e.target.value)}
-              >
-                <option value="">Select company</option>
-                {companies.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} (Bal: Rs {c.balance.toLocaleString()})</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>Amount (load value) *</Label>
-              <Input type="number" value={sellAmount} onChange={(e) => setSellAmount(e.target.value)} placeholder="e.g. 100" autoFocus />
-            </div>
-            <div className="space-y-2">
-              <Label>Extra Charges (profit)</Label>
-              <Input type="number" value={sellExtra} onChange={(e) => setSellExtra(e.target.value)} placeholder="0" />
-              <p className="text-xs text-muted-foreground">Extra charges are your profit on this load</p>
-            </div>
-            <div className="space-y-2">
-              <Label>Customer Phone (optional)</Label>
-              <Input value={sellPhone} onChange={(e) => setSellPhone(e.target.value)} placeholder="03001234567" />
-            </div>
+      {/* Sell Load Checkout */}
+      <CheckoutDialog
+        open={sellOpen} onClose={() => setSellOpen(false)} title="Sell Mobile Load — لوڈ بیچیں" saving={saving} onConfirm={handleSell}
+        fields={[
+          { label: "Company *", value: selCompany, onChange: setSelCompany, type: "select" },
+          { label: "Load Amount *", value: amount, onChange: setAmount, type: "number", placeholder: "e.g. 100" },
+          { label: "Extra Charges (profit)", value: extra, onChange: setExtra, type: "number", placeholder: "0" },
+          { label: "Due (if unpaid)", value: due, onChange: setDue, type: "number", placeholder: "0" },
+          { label: "Customer Phone", value: phone, onChange: setPhone, placeholder: "03001234567" },
+        ]}
+        totals={[
+          { label: "Load Amount", value: amtNum },
+          { label: "Extra Charges", value: extraNum },
+        ]}
+      />
 
-            {/* Live total — checkout style */}
-            <div className="rounded-lg bg-emerald-50 border border-emerald-300 p-3 space-y-1">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Load Amount:</span>
-                <span className="font-mono">Rs {sellAmountNum.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Extra Charges:</span>
-                <span className="font-mono text-emerald-700">Rs {sellExtraNum.toLocaleString()}</span>
-              </div>
-              <div className="border-t border-emerald-300 mt-1 pt-1 flex justify-between">
-                <span className="font-bold">Total to Collect:</span>
-                <span className="font-bold text-emerald-700 text-lg">Rs {sellTotal.toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSellOpen(false)}>Cancel</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving || !sellCompany || sellAmountNum <= 0} onClick={handleSellLoad}>
-              {saving ? "Saving..." : `Checkout — Rs ${sellTotal.toLocaleString()}`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Receive Load Dialog */}
+      <CheckoutDialog
+        open={recvOpen} onClose={() => setRecvOpen(false)} title="Receive Load — لوڈ وصول" saving={saving} onConfirm={handleReceive}
+        fields={[
+          { label: "Company *", value: selCompany, onChange: setSelCompany, type: "select" },
+          { label: "Amount *", value: amount, onChange: setAmount, type: "number", placeholder: "e.g. 5000" },
+        ]}
+        totals={[{ label: "Load Received", value: amtNum }]}
+      />
     </Card>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TAB 3: BILL PAYMENT — amount + extra charges (profit)
+// TAB 2: BILL PAYMENT
 // ═════════════════════════════════════════════════════════════════════════════
-
-function BillTab() {
-  const [transactions, setTransactions] = React.useState<any[]>([]);
+function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () => void }) {
+  const [txns, setTxns] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [todayTotal, setTodayTotal] = React.useState(0);
+  const [open, setOpen] = React.useState(false);
+  const [category, setCategory] = React.useState("electricity");
+  const [billAmount, setBillAmount] = React.useState("");
+  const [charge, setCharge] = React.useState("");
+  const [due, setDue] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/load-bill/bill-payment?limit=50", { cache: "no-store" });
-      const data = await res.json();
-      const txns = data.transactions || data.payments || [];
-      setTransactions(txns);
-
-      // Calculate today's total
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayTxns = txns.filter((t: any) => new Date(t.createdAt) >= today);
-      const total = todayTxns.reduce((s: number, t: any) => s + (t.totalPaid || 0), 0);
-      setTodayTotal(total);
-    } catch {
-      toast.error("Failed to load bill payments");
-    } finally {
-      setLoading(false);
-    }
+      const res = await fetch("/api/load-bill/bill-payment?limit=30", { cache: "no-store" });
+      const d = await res.json();
+      setTxns(d.transactions || d.payments || []);
+    } catch { toast.error("Failed"); }
+    finally { setLoading(false); }
   }, []);
+  React.useEffect(() => { load(); }, [load, refreshKey]);
 
-  React.useEffect(() => {
-    load();
-  }, [load]);
+  const billNum = parseFloat(billAmount) || 0;
+  const chargeNum = parseFloat(charge) || 0;
+  const dueNum = parseFloat(due) || 0;
+  const total = billNum + chargeNum;
 
-  // Add bill payment dialog
-  const [addOpen, setAddOpen] = React.useState(false);
-  const [billCategory, setBillCategory] = React.useState("electricity");
-  const [billAmount, setBillAmount] = React.useState("");
-  const [billExtra, setBillExtra] = React.useState("");
-  const [saving, setSaving] = React.useState(false);
-
-  async function handleSaveBill() {
-    const amt = parseFloat(billAmount);
-    if (!amt || amt <= 0) {
-      toast.error("Enter a valid bill amount");
-      return;
-    }
-    const extra = parseFloat(billExtra) || 0;
+  async function handleSave() {
+    if (billNum <= 0) { toast.error("Enter bill amount"); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/load-bill/bill-payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: billCategory,
-          billAmount: amt,
-          serviceCharge: extra,
-          totalPaid: amt + extra,
-        }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category, billAmount: billNum, serviceCharge: chargeNum, totalPaid: total, amountReceived: total - dueNum, due: dueNum }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "Failed");
-        setSaving(false);
-        return;
-      }
-      toast.success(`Bill payment: Rs ${amt}${extra > 0 ? ` + Rs ${extra} extra` : ""}`);
-      setAddOpen(false);
-      setBillAmount("");
-      setBillExtra("");
-      load();
-    } catch {
-      toast.error("Network error");
-    } finally {
-      setSaving(false);
-    }
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error); setSaving(false); return; }
+      toast.success(`Bill paid: Rs ${total}${dueNum > 0 ? ` (Due: Rs ${dueNum})` : ""}`);
+      setOpen(false); setBillAmount(""); setCharge(""); setDue("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setSaving(false); }
   }
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-emerald-600" />
-            Bill Payment
-          </CardTitle>
-          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setAddOpen(true)}>
-            <Plus className="w-4 h-4 mr-1" /> Add Bill Payment
-          </Button>
+          <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5 text-emerald-600" /> Bill Payment</CardTitle>
+          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setBillAmount(""); setCharge(""); setDue(""); setOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Bill</Button>
         </div>
       </CardHeader>
       <CardContent>
-        {/* Today's total summary */}
-        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 mb-4 flex items-center justify-between">
-          <div>
-            <div className="text-xs text-emerald-700 font-medium">آج کی کل سیل (Today's Total)</div>
-            <div className="text-2xl font-bold text-emerald-700">Rs {todayTotal.toLocaleString("en-PK")}</div>
-          </div>
-          <FileText className="w-8 h-8 text-emerald-400" />
-        </div>
-
-        {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-10 rounded bg-muted animate-pulse" />
-            ))}
-          </div>
-        ) : transactions.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            No bill payments yet
-          </div>
+        {loading ? <div className="h-20 rounded bg-muted animate-pulse" /> : txns.length === 0 ? (
+          <div className="text-center text-muted-foreground py-4">No bill payments yet</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[350px] overflow-y-auto">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead className="text-right">Bill Amount</TableHead>
-                  <TableHead className="text-right">Extra Charges</TableHead>
-                  <TableHead className="text-right">Total Paid</TableHead>
-                </TableRow>
-              </TableHeader>
+              <TableHeader><TableRow>
+                <TableHead>Date</TableHead><TableHead>Category</TableHead>
+                <TableHead className="text-right">Bill</TableHead><TableHead className="text-right">Charge</TableHead>
+                <TableHead className="text-right">Total</TableHead><TableHead className="text-right">Due</TableHead>
+              </TableRow></TableHeader>
               <TableBody>
-                {transactions.map((t) => (
+                {txns.map(t => (
                   <TableRow key={t.id}>
                     <TableCell className="text-xs">{new Date(t.createdAt).toLocaleString("en-PK")}</TableCell>
                     <TableCell className="capitalize">{t.category}</TableCell>
                     <TableCell className="text-right font-mono">Rs {t.billAmount.toLocaleString()}</TableCell>
-                    <TableCell className="text-right font-mono text-emerald-700">Rs {t.serviceCharge.toLocaleString()}</TableCell>
-                    <TableCell className="text-right font-mono font-bold">Rs {t.totalPaid.toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono text-emerald-700">Rs {(t.serviceCharge || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono font-bold">Rs {(t.totalPaid || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono text-rose-600">{(t.due || 0) > 0 ? `Rs ${t.due.toLocaleString()}` : "-"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -689,41 +420,193 @@ function BillTab() {
         )}
       </CardContent>
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      <CheckoutDialog
+        open={open} onClose={() => setOpen(false)} title="Bill Payment — بل ادائیگی" saving={saving} onConfirm={handleSave}
+        fields={[
+          { label: "Category", value: category, onChange: setCategory, type: "select" },
+          { label: "Bill Amount *", value: billAmount, onChange: setBillAmount, type: "number", placeholder: "e.g. 5000" },
+          { label: "Service Charge (profit)", value: charge, onChange: setCharge, type: "number", placeholder: "0" },
+          { label: "Due (if unpaid)", value: due, onChange: setDue, type: "number", placeholder: "0" },
+        ]}
+        totals={[
+          { label: "Bill Amount", value: billNum },
+          { label: "Service Charge", value: chargeNum },
+        ]}
+      />
+    </Card>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB 3: WALLET MANAGEMENT (multiple accounts)
+// ═════════════════════════════════════════════════════════════════════════════
+function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshKey: number; onRefresh: () => void }) {
+  const [accounts, setAccounts] = React.useState<WalletAccount[]>([]);
+  const [txns, setTxns] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [txnOpen, setTxnOpen] = React.useState(false);
+  const [addAccOpen, setAddAccOpen] = React.useState(false);
+  const [txnType, setTxnType] = React.useState("RECEIVE");
+  const [selAccount, setSelAccount] = React.useState("");
+  const [amount, setAmount] = React.useState("");
+  const [charge, setCharge] = React.useState("");
+  const [due, setDue] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  // Add account fields
+  const [accName, setAccName] = React.useState("");
+  const [accProvider, setAccProvider] = React.useState("JAZZCASH");
+  const [accPhone, setAccPhone] = React.useState("");
+  const [accBalance, setAccBalance] = React.useState("");
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const [a, t] = await Promise.all([
+        fetch("/api/load-bill/wallet-accounts", { cache: "no-store" }),
+        fetch("/api/load-bill/wallet?limit=30", { cache: "no-store" }),
+      ]);
+      const ad = await a.json(); const td = await t.json();
+      setAccounts(ad.accounts || []); setTxns(td.transactions || []);
+    } catch { toast.error("Failed"); }
+    finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { load(); }, [load, refreshKey]);
+
+  const amtNum = parseFloat(amount) || 0;
+  const chargeNum = parseFloat(charge) || 0;
+  const dueNum = parseFloat(due) || 0;
+  const total = amtNum + chargeNum;
+
+  async function handleTxn() {
+    if (!selAccount) { toast.error("Select account"); return; }
+    if (amtNum <= 0) { toast.error("Enter amount"); return; }
+    setSaving(true);
+    try {
+      const acc = accounts.find(a => a.id === selAccount);
+      const res = await fetch("/api/load-bill/wallet", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: selAccount, provider: acc?.provider || "JAZZCASH", type: txnType, amount: amtNum, serviceCharge: chargeNum, due: dueNum }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error); setSaving(false); return; }
+      // Update account balance
+      if (acc) {
+        await fetch("/api/load-bill/wallet-accounts", {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selAccount, balance: txnType === "RECEIVE" ? acc.balance + total : acc.balance - total }),
+        });
+      }
+      toast.success(`${txnType === "RECEIVE" ? "Received" : "Sent"}: Rs ${total}${dueNum > 0 ? ` (Due: Rs ${dueNum})` : ""}`);
+      setTxnOpen(false); setSelAccount(""); setAmount(""); setCharge(""); setDue("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setSaving(false); }
+  }
+
+  async function handleAddAccount() {
+    if (!accName.trim()) { toast.error("Account name required"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/load-bill/wallet-accounts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: accName, provider: accProvider, phoneNumber: accPhone, balance: accBalance || 0 }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error); setSaving(false); return; }
+      toast.success("Account added");
+      setAddAccOpen(false); setAccName(""); setAccPhone(""); setAccBalance("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5 text-emerald-600" /> Digital Wallet</CardTitle>
+          <div className="flex gap-2">
+            {isAdmin && <Button size="sm" variant="outline" onClick={() => { setAccName(""); setAccPhone(""); setAccBalance(""); setAddAccOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Account</Button>}
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setSelAccount(""); setAmount(""); setCharge(""); setDue(""); setTxnType("RECEIVE"); setTxnOpen(true); }}><Plus className="w-4 h-4 mr-1" /> New Txn</Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Account balances */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {accounts.map(a => (
+            <div key={a.id} className="rounded-lg border p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold">{a.name}</span>
+                <Badge variant="outline">{a.provider}</Badge>
+              </div>
+              <div className="text-xl font-bold text-emerald-700 mt-1">Rs {a.balance.toLocaleString()}</div>
+              <div className="text-[10px] text-muted-foreground">Recv: Rs {a.totalReceived.toLocaleString()} • Sent: Rs {a.totalSent.toLocaleString()} • Charges: Rs {a.totalCharges.toLocaleString()}</div>
+            </div>
+          ))}
+          {accounts.length === 0 && <div className="col-span-3 text-center text-muted-foreground py-4">No accounts added yet</div>}
+        </div>
+
+        {/* Recent transactions */}
+        {loading ? <div className="h-20 rounded bg-muted animate-pulse" /> : txns.length === 0 ? (
+          <div className="text-center text-muted-foreground py-4">No transactions yet</div>
+        ) : (
+          <div className="overflow-x-auto max-h-[250px] overflow-y-auto">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Date</TableHead><TableHead>Provider</TableHead><TableHead>Type</TableHead>
+                <TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Charge</TableHead><TableHead className="text-right">Due</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {txns.map(t => (
+                  <TableRow key={t.id}>
+                    <TableCell className="text-xs">{new Date(t.createdAt).toLocaleString("en-PK")}</TableCell>
+                    <TableCell>{t.provider}</TableCell>
+                    <TableCell><Badge variant={t.type === "SEND" ? "destructive" : "default"}>{t.type}</Badge></TableCell>
+                    <TableCell className="text-right font-mono">Rs {t.amount.toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono text-emerald-700">Rs {(t.serviceCharge || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono text-rose-600">{(t.due || 0) > 0 ? `Rs ${t.due.toLocaleString()}` : "-"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+
+      {/* Transaction Checkout */}
+      <CheckoutDialog
+        open={txnOpen} onClose={() => setTxnOpen(false)} title={`${txnType === "RECEIVE" ? "Receive" : "Send"} Money`} saving={saving} onConfirm={handleTxn}
+        fields={[
+          { label: "Account *", value: selAccount, onChange: setSelAccount, type: "select" },
+          { label: "Type", value: txnType, onChange: setTxnType, type: "select" },
+          { label: "Amount *", value: amount, onChange: setAmount, type: "number", placeholder: "e.g. 5000" },
+          { label: "Service Charge", value: charge, onChange: setCharge, type: "number", placeholder: "0" },
+          { label: "Due (if unpaid)", value: due, onChange: setDue, type: "number", placeholder: "0" },
+        ]}
+        totals={[
+          { label: "Amount", value: amtNum },
+          { label: "Service Charge", value: chargeNum },
+        ]}
+      />
+
+      {/* Add Account Dialog */}
+      <Dialog open={addAccOpen} onOpenChange={setAddAccOpen}>
         <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Add Bill Payment</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Add Wallet Account</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>Category</Label>
-              <select
-                className="w-full rounded-md border border-input px-3 py-2 text-sm"
-                value={billCategory}
-                onChange={(e) => setBillCategory(e.target.value)}
-              >
-                <option value="electricity">Electricity</option>
-                <option value="gas">Gas</option>
-                <option value="water">Water</option>
-                <option value="internet">Internet</option>
-                <option value="other">Other</option>
+            <div className="space-y-1"><Label className="text-xs">Provider</Label>
+              <select className="w-full rounded-md border px-3 py-2 text-sm" value={accProvider} onChange={(e) => setAccProvider(e.target.value)}>
+                <option value="JAZZCASH">JazzCash</option><option value="EASYPAISA">Easypaisa</option><option value="BANK">Bank</option>
               </select>
             </div>
-            <div className="space-y-2">
-              <Label>Bill Amount *</Label>
-              <Input type="number" value={billAmount} onChange={(e) => setBillAmount(e.target.value)} placeholder="e.g. 5000" />
-            </div>
-            <div className="space-y-2">
-              <Label>Extra Charges (profit)</Label>
-              <Input type="number" value={billExtra} onChange={(e) => setBillExtra(e.target.value)} placeholder="0" />
-              <p className="text-xs text-muted-foreground">Extra charges are your profit on this bill payment</p>
-            </div>
+            <div className="space-y-1"><Label className="text-xs">Name *</Label><Input value={accName} onChange={(e) => setAccName(e.target.value)} placeholder="e.g. JazzCash 03001234567" /></div>
+            <div className="space-y-1"><Label className="text-xs">Phone / Account #</Label><Input value={accPhone} onChange={(e) => setAccPhone(e.target.value)} placeholder="03001234567" /></div>
+            <div className="space-y-1"><Label className="text-xs">Opening Balance</Label><Input type="number" value={accBalance} onChange={(e) => setAccBalance(e.target.value)} placeholder="0" /></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleSaveBill}>
-              {saving ? "Saving..." : "Save"}
-            </Button>
+            <Button variant="outline" onClick={() => setAddAccOpen(false)}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleAddAccount}>{saving ? "..." : "Add"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -732,144 +615,120 @@ function BillTab() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TAB 4: WALLET — send/receive money (amount + extra charges)
+// TAB 4: SIM MANAGEMENT
 // ═════════════════════════════════════════════════════════════════════════════
-
-function WalletTab() {
-  const [transactions, setTransactions] = React.useState<any[]>([]);
+function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshKey: number; onRefresh: () => void }) {
+  const [sims, setSims] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [sellOpen, setSellOpen] = React.useState(false);
+  const [simCompany, setSimCompany] = React.useState("Jazz");
+  const [simType, setSimType] = React.useState("NEW");
+  const [simPhone, setSimPhone] = React.useState("");
+  const [simCost, setSimCost] = React.useState("");
+  const [simSale, setSimSale] = React.useState("");
+  const [sellSimId, setSellSimId] = React.useState("");
+  const [sellCust, setSellCust] = React.useState("");
+  const [sellPhone, setSellPhone] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/load-bill/wallet?limit=20", { cache: "no-store" });
-      const data = await res.json();
-      setTransactions(data.transactions || []);
-    } catch {
-      toast.error("Failed to load wallet transactions");
-    } finally {
-      setLoading(false);
-    }
+      const res = await fetch("/api/load-bill/sim-stock", { cache: "no-store" });
+      const d = await res.json();
+      setSims(d.sims || []);
+    } catch { toast.error("Failed"); }
+    finally { setLoading(false); }
   }, []);
+  React.useEffect(() => { load(); }, [load, refreshKey]);
 
-  React.useEffect(() => {
-    load();
-  }, [load]);
+  const inStock = sims.filter(s => s.status === "IN_STOCK");
+  const sold = sims.filter(s => s.status === "SOLD");
 
-  // Add wallet transaction dialog
-  const [addOpen, setAddOpen] = React.useState(false);
-  const [walletProvider, setWalletProvider] = React.useState("JAZZCASH");
-  const [walletType, setWalletType] = React.useState("SEND");
-  const [walletAmount, setWalletAmount] = React.useState("");
-  const [walletExtra, setWalletExtra] = React.useState("");
-  const [saving, setSaving] = React.useState(false);
-
-  async function handleSaveWallet() {
-    const amt = parseFloat(walletAmount);
-    if (!amt || amt <= 0) {
-      toast.error("Enter a valid amount");
-      return;
-    }
-    const extra = parseFloat(walletExtra) || 0;
+  async function handleAddSim() {
+    if (!simCompany || !simType) { toast.error("Company and type required"); return; }
     setSaving(true);
     try {
-      const res = await fetch("/api/load-bill/wallet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: walletProvider,
-          type: walletType,
-          amount: amt,
-          serviceCharge: extra,
-        }),
+      const res = await fetch("/api/load-bill/sim-stock", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company: simCompany, type: simType, phoneNumber: simPhone, costPrice: simCost, salePrice: simSale }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "Failed");
-        setSaving(false);
-        return;
-      }
-      toast.success(`${walletType === "SEND" ? "Sent" : "Received"}: Rs ${amt}${extra > 0 ? ` + Rs ${extra} extra` : ""}`);
-      setAddOpen(false);
-      setWalletAmount("");
-      setWalletExtra("");
-      load();
-    } catch {
-      toast.error("Network error");
-    } finally {
-      setSaving(false);
-    }
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error); setSaving(false); return; }
+      toast.success("SIM added to stock");
+      setAddOpen(false); setSimPhone(""); setSimCost(""); setSimSale("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setSaving(false); }
   }
 
-  // Calculate totals
-  const totalSent = transactions.filter((t) => t.type === "SEND").reduce((s, t) => s + t.amount, 0);
-  const totalReceived = transactions.filter((t) => t.type === "RECEIVE").reduce((s, t) => s + t.amount, 0);
-  const totalExtra = transactions.reduce((s, t) => s + (t.serviceCharge || 0), 0);
+  async function handleSellSim() {
+    if (!sellSimId) { toast.error("Select a SIM"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/load-bill/sim-stock", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: sellSimId, customerName: sellCust, customerPhone: sellPhone }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error); setSaving(false); return; }
+      toast.success("SIM sold");
+      setSellOpen(false); setSellSimId(""); setSellCust(""); setSellPhone("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setSaving(false); }
+  }
+
+  // Stock summary by company
+  const stockByCompany = ["Jazz", "Zong", "Ufone", "Telenor"].map(c => ({
+    company: c,
+    inStock: inStock.filter(s => s.company === c).length,
+    sold: sold.filter(s => s.company === c).length,
+  }));
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Wallet className="w-5 h-5 text-emerald-600" />
-            Wallet (JazzCash / Easypaisa)
-          </CardTitle>
-          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setAddOpen(true)}>
-            <Plus className="w-4 h-4 mr-1" /> Add Transaction
-          </Button>
+          <CardTitle className="flex items-center gap-2"><CreditCard className="w-5 h-5 text-emerald-600" /> SIM Management</CardTitle>
+          <div className="flex gap-2">
+            {isAdmin && <Button size="sm" variant="outline" onClick={() => { setSimPhone(""); setSimCost(""); setSimSale(""); setAddOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add SIM</Button>}
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={inStock.length === 0} onClick={() => { setSellSimId(""); setSellCust(""); setSellPhone(""); setSellOpen(true); }}><ArrowUpRight className="w-4 h-4 mr-1" /> Sell SIM</Button>
+          </div>
         </div>
       </CardHeader>
-      <CardContent>
-        {/* Summary */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-center">
-            <div className="text-xs text-rose-700">Total Sent</div>
-            <div className="text-lg font-bold text-rose-700">Rs {totalSent.toLocaleString()}</div>
-          </div>
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center">
-            <div className="text-xs text-emerald-700">Total Received</div>
-            <div className="text-lg font-bold text-emerald-700">Rs {totalReceived.toLocaleString()}</div>
-          </div>
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-center">
-            <div className="text-xs text-blue-700">Total Extra (Profit)</div>
-            <div className="text-lg font-bold text-blue-700">Rs {totalExtra.toLocaleString()}</div>
-          </div>
+      <CardContent className="space-y-4">
+        {/* Stock summary */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {stockByCompany.map(s => (
+            <div key={s.company} className="rounded-lg border p-2 text-center">
+              <div className="text-sm font-bold">{s.company}</div>
+              <div className="text-lg font-bold text-emerald-700">{s.inStock}</div>
+              <div className="text-[10px] text-muted-foreground">In Stock • Sold: {s.sold}</div>
+            </div>
+          ))}
         </div>
 
-        {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-10 rounded bg-muted animate-pulse" />
-            ))}
-          </div>
-        ) : transactions.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            No wallet transactions yet
-          </div>
+        {/* SIM list */}
+        {loading ? <div className="h-20 rounded bg-muted animate-pulse" /> : sims.length === 0 ? (
+          <div className="text-center text-muted-foreground py-4">No SIMs in stock</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[250px] overflow-y-auto">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Provider</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Extra</TableHead>
-                </TableRow>
-              </TableHeader>
+              <TableHeader><TableRow>
+                <TableHead>Company</TableHead><TableHead>Type</TableHead><TableHead>Phone</TableHead>
+                <TableHead className="text-right">Cost</TableHead><TableHead className="text-right">Sale</TableHead><TableHead>Status</TableHead>
+              </TableRow></TableHeader>
               <TableBody>
-                {transactions.map((t) => (
-                  <TableRow key={t.id}>
-                    <TableCell className="text-xs">{new Date(t.createdAt).toLocaleString("en-PK")}</TableCell>
-                    <TableCell>{t.provider}</TableCell>
-                    <TableCell>
-                      <Badge variant={t.type === "SEND" ? "destructive" : "default"}>
-                        {t.type}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-mono">Rs {t.amount.toLocaleString()}</TableCell>
-                    <TableCell className="text-right font-mono text-emerald-700">Rs {(t.serviceCharge || 0).toLocaleString()}</TableCell>
+                {sims.map(s => (
+                  <TableRow key={s.id}>
+                    <TableCell>{s.company}</TableCell>
+                    <TableCell><Badge variant={s.type === "NEW" ? "default" : "secondary"}>{s.type}</Badge></TableCell>
+                    <TableCell className="text-xs">{s.phoneNumber || "-"}</TableCell>
+                    <TableCell className="text-right font-mono">Rs {(s.costPrice || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono">Rs {(s.salePrice || 0).toLocaleString()}</TableCell>
+                    <TableCell><Badge variant={s.status === "IN_STOCK" ? "default" : "destructive"}>{s.status}</Badge></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -878,52 +737,126 @@ function WalletTab() {
         )}
       </CardContent>
 
+      {/* Add SIM Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Add Wallet Transaction</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Add SIM to Stock</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>Provider</Label>
-              <select
-                className="w-full rounded-md border border-input px-3 py-2 text-sm"
-                value={walletProvider}
-                onChange={(e) => setWalletProvider(e.target.value)}
-              >
-                <option value="JAZZCASH">JazzCash</option>
-                <option value="EASYPAISA">Easypaisa</option>
-              </select>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1"><Label className="text-xs">Company</Label>
+                <select className="w-full rounded-md border px-3 py-2 text-sm" value={simCompany} onChange={(e) => setSimCompany(e.target.value)}>
+                  <option>Jazz</option><option>Zong</option><option>Ufone</option><option>Telenor</option>
+                </select>
+              </div>
+              <div className="space-y-1"><Label className="text-xs">Type</Label>
+                <select className="w-full rounded-md border px-3 py-2 text-sm" value={simType} onChange={(e) => setSimType(e.target.value)}>
+                  <option value="NEW">New SIM</option><option value="REPLACEMENT">Replacement</option>
+                </select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Type</Label>
-              <select
-                className="w-full rounded-md border border-input px-3 py-2 text-sm"
-                value={walletType}
-                onChange={(e) => setWalletType(e.target.value)}
-              >
-                <option value="SEND">Send Money</option>
-                <option value="RECEIVE">Receive Money</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>Amount *</Label>
-              <Input type="number" value={walletAmount} onChange={(e) => setWalletAmount(e.target.value)} placeholder="e.g. 5000" />
-            </div>
-            <div className="space-y-2">
-              <Label>Extra Charges (profit)</Label>
-              <Input type="number" value={walletExtra} onChange={(e) => setWalletExtra(e.target.value)} placeholder="0" />
-              <p className="text-xs text-muted-foreground">Extra charges are your profit on this transaction</p>
+            <div className="space-y-1"><Label className="text-xs">Phone Number (optional)</Label><Input value={simPhone} onChange={(e) => setSimPhone(e.target.value)} placeholder="03001234567" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1"><Label className="text-xs">Cost Price</Label><Input type="number" value={simCost} onChange={(e) => setSimCost(e.target.value)} placeholder="0" /></div>
+              <div className="space-y-1"><Label className="text-xs">Sale Price</Label><Input type="number" value={simSale} onChange={(e) => setSimSale(e.target.value)} placeholder="0" /></div>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleSaveWallet}>
-              {saving ? "Saving..." : "Save"}
-            </Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleAddSim}>{saving ? "..." : "Add"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Sell SIM Dialog */}
+      <Dialog open={sellOpen} onOpenChange={setSellOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Sell SIM</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1"><Label className="text-xs">Select SIM *</Label>
+              <select className="w-full rounded-md border px-3 py-2 text-sm" value={sellSimId} onChange={(e) => setSellSimId(e.target.value)}>
+                <option value="">Select from stock</option>
+                {inStock.map(s => <option key={s.id} value={s.id}>{s.company} {s.type} {s.phoneNumber || ""} — Rs {s.salePrice || 0}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1"><Label className="text-xs">Customer Name</Label><Input value={sellCust} onChange={(e) => setSellCust(e.target.value)} placeholder="Customer name" /></div>
+            <div className="space-y-1"><Label className="text-xs">Customer Phone</Label><Input value={sellPhone} onChange={(e) => setSellPhone(e.target.value)} placeholder="03001234567" /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSellOpen(false)}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving || !sellSimId} onClick={handleSellSim}>{saving ? "..." : "Sell SIM"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB 5: REPORTS
+// ═════════════════════════════════════════════════════════════════════════════
+function ReportsTab({ refreshKey }: { refreshKey: number }) {
+  const [data, setData] = React.useState<any>({});
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const [loadRes, billRes, walletRes, simRes] = await Promise.all([
+          fetch("/api/load-bill/mobile-load?limit=500", { cache: "no-store" }),
+          fetch("/api/load-bill/bill-payment?limit=500", { cache: "no-store" }),
+          fetch("/api/load-bill/wallet?limit=500", { cache: "no-store" }),
+          fetch("/api/load-bill/sim-stock", { cache: "no-store" }),
+        ]);
+        const loads = (await loadRes.json()).transactions || [];
+        const bills = (await billRes.json()).transactions || [];
+        const wallets = (await walletRes.json()).transactions || [];
+        const sims = (await simRes.json()).sims || [];
+
+        const loadSales = loads.filter((t: any) => t.type === "SALE");
+        const loadProfit = loadSales.reduce((s: number, t: any) => s + (t.salePrice - t.amount), 0);
+        const billProfit = bills.reduce((s: number, t: any) => s + (t.serviceCharge || 0), 0);
+        const walletProfit = wallets.reduce((s: number, t: any) => s + (t.serviceCharge || 0), 0);
+        const simRevenue = sims.filter((s: any) => s.status === "SOLD").reduce((s: number, t: any) => s + (t.salePrice || 0), 0);
+        const totalDue = [...loads, ...bills, ...wallets].reduce((s: number, t: any) => s + (t.due || 0), 0);
+        const totalProfit = loadProfit + billProfit + walletProfit;
+
+        setData({ loadSales: loadSales.length, loadProfit, billCount: bills.length, billProfit, walletCount: wallets.length, walletProfit, simSold: sims.filter((s: any) => s.status === "SOLD").length, simRevenue, totalDue, totalProfit });
+      } catch {}
+      finally { setLoading(false); }
+    })();
+  }, [refreshKey]);
+
+  if (loading) return <Card><CardContent className="p-8 text-center text-muted-foreground">Loading reports...</CardContent></Card>;
+
+  const rows = [
+    { label: "Load Sales Count", value: data.loadSales || 0 },
+    { label: "Load Profit (Service Charges)", value: `Rs ${(data.loadProfit || 0).toLocaleString()}` },
+    { label: "Bill Payment Count", value: data.billCount || 0 },
+    { label: "Bill Profit (Service Charges)", value: `Rs ${(data.billProfit || 0).toLocaleString()}` },
+    { label: "Wallet Transaction Count", value: data.walletCount || 0 },
+    { label: "Wallet Profit (Service Charges)", value: `Rs ${(data.walletProfit || 0).toLocaleString()}` },
+    { label: "SIMs Sold", value: data.simSold || 0 },
+    { label: "SIM Revenue", value: `Rs ${(data.simRevenue || 0).toLocaleString()}` },
+    { label: "Total Due (بقایا)", value: `Rs ${(data.totalDue || 0).toLocaleString()}` },
+    { label: "Total Profit (کل منافع)", value: `Rs ${(data.totalProfit || 0).toLocaleString()}` },
+  ];
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="flex items-center gap-2"><BarChart3 className="w-5 h-5 text-emerald-600" /> Reports — رپورٹس</CardTitle></CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader><TableRow><TableHead>Metric</TableHead><TableHead className="text-right">Value</TableHead></TableRow></TableHeader>
+          <TableBody>
+            {rows.map((r, i) => (
+              <TableRow key={i}>
+                <TableCell className="font-medium">{r.label}</TableCell>
+                <TableCell className="text-right font-mono font-bold">{r.value}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
     </Card>
   );
 }

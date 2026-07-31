@@ -300,6 +300,7 @@ CREATE TABLE IF NOT EXISTS MobileLoadTxn (
   costPrice REAL NOT NULL DEFAULT 0,
   salePrice REAL NOT NULL DEFAULT 0,
   profit REAL NOT NULL DEFAULT 0,
+  due REAL NOT NULL DEFAULT 0,
   customerPhone TEXT,
   customerName TEXT,
   referenceNo TEXT,
@@ -318,6 +319,8 @@ CREATE TABLE IF NOT EXISTS BillPaymentTxn (
   billAmount REAL NOT NULL,
   serviceCharge REAL NOT NULL DEFAULT 0,
   totalPaid REAL NOT NULL,
+  amountReceived REAL NOT NULL DEFAULT 0,
+  due REAL NOT NULL DEFAULT 0,
   referenceNo TEXT,
   operatorName TEXT,
   note TEXT,
@@ -326,16 +329,49 @@ CREATE TABLE IF NOT EXISTS BillPaymentTxn (
 
 CREATE TABLE IF NOT EXISTS WalletTxn (
   id TEXT PRIMARY KEY NOT NULL,
+  accountId TEXT,
   provider TEXT NOT NULL,
   type TEXT NOT NULL,
   amount REAL NOT NULL,
   serviceCharge REAL NOT NULL DEFAULT 0,
+  due REAL NOT NULL DEFAULT 0,
   customerName TEXT,
   customerPhone TEXT,
   referenceNo TEXT,
   operatorName TEXT,
   note TEXT,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS WalletAccount (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  phoneNumber TEXT,
+  accountNumber TEXT,
+  balance REAL NOT NULL DEFAULT 0,
+  totalReceived REAL NOT NULL DEFAULT 0,
+  totalSent REAL NOT NULL DEFAULT 0,
+  totalCharges REAL NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT 1,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS SimStock (
+  id TEXT PRIMARY KEY NOT NULL,
+  company TEXT NOT NULL,
+  type TEXT NOT NULL,
+  phoneNumber TEXT,
+  costPrice REAL NOT NULL DEFAULT 0,
+  salePrice REAL NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'IN_STOCK',
+  soldAt DATETIME,
+  customerName TEXT,
+  customerPhone TEXT,
+  note TEXT,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL
 );
 `;
 
@@ -417,6 +453,18 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["googleClientId", "TEXT"],
     ["googleClientSecret", "TEXT"],
     ["googleRefreshToken", "TEXT"],
+  ],
+  // Load & Bill module — new columns added in v2.7.47
+  MobileLoadTxn: [
+    ["due", "REAL NOT NULL DEFAULT 0"],
+  ],
+  BillPaymentTxn: [
+    ["amountReceived", "REAL NOT NULL DEFAULT 0"],
+    ["due", "REAL NOT NULL DEFAULT 0"],
+  ],
+  WalletTxn: [
+    ["accountId", "TEXT"],
+    ["due", "REAL NOT NULL DEFAULT 0"],
   ],
 }
 
