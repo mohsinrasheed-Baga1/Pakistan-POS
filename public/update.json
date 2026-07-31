@@ -1,10 +1,10 @@
 {
-  "version": "2.7.45",
+  "version": "2.7.46",
   "changelog": [
-    "FIXED: Barcode now uses EAN-13 format (13 digits + checksum) — scanners read it reliably",
-    "FIXED: Sticker layout — content fills full height with space-evenly distribution",
-    "FIXED: Main Store scan now asks for box count (box product) or piece count (piece product)",
-    "FIXED: Main Store shows previous cost price + expiry date, user can change or accept",
-    "LOCKED: EAN-13 is the permanent barcode standard — will not change unless user requests"
+    "FIXED: Settings check-update now reads version from package.json at runtime (not env var)",
+    "NEW: Load & Bill checkout — live total (amount + extra charges) shown in dialog",
+    "NEW: Today's total sales displayed at top of Mobile Load, Bill Payment, and Wallet tabs",
+    "NEW: Checkout button shows total amount to collect from customer",
+    "IMPROVED: Version display fallback updated to 2.7.46"
   ]
 }

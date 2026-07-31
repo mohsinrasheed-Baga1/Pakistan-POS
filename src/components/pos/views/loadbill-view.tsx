@@ -334,18 +334,27 @@ function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [transactions, setTransactions] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [todayTotal, setTodayTotal] = React.useState(0);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
       const [cRes, tRes] = await Promise.all([
         fetch("/api/load-bill/companies", { cache: "no-store" }),
-        fetch("/api/load-bill/mobile-load?limit=20", { cache: "no-store" }),
+        fetch("/api/load-bill/mobile-load?limit=50", { cache: "no-store" }),
       ]);
       const cData = await cRes.json();
       const tData = await tRes.json();
+      const txns = tData.transactions || [];
       setCompanies(cData.companies || []);
-      setTransactions(tData.transactions || []);
+      setTransactions(txns);
+
+      // Calculate today's total (sum of salePrice for today's transactions)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayTxns = txns.filter((t: any) => new Date(t.createdAt) >= today);
+      const total = todayTxns.reduce((s: number, t: any) => s + (t.salePrice || t.amount || 0), 0);
+      setTodayTotal(total);
     } catch {
       toast.error("Failed to load data");
     } finally {
@@ -364,6 +373,11 @@ function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
   const [sellExtra, setSellExtra] = React.useState("");
   const [sellPhone, setSellPhone] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+
+  // Live total calculation for the checkout dialog
+  const sellAmountNum = parseFloat(sellAmount) || 0;
+  const sellExtraNum = parseFloat(sellExtra) || 0;
+  const sellTotal = sellAmountNum + sellExtraNum;
 
   async function handleSellLoad() {
     if (!sellCompany) {
@@ -395,7 +409,7 @@ function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
         setSaving(false);
         return;
       }
-      toast.success(`Load sold: Rs ${amt}${extra > 0 ? ` + Rs ${extra} extra` : ""}`);
+      toast.success(`Load sold: Rs ${amt}${extra > 0 ? ` + Rs ${extra} extra` : ""} = Rs ${amt + extra} total`);
       setSellOpen(false);
       setSellCompany("");
       setSellAmount("");
@@ -423,6 +437,15 @@ function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
         </div>
       </CardHeader>
       <CardContent>
+        {/* Today's total summary */}
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 mb-4 flex items-center justify-between">
+          <div>
+            <div className="text-xs text-emerald-700 font-medium">آج کی کل سیل (Today's Total Sales)</div>
+            <div className="text-2xl font-bold text-emerald-700">Rs {todayTotal.toLocaleString("en-PK")}</div>
+          </div>
+          <Smartphone className="w-8 h-8 text-emerald-400" />
+        </div>
+
         {loading ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -465,11 +488,11 @@ function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
         )}
       </CardContent>
 
-      {/* Sell Load Dialog */}
+      {/* Sell Load Dialog — checkout style with live total */}
       <Dialog open={sellOpen} onOpenChange={setSellOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Sell Mobile Load</DialogTitle>
+            <DialogTitle>Sell Mobile Load — لوڈ بیچیں</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
@@ -487,7 +510,7 @@ function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
             </div>
             <div className="space-y-2">
               <Label>Amount (load value) *</Label>
-              <Input type="number" value={sellAmount} onChange={(e) => setSellAmount(e.target.value)} placeholder="e.g. 100" />
+              <Input type="number" value={sellAmount} onChange={(e) => setSellAmount(e.target.value)} placeholder="e.g. 100" autoFocus />
             </div>
             <div className="space-y-2">
               <Label>Extra Charges (profit)</Label>
@@ -498,11 +521,27 @@ function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
               <Label>Customer Phone (optional)</Label>
               <Input value={sellPhone} onChange={(e) => setSellPhone(e.target.value)} placeholder="03001234567" />
             </div>
+
+            {/* Live total — checkout style */}
+            <div className="rounded-lg bg-emerald-50 border border-emerald-300 p-3 space-y-1">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Load Amount:</span>
+                <span className="font-mono">Rs {sellAmountNum.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Extra Charges:</span>
+                <span className="font-mono text-emerald-700">Rs {sellExtraNum.toLocaleString()}</span>
+              </div>
+              <div className="border-t border-emerald-300 mt-1 pt-1 flex justify-between">
+                <span className="font-bold">Total to Collect:</span>
+                <span className="font-bold text-emerald-700 text-lg">Rs {sellTotal.toLocaleString()}</span>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSellOpen(false)}>Cancel</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleSellLoad}>
-              {saving ? "Saving..." : "Sell Load"}
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving || !sellCompany || sellAmountNum <= 0} onClick={handleSellLoad}>
+              {saving ? "Saving..." : `Checkout — Rs ${sellTotal.toLocaleString()}`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -518,13 +557,22 @@ function LoadTab({ isAdminOrManager }: { isAdminOrManager: boolean }) {
 function BillTab() {
   const [transactions, setTransactions] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [todayTotal, setTodayTotal] = React.useState(0);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/load-bill/bill-payment?limit=20", { cache: "no-store" });
+      const res = await fetch("/api/load-bill/bill-payment?limit=50", { cache: "no-store" });
       const data = await res.json();
-      setTransactions(data.transactions || data.payments || []);
+      const txns = data.transactions || data.payments || [];
+      setTransactions(txns);
+
+      // Calculate today's total
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayTxns = txns.filter((t: any) => new Date(t.createdAt) >= today);
+      const total = todayTxns.reduce((s: number, t: any) => s + (t.totalPaid || 0), 0);
+      setTodayTotal(total);
     } catch {
       toast.error("Failed to load bill payments");
     } finally {
@@ -594,6 +642,15 @@ function BillTab() {
         </div>
       </CardHeader>
       <CardContent>
+        {/* Today's total summary */}
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 mb-4 flex items-center justify-between">
+          <div>
+            <div className="text-xs text-emerald-700 font-medium">آج کی کل سیل (Today's Total)</div>
+            <div className="text-2xl font-bold text-emerald-700">Rs {todayTotal.toLocaleString("en-PK")}</div>
+          </div>
+          <FileText className="w-8 h-8 text-emerald-400" />
+        </div>
+
         {loading ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
