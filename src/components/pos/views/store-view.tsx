@@ -318,10 +318,12 @@ export function StoreView() {
     }
   }
 
-  // ─── Box Purchase handlers ────────────────────────────────────────────────
-  // When the user scans a box barcode in Main Store, we look up the box
-  // product and pre-fill the previous purchase price + expiry date so the
-  // user can quickly confirm or change them, then enter the box count.
+  // ─── Box/Piece Purchase handlers ────────────────────────────────────────
+  // When the user scans a barcode in Main Store, we look up the product.
+  // If it's a BOX product (has packBarcode), we ask for box count.
+  // If it's a PIECE product (no packBarcode), we ask for piece count.
+  // In both cases, we pre-fill the previous purchase price + expiry date
+  // so the user can quickly confirm or change them.
   async function lookupBoxBarcode() {
     const code = boxPurchaseBarcode.trim();
     if (!code) return;
@@ -336,11 +338,9 @@ export function StoreView() {
         setBoxPurchaseLooking(false);
         return;
       }
-      if (!p.packBarcode || p.packQuantity <= 0) {
-        toast.error("This is not a box product. Box products have a linked piece product.");
-        setBoxPurchaseLooking(false);
-        return;
-      }
+      // Accept BOTH box products and piece products
+      // A box product has packBarcode set (links to piece product)
+      // A piece product has no packBarcode (standalone)
       setBoxPurchaseLookup(p);
       // Pre-fill previous purchase price + expiry date
       if (p.costPrice > 0) setBoxPurchasePrice(p.costPrice.toString());
@@ -349,7 +349,14 @@ export function StoreView() {
       }
       setBoxPurchaseCount("");
       setBoxPurchaseNote("");
-      toast.success(`Found: ${p.name} (pack of ${p.packQuantity})`);
+
+      // Show appropriate message based on product type
+      const isBox = !!p.packBarcode && p.packQuantity > 0;
+      if (isBox) {
+        toast.success(`Found: ${p.name} (Box — ${p.packQuantity} pcs per box)`);
+      } else {
+        toast.success(`Found: ${p.name} (Piece product)`);
+      }
     } catch {
       toast.error("Failed to look up barcode");
     } finally {
@@ -359,37 +366,87 @@ export function StoreView() {
 
   async function handleBoxPurchaseSave() {
     if (!boxPurchaseLookup) {
-      toast.error("Look up a box barcode first");
+      toast.error("Look up a barcode first");
       return;
     }
     const count = Number(boxPurchaseCount);
     if (!count || count <= 0) {
-      toast.error("Enter number of boxes");
+      toast.error("Enter a valid count");
       return;
     }
+
+    const isBox = !!boxPurchaseLookup.packBarcode && boxPurchaseLookup.packQuantity > 0;
+
     setBoxPurchaseSaving(true);
     try {
-      const res = await fetch("/api/stock/box-purchase", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          barcode: boxPurchaseBarcode.trim(),
-          boxCount: count,
-          purchasePrice: boxPurchasePrice || undefined,
-          expiryDate: boxPurchaseExpiry || undefined,
-          note: boxPurchaseNote.trim() || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "Failed to record box purchase");
-        setBoxPurchaseSaving(false);
-        return;
+      if (isBox) {
+        // ─── BOX PURCHASE ─────────────────────────────────────────────────
+        // Use the box-purchase API which handles both box + piece stock
+        const res = await fetch("/api/stock/box-purchase", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barcode: boxPurchaseBarcode.trim(),
+            boxCount: count,
+            purchasePrice: boxPurchasePrice || undefined,
+            expiryDate: boxPurchaseExpiry || undefined,
+            note: boxPurchaseNote.trim() || undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          toast.error(data.error || "Failed to record purchase");
+          setBoxPurchaseSaving(false);
+          return;
+        }
+        const totalPieces = count * (boxPurchaseLookup.packQuantity || 0);
+        toast.success(
+          `Purchase recorded: ${count} boxes × ${boxPurchaseLookup.packQuantity} pcs = ${totalPieces} pieces added`
+        );
+      } else {
+        // ─── PIECE PURCHASE ───────────────────────────────────────────────
+        // Use the regular stock API to add pieces directly
+        const res = await fetch("/api/stock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            productId: boxPurchaseLookup.id,
+            quantity: count,
+            type: "PURCHASE",
+            note: boxPurchaseNote.trim() || `Purchase: ${count} pieces`,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          toast.error(data.error || "Failed to record purchase");
+          setBoxPurchaseSaving(false);
+          return;
+        }
+
+        // Also update cost price + expiry if changed
+        if (boxPurchasePrice && Number(boxPurchasePrice) !== boxPurchaseLookup.costPrice) {
+          await fetch(`/api/products/${boxPurchaseLookup.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: boxPurchaseLookup.name,
+              barcode: boxPurchaseLookup.barcode,
+              costPrice: Number(boxPurchasePrice),
+              expiryDate: boxPurchaseExpiry || null,
+              categoryId: boxPurchaseLookup.categoryId || null,
+              unit: boxPurchaseLookup.unit || "piece",
+              stock: boxPurchaseLookup.stock + count,
+              minStock: boxPurchaseLookup.minStock || 0,
+              taxRate: boxPurchaseLookup.taxRate || 0,
+              hasBarcode: true,
+              active: true,
+            }),
+          });
+        }
+
+        toast.success(`Purchase recorded: ${count} pieces added`);
       }
-      const totalPieces = count * (boxPurchaseLookup.packQuantity || 0);
-      toast.success(
-        `Purchase recorded: ${count} boxes × ${boxPurchaseLookup.packQuantity} pcs = ${totalPieces} pieces added`
-      );
+
       // Reset & close
       setBoxPurchaseOpen(false);
       setBoxPurchaseBarcode("");
@@ -439,7 +496,7 @@ export function StoreView() {
             onClick={openBoxPurchase}
           >
             <BarcodeIcon className="h-4 w-4 mr-1.5" />
-            Box Purchase
+            Receive Stock
           </Button>
           <Button
             variant="outline"
@@ -852,12 +909,13 @@ export function StoreView() {
           <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <BarcodeIcon className="h-5 w-5 text-emerald-600" />
-              Box Purchase — باکس خرید
+              Receive Stock — اسٹاک وصول
             </DialogTitle>
             <DialogDescription>
-              Scan a box barcode to record a new purchase. The system will
-              auto-divide the boxes into pieces and update both the box and
-              piece product stock.
+              Scan a product barcode to record a new purchase. The system
+              automatically detects if it's a box or piece product and asks
+              for the appropriate count. Previous cost price and expiry date
+              are pre-filled for quick confirmation.
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto space-y-4 min-h-0">
@@ -895,26 +953,36 @@ export function StoreView() {
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-1">
                   <div className="font-bold text-emerald-900">{boxPurchaseLookup.name}</div>
                   <div className="text-xs text-emerald-700">
-                    Pieces per box: <strong>{boxPurchaseLookup.packQuantity}</strong>
-                    {" • "}
-                    Current box stock: <strong>{boxPurchaseLookup.stock}</strong>
+                    {boxPurchaseLookup.packBarcode && boxPurchaseLookup.packQuantity > 0 ? (
+                      <>Box product — <strong>{boxPurchaseLookup.packQuantity}</strong> pcs per box • Current box stock: <strong>{boxPurchaseLookup.stock}</strong></>
+                    ) : (
+                      <>Piece product • Current stock: <strong>{boxPurchaseLookup.stock}</strong> pcs</>
+                    )}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label>Number of Boxes *</Label>
+                    <Label>
+                      {boxPurchaseLookup.packBarcode && boxPurchaseLookup.packQuantity > 0
+                        ? "Number of Boxes *"
+                        : "Number of Pieces *"}
+                    </Label>
                     <Input
                       type="number"
                       min="1"
                       value={boxPurchaseCount}
                       onChange={(e) => setBoxPurchaseCount(e.target.value)}
-                      placeholder="e.g. 10"
+                      placeholder={boxPurchaseLookup.packBarcode && boxPurchaseLookup.packQuantity > 0 ? "e.g. 10" : "e.g. 50"}
                       autoFocus
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Purchase Price / Box</Label>
+                    <Label>
+                      {boxPurchaseLookup.packBarcode && boxPurchaseLookup.packQuantity > 0
+                        ? "Purchase Price / Box"
+                        : "Purchase Price / Piece"}
+                    </Label>
                     <Input
                       type="number"
                       value={boxPurchasePrice}
@@ -943,11 +1011,15 @@ export function StoreView() {
 
                 {boxPurchaseCount && Number(boxPurchaseCount) > 0 && (
                   <div className="rounded bg-amber-100 border border-amber-300 p-2 text-center text-sm font-bold text-amber-900">
-                    {boxPurchaseCount} boxes × {boxPurchaseLookup.packQuantity} pcs = {" "}
-                    <span className="text-base">
-                      {Number(boxPurchaseCount) * boxPurchaseLookup.packQuantity}
-                    </span>{" "}
-                    pieces total
+                    {boxPurchaseLookup.packBarcode && boxPurchaseLookup.packQuantity > 0 ? (
+                      <>{boxPurchaseCount} boxes × {boxPurchaseLookup.packQuantity} pcs = {" "}
+                      <span className="text-base">
+                        {Number(boxPurchaseCount) * boxPurchaseLookup.packQuantity}
+                      </span>{" "}
+                      pieces total</>
+                    ) : (
+                      <>{boxPurchaseCount} pieces total</>
+                    )}
                   </div>
                 )}
 

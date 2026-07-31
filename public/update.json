@@ -1,15 +1,10 @@
 {
-  "version": "2.7.44",
+  "version": "2.7.45",
   "changelog": [
-    "FIXED: Ctrl+R conflict — changed to Ctrl+Backspace for reverse/undo last item",
-    "FIXED: Enter key in checkout now completes sale (cash or card)",
-    "FIXED: Settings check-update now fetches from GitHub API (not static file stuck at 2.7.31)",
-    "FIXED: Current version now fetched from /api/version endpoint",
-    "NEW: Shop Cards page — summary cards showing total advance, total due, net position",
-    "NEW: Reports page — vendor due payments + customer credit/debit breakdown",
-    "NEW: Load & Bill completely rewritten — simple SIM management with balance in/out",
-    "NEW: Bill Payment — amount + extra charges (profit) only",
-    "NEW: Wallet — send/receive with amount + extra charges + per-provider totals",
-    "IMPROVED: Delta updates already configured (electron-updater downloads only changed blocks)"
+    "FIXED: Barcode now uses EAN-13 format (13 digits + checksum) — scanners read it reliably",
+    "FIXED: Sticker layout — content fills full height with space-evenly distribution",
+    "FIXED: Main Store scan now asks for box count (box product) or piece count (piece product)",
+    "FIXED: Main Store shows previous cost price + expiry date, user can change or accept",
+    "LOCKED: EAN-13 is the permanent barcode standard — will not change unless user requests"
   ]
 }

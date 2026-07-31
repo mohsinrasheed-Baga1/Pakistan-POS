@@ -6,6 +6,6 @@ import { NextResponse } from "next/server";
 export async function GET() {
   // Read version from package.json at build time — this gets inlined
   // into the standalone build so it's always accurate.
-  const version = process.env.npm_package_version || "2.7.44";
+  const version = process.env.npm_package_version || "2.7.45";
   return NextResponse.json({ version });
 }

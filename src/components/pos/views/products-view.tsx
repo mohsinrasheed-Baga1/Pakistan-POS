@@ -580,7 +580,7 @@ export function ProductsView({ userRole }: ProductsViewProps) {
                 <div className="bg-white rounded p-2 flex justify-center">
                   <BarcodeDisplay
                     value={form.barcode}
-                    format="CODE128"
+                    format="EAN13"
                     height={60}
                     width={2}
                   />
@@ -877,7 +877,7 @@ function BarcodePrintDialog({
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: space-between;
+          justify-content: space-evenly;
           font-family: Tahoma, Arial, sans-serif;
           color: #000;
           background: #fff;
@@ -939,7 +939,7 @@ function BarcodePrintDialog({
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "space-evenly",
     color: "#000",
     background: "#fff",
     textAlign: "center",
@@ -995,7 +995,7 @@ function BarcodePrintDialog({
                 >
                   {shopName || "My Shop"}
                 </div>
-                {/* MIDDLE — barcode (scanner-safe: width=2, margin=10 for proper quiet zone) */}
+                {/* MIDDLE — barcode (EAN-13 format, scanner-safe settings) */}
                 <div
                   className="barcode"
                   style={{
@@ -1009,7 +1009,7 @@ function BarcodePrintDialog({
                 >
                   <BarcodeDisplay
                     value={product.barcode}
-                    format="CODE128"
+                    format="EAN13"
                     height={50}
                     width={2}
                     displayValue={true}
@@ -1117,10 +1117,22 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   // "hasBox" = user filled in box details (pieces per box > 0)
   const hasBox = piecesPerBoxNum > 0 && (boxBarcode.trim() !== "" || boxBarcodeAuto);
 
+  // Generate an EAN-13 barcode when the user toggles "auto" on.
+  // EAN-13 requires 13 digits with a valid checksum (13th digit).
+  // Prefix "200" for pieces, "210" for boxes (in-store internal use).
   function genBarcode(prefix: string): string {
-    let code = prefix;
-    for (let i = 0; i < 10; i++) code += Math.floor(Math.random() * 10).toString();
-    return code;
+    let base = prefix;
+    for (let i = 0; i < 9; i++) {
+      base += Math.floor(Math.random() * 10).toString();
+    }
+    // Compute EAN-13 checksum (13th digit)
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      const d = parseInt(base[i], 10);
+      sum += i % 2 === 0 ? d : d * 3;
+    }
+    const check = (10 - (sum % 10)) % 10;
+    return base + check.toString(); // 13 digits, EAN-13 compatible
   }
 
   function reset() {

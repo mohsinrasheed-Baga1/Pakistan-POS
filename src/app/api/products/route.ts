@@ -40,20 +40,25 @@ export async function POST(req: NextRequest) {
 
   // Determine barcode
   let barcode = body.barcode?.trim();
-  let barcodeType = body.barcodeType || "CODE128";
+  let barcodeType = body.barcodeType || "EAN13";
   const hasBarcode = body.hasBarcode !== false;
 
   if (!barcode || barcode === "") {
-    // auto-generate an internal Code-128 barcode for loose items (sugar, ghee, etc.)
-    // Code-128 is the most universally scannable format — works with virtually
-    // every USB / Bluetooth / built-in scanner. EAN-13 was used previously but
-    // many low-cost Pakistani scanners fail to read EAN-13 reliably.
+    // auto-generate an internal EAN-13 barcode for loose items (sugar, ghee, etc.)
+    // EAN-13 is the most widely supported retail barcode format — virtually
+    // every scanner can read it reliably. The user explicitly requested
+    // EAN-13 as the permanent standard for this app.
     barcode = generateInternalBarcode();
-    barcodeType = "CODE128";
+    barcodeType = "EAN13";
   } else {
-    // User scanned or typed a real manufacturer barcode — mark as COMPANY so
-    // the UI knows to render it as-is (Code-128 can encode it losslessly).
-    barcodeType = "CODE128";
+    // User scanned or typed a real manufacturer barcode.
+    // If it's 13 digits, use EAN-13 format. Otherwise use CODE128.
+    // This handles both EAN-13 product barcodes and shorter/longer codes.
+    if (/^\d{13}$/.test(barcode)) {
+      barcodeType = "EAN13";
+    } else {
+      barcodeType = "CODE128";
+    }
   }
 
   // ensure unique

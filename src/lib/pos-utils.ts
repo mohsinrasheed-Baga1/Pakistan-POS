@@ -18,39 +18,70 @@ export function formatNumber(n: number, digits = 2): string {
 
 /**
  * Generate an internal barcode for loose items (sugar, ghee, etc.) using
- * Code-128 format — the most universally scannable barcode type, supported
- * by virtually every USB / Bluetooth / built-in barcode scanner on the market.
+ * EAN-13 format — the most widely supported retail barcode standard.
  *
- * Format: "20" + 10 random digits (12 digits total, all numeric — Code-128
- * accepts any ASCII but numeric-only codes scan fastest and are shortest).
- * The "20" prefix is reserved for in-store / internal use (GS1 prefix 2 =
- * "variable measure products sold in retail stores"), so these barcodes will
- * never collide with real manufacturer barcodes scanned from product boxes.
+ * EAN-13 requires exactly 13 digits. The 13th digit is a checksum
+ * computed from the first 12. This checksum makes EAN-13 barcodes
+ * extremely reliable — scanners can detect and reject misreads.
  *
- * Code-128 also has a built-in checksum that JsBarcode computes automatically
- * when rendering, so we don't need to compute it ourselves.
+ * Format: "200" + 9 random digits (12 digits) + 1 checksum digit (13 total)
+ * The "200" prefix is reserved for in-store / internal use (GS1 prefix 20 =
+ * "variable measure products sold in retail stores"), so these barcodes
+ * will never collide with real manufacturer barcodes.
+ *
+ * ⚠️ DO NOT CHANGE THIS FORMAT unless the user explicitly requests it.
+ * The user confirmed EAN-13 is the permanent standard for this app.
  */
 export function generateInternalBarcode(): string {
-  // Prefix "20" — internal retail range, won't clash with manufacturer barcodes
-  let code = "20";
-  for (let i = 0; i < 10; i++) {
-    code += Math.floor(Math.random() * 10).toString();
+  // Prefix "200" — internal retail range (GS1 prefix 20 = in-store use)
+  let base = "200";
+  for (let i = 0; i < 9; i++) {
+    base += Math.floor(Math.random() * 10).toString();
   }
-  return code; // 12 digits, Code-128 compatible
+  // Now base has 12 digits. Compute EAN-13 checksum (13th digit).
+  return base + ean13Checksum(base);
 }
 
 /**
- * Generate a Code-128 barcode for a box / pack product. Uses prefix "21"
+ * Generate an EAN-13 barcode for a box / pack product. Uses prefix "210"
  * (in-store internal range) so it never clashes with piece-level barcodes.
  *
- * Format: "21" + 10 random digits.
+ * Format: "210" + 9 random digits (12 digits) + 1 checksum digit (13 total)
+ *
+ * ⚠️ DO NOT CHANGE THIS FORMAT unless the user explicitly requests it.
  */
 export function generateBoxBarcode(): string {
-  let code = "21";
-  for (let i = 0; i < 10; i++) {
-    code += Math.floor(Math.random() * 10).toString();
+  let base = "210";
+  for (let i = 0; i < 9; i++) {
+    base += Math.floor(Math.random() * 10).toString();
   }
-  return code;
+  return base + ean13Checksum(base);
+}
+
+/**
+ * Compute the EAN-13 check digit from the first 12 digits.
+ * Algorithm (GS1 standard):
+ *   1. Sum all digits in ODD positions (1st, 3rd, 5th, ...) — these are
+ *      multiplied by 1.
+ *   2. Sum all digits in EVEN positions (2nd, 4th, 6th, ...) — these are
+ *      multiplied by 3.
+ *   3. checksum = (10 - (sum % 10)) % 10
+ *
+ * The check digit is appended as the 13th digit. When a scanner reads
+ * the barcode, it recomputes this checksum and compares it to the 13th
+ * digit — if they don't match, the scan is rejected (prevents misreads).
+ */
+function ean13Checksum(first12: string): string {
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    const d = parseInt(first12[i], 10);
+    // i=0 is position 1 (odd), i=1 is position 2 (even), etc.
+    // Odd positions (1,3,5,...) are multiplied by 1
+    // Even positions (2,4,6,...) are multiplied by 3
+    sum += i % 2 === 0 ? d : d * 3;
+  }
+  const check = (10 - (sum % 10)) % 10;
+  return check.toString();
 }
 
 export function generateInvoiceNo(prefix = "INV", count = 0): string {

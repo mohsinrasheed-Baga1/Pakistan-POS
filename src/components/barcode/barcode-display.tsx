@@ -23,19 +23,30 @@ interface BarcodeDisplayProps {
 /**
  * Renders a high-quality, scanner-friendly barcode using JsBarcode.
  *
- * Defaults are tuned for retail sticker printers (50×25mm and similar):
- *   - width=2px   (minimum recommended bar width for reliable scanning)
+ * ⚠️ PERMANENT STANDARD: This app uses EAN-13 as the default barcode format.
+ * EAN-13 is the most widely supported retail barcode format — virtually
+ * every USB / Bluetooth / built-in scanner can read it reliably. The user
+ * explicitly confirmed EAN-13 is the permanent standard.
+ *
+ * DO NOT change the default format to CODE128 or any other format unless
+ * the user explicitly requests it. EAN-13 provides:
+ *   - Built-in checksum (13th digit) that prevents misreads
+ *   - Universal scanner compatibility
+ *   - Standard retail format used worldwide
+ *
+ * Defaults are tuned for retail sticker printers (50×35mm):
+ *   - format=EAN13 (retail standard)
+ *   - width=2px (minimum recommended bar width for reliable scanning)
  *   - height=80px (taller bars scan more reliably from angles)
  *   - margin=10px (quiet zone required by all barcode scanners)
  *   - monospace font for the human-readable digits below the bars
  *
- * Always pass `displayValue=true` (the default) unless you are printing a
- * tiny sticker where the digits would overlap the bars — in that case pass
- * `displayValue={false}` and render the digits yourself below the SVG.
+ * If the barcode value is not valid for EAN-13 (not 13 digits), the
+ * component automatically falls back to CODE128 so the UI never breaks.
  */
 export function BarcodeDisplay({
   value,
-  format = "CODE128",
+  format = "EAN13",
   width = 2,
   height = 80,
   displayValue = true,
@@ -48,8 +59,21 @@ export function BarcodeDisplay({
 
   const render = React.useCallback(() => {
     if (!ref.current || !value) return;
+    // Determine the actual format to use:
+    // - If format is EAN13 but value is not 13 digits, fall back to CODE128
+    // - If format is EAN13 and value is 13 digits, use EAN13
+    let actualFormat = format;
+    if (format === "EAN13" && !/^\d{13}$/.test(value)) {
+      actualFormat = "CODE128";
+    }
+    if (format === "EAN8" && !/^\d{8}$/.test(value)) {
+      actualFormat = "CODE128";
+    }
+    if (format === "UPC" && !/^\d{12}$/.test(value)) {
+      actualFormat = "CODE128";
+    }
     const opts: JsBarcode.BaseOptions = {
-      format: format as any,
+      format: actualFormat as any,
       width,
       height,
       displayValue,
