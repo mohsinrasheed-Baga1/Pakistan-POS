@@ -54,6 +54,7 @@ export function PosView({ settings }: PosViewProps) {
   const [paidAmount, setPaidAmount] = React.useState("");
   const [lastSale, setLastSale] = React.useState<any>(null);
   const [scannedCard, setScannedCard] = React.useState<any>(null);
+  const [cardLastTxn, setCardLastTxn] = React.useState<any>(null);
   const [receiptOpen, setReceiptOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [returnOpen, setReturnOpen] = React.useState(false);
@@ -190,42 +191,70 @@ export function PosView({ settings }: PosViewProps) {
       const data = await res.json();
       if (data.found && data.kind === "product" && data.product) {
         const product = data.product as Product;
-        if (data.isPack && product.packQuantity > 0) {
-          // ─── BOX SCAN ────────────────────────────────────────────────────
-          // The scanned barcode matched a BOX product (a product whose
-          // packBarcode is set). We add the BOX product to the cart.
-          //
-          // The box product's own salePrice IS the box price (set when the
-          // product was created via the wizard). We do NOT override it with
-          // packPrice here — packPrice and salePrice should already be the
-          // same value, but using salePrice directly is more correct.
-          //
-          // Stock check: the box product's stock is counted in BOXES, so
-          // adding 1 box to cart requires box stock >= 1.
-          const existingItem = cart.items.find((i) => i.product.id === product.id);
-          const currentInCart = existingItem ? existingItem.quantity : 0;
-          if (!isLooseUnit(product.unit) && currentInCart + 1 > product.stock) {
-            toast.error(`Low stock! Only ${product.stock} boxes available`);
+        // ─── AUTO-ADD TO CART (no quantity prompt) ────────────────────────
+        // User requested: when a product is scanned or selected from search,
+        // it should go directly to cart with default qty 1. The user can
+        // then change the quantity in the cart using the +/- buttons or by
+        // typing in the quantity input. This speeds up checkout — no need
+        // to confirm quantity on a separate dialog for every product.
+        const existingItem = cart.items.find((i) => i.product.id === product.id);
+        const currentInCart = existingItem ? existingItem.quantity : 0;
+        const isBoxProduct = !!product.packBarcode && product.packQuantity > 0;
+        if (!isLooseUnit(product.unit)) {
+          if (isBoxProduct) {
+            // Box product: stock in boxes
+            if (currentInCart + 1 > product.stock) {
+              toast.error(`Low stock! Only ${product.stock} boxes available`);
+              return;
+            }
           } else {
-            cart.addItem(product, 1);
-            toast.success(`Box: ${product.name} (${product.packQuantity} pcs)`);
+            // Piece product: stock in pieces
+            if (currentInCart + 1 > product.stock) {
+              toast.error(`Low stock! Only ${product.stock} ${unitLabel(product.unit)} available`);
+              return;
+            }
           }
-        } else {
-          // ─── PIECE SCAN — show quantity prompt ───────────────────────────
-          setQtyProduct(product);
-          setQtyValue("1");
-          setQtyOpen(true);
-          setTimeout(() => qtyInputRef.current?.select(), 100);
         }
+        cart.addItem(product, 1);
+        if (isBoxProduct) {
+          toast.success(`Box: ${product.name} (${product.packQuantity} pcs)`);
+        } else {
+          toast.success(`Added: ${product.name}`);
+        }
+        // Clear search and refocus for next scan
+        setQ("");
+        setHighlightedIndex(0);
+        setTimeout(() => searchRef.current?.focus(), 50);
       } else if (data.found && data.kind === "card" && data.card) {
         toast.success(`Shop Card: ${data.card.name} — ${data.card.type === "SHOP_KEEPER" ? "Shopkeeper" : data.card.type === "WHOLESALE" ? "Wholesale" : "Regular"} mode`);
+        // ─── AUTO-SELECT SALE MODE BASED ON CARD TYPE ─────────────────────
+        // When a shop card is scanned, the sale mode automatically switches
+        // to match the card type: REGULAR → RETAIL, WHOLESALE → WHOLESALE,
+        // SHOP_KEEPER → SHOPKEEPER. No manual mode change needed.
         const cardType = data.card.type;
         if (cardType === "SHOP_KEEPER") {
           cart.setSaleType("SHOPKEEPER");
+        } else if (cardType === "WHOLESALE") {
+          cart.setSaleType("WHOLESALE");
         } else {
-          cart.setSaleType(cardType === "WHOLESALE" ? "WHOLESALE" : "RETAIL");
+          cart.setSaleType("RETAIL");
         }
         setScannedCard(data.card);
+        // ─── FETCH LAST TRANSACTION FOR THIS CARD ─────────────────────────
+        // The POS page displays the card's last transaction so the cashier
+        // can see the customer's recent activity at a glance.
+        try {
+          const txnRes = await fetch(`/api/cards/${data.card.id}/transactions?limit=1`, { cache: "no-store" });
+          if (txnRes.ok) {
+            const txnData = await txnRes.json();
+            const txns = txnData.transactions || [];
+            setCardLastTxn(txns.length > 0 ? txns[0] : null);
+          } else {
+            setCardLastTxn(null);
+          }
+        } catch {
+          setCardLastTxn(null);
+        }
       } else {
         toast.warning(`Unknown barcode: ${code}`);
       }
@@ -261,13 +290,101 @@ export function PosView({ settings }: PosViewProps) {
     el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [highlightedIndex]);
 
-  // Keyboard shortcuts: arrow keys + Enter + F-keys
+  // ─── KEYBOARD SHORTCUTS ──────────────────────────────────────────────────
+  // Alt          = Checkout (when cart has items)
+  // Ctrl+C       = Open calculator anywhere in app
+  // Ctrl+Z       = Cycle sale mode (Regular → Wholesale → Shopkeeper → Regular)
+  // Ctrl+R       = Reverse/undo last cart action (remove last item)
+  // Enter        = Add highlighted product to cart (when search focused)
+  //              = Complete sale (when checkout dialog open)
+  // Space        = In search: acts as normal space (multi-word queries)
+  //                After checkout: acts as Tab (move to next field)
+  // Arrow keys   = Navigate products
+  // F2/F3/F4/F12 = Checkout / Return / Calculator / Clear cart
   React.useEffect(() => {
     function handlePosKey(e: KeyboardEvent) {
       if (returnOpen || calcOpen || receiptOpen) return;
+
+      // ─── Ctrl+C = Calculator ──────────────────────────────────────────
+      if (e.ctrlKey && (e.key === "c" || e.key === "C")) {
+        // Only trigger if no text is selected (otherwise Ctrl+C should copy)
+        const selection = window.getSelection();
+        if (selection && selection.toString().length > 0) return;
+        e.preventDefault();
+        setCalcOpen(true);
+        return;
+      }
+
+      // ─── Ctrl+Z = Cycle sale mode ─────────────────────────────────────
+      if (e.ctrlKey && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        const modes = ["RETAIL", "WHOLESALE", "SHOPKEEPER"] as const;
+        const currentIdx = modes.indexOf(cart.saleType as any);
+        const nextIdx = (currentIdx + 1) % modes.length;
+        const nextMode = modes[nextIdx];
+        cart.setSaleType(nextMode);
+        const labels = { RETAIL: "Regular", WHOLESALE: "Wholesale", SHOPKEEPER: "Shopkeeper" };
+        toast.success(`Sale mode: ${labels[nextMode]}`);
+        return;
+      }
+
+      // ─── Ctrl+R = Reverse (remove last item from cart) ────────────────
+      if (e.ctrlKey && (e.key === "r" || e.key === "R")) {
+        e.preventDefault();
+        if (cart.items.length > 0) {
+          const lastItem = cart.items[cart.items.length - 1];
+          cart.removeItem(lastItem.product.id);
+          toast.success(`Removed: ${lastItem.product.name}`);
+        } else {
+          toast.warning("Cart is empty");
+        }
+        return;
+      }
+
+      // ─── After checkout: Space acts as Tab ────────────────────────────
+      if (checkoutOpen) {
+        if (e.key === " " || e.code === "Space") {
+          // In checkout dialog, Space moves to next focusable element
+          e.preventDefault();
+          const focusable = document.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          );
+          const filtered = Array.from(focusable).filter(
+            (el) => el.offsetParent !== null && !el.hasAttribute("disabled")
+          );
+          const active = document.activeElement;
+          const currentIdx = filtered.indexOf(active as HTMLElement);
+          const nextIdx = (currentIdx + 1) % filtered.length;
+          if (filtered[nextIdx]) {
+            filtered[nextIdx].focus();
+          }
+          return;
+        }
+        // Enter in checkout dialog = complete sale
+        if (e.key === "Enter") {
+          e.preventDefault();
+          // If a shop card is linked, complete sale directly (card payment)
+          // Otherwise, the checkout dialog handles Enter normally
+          if (scannedCard) {
+            handleCheckout();
+          }
+          return;
+        }
+        return; // Don't process other keys when checkout is open
+      }
+
       if (qtyOpen) return;
       const active = document.activeElement;
       const isSearchFocused = active === searchRef.current;
+
+      // ─── Alt = Checkout shortcut ─────────────────────────────────────
+      if (e.altKey && !e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        if (cart.items.length > 0) {
+          setCheckoutOpen(true);
+        }
+        return;
+      }
 
       // Arrow key navigation through products
       if (isSearchFocused || (!active || active.tagName !== "INPUT")) {
@@ -296,13 +413,38 @@ export function PosView({ settings }: PosViewProps) {
           }
           e.preventDefault();
           const product = products[highlightedIndex];
-          if (product) promptQuantity(product);
+          if (product) {
+            // Auto-add to cart (no quantity prompt)
+            addToCart(product, 1);
+            setQ("");
+            setHighlightedIndex(0);
+            setTimeout(() => searchRef.current?.focus(), 50);
+          }
           return;
         }
       }
 
-      // Space key triggers checkout (when search input is empty and cart has items)
+      // ─── Space key: in search = normal space; empty cart search = checkout ─
+      // User requested: Space in search input should allow multi-word queries
+      // (e.g. "lemon biscuit"). Only trigger checkout via Space when the
+      // search is empty AND cart has items. Alt is the primary checkout key.
       if (e.key === " " || e.code === "Space") {
+        if (isSearchFocused) {
+          // Let the space character be typed into the search input
+          // (don't preventDefault — allows "lemon biscuit" searches)
+          // But if search is empty and cart has items, trigger checkout
+          if (q.trim() === "" && cart.items.length > 0) {
+            e.preventDefault();
+            if (scannedCard) {
+              handleCheckout();
+            } else {
+              setCheckoutOpen(true);
+            }
+          }
+          // Otherwise, let Space be typed normally
+          return;
+        }
+        // Space when NOT in search input (e.g. body focused) = checkout
         e.preventDefault();
         if (cart.items.length > 0) {
           if (scannedCard) {
@@ -325,13 +467,35 @@ export function PosView({ settings }: PosViewProps) {
     window.addEventListener("keydown", handlePosKey);
     return () => window.removeEventListener("keydown", handlePosKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart.saleType, returnOpen, calcOpen, checkoutOpen, receiptOpen, products, highlightedIndex]);
+  }, [cart.saleType, returnOpen, calcOpen, checkoutOpen, receiptOpen, products, highlightedIndex, q, cart.items.length, scannedCard]);
 
   async function handleCheckout() {
     if (cart.items.length === 0) {
       toast.error("Cart is empty");
       return;
     }
+
+    // ─── SHOP CARD PAYMENT LOGIC ────────────────────────────────────────
+    // If a shop card is linked, the sale is paid via the card's balance:
+    //   - If card has ADVANCE balance (balance > 0): deduct from balance,
+    //     allow discount (the user can give a discount because the
+    //     customer has already paid in advance)
+    //   - If card has ZERO balance (balance === 0): no discount allowed,
+    //     sale goes through but customer's balance goes negative (they owe)
+    //   - If card has DUE balance (balance < 0): no discount allowed,
+    //     sale adds to their existing debt
+    //
+    // No paidAmount prompt — the total is auto-deducted from the card.
+    // Enter key in checkout dialog completes the sale directly.
+    const isCardPayment = !!scannedCard;
+    const hasAdvanceBalance = scannedCard && (scannedCard.balance || 0) > 0;
+
+    // For card payments, paidAmount = total (no change to give back)
+    // For cash payments, use the entered paidAmount
+    const effectivePaidAmount = isCardPayment
+      ? totals.total  // card: exact amount, no change
+      : (Number(paidAmount) || totals.total);
+
     setSubmitting(true);
     try {
       const body = {
@@ -345,8 +509,8 @@ export function PosView({ settings }: PosViewProps) {
             : i.product.salePrice,
         })),
         discount: cart.discount,
-        paidAmount: Number(paidAmount) || totals.total,
-        paymentMethod: cart.paymentMethod,
+        paidAmount: effectivePaidAmount,
+        paymentMethod: isCardPayment ? "SHOP_CARD" : cart.paymentMethod,
         saleType: cart.saleType,
         cardId: scannedCard?.id || null,
         customerName: cart.customerName,
@@ -720,29 +884,73 @@ export function PosView({ settings }: PosViewProps) {
 
                   <Separator />
 
-                  {/* linked shop card */}
+                  {/* linked shop card — shows customer name, ID, balance, last txn */}
                   {scannedCard && (
-                    <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-2">
-                      <div className="flex items-center gap-2">
-                        <CreditCard className="w-4 h-4 text-emerald-600" />
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">{scannedCard.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {scannedCard.cardNumber} • {scannedCard.type === "SHOP_KEEPER" ? "Shopkeeper" : scannedCard.type === "WHOLESALE" ? "Wholesale" : "Regular"}
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CreditCard className="w-4 h-4 text-emerald-600" />
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">{scannedCard.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              ID: {scannedCard.customerId || scannedCard.cardNumber} • {scannedCard.type === "SHOP_KEEPER" ? "Shopkeeper" : scannedCard.type === "WHOLESALE" ? "Wholesale" : "Regular"}
+                            </div>
                           </div>
                         </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-red-600 hover:bg-red-50"
+                          onClick={() => {
+                            setScannedCard(null);
+                            setCardLastTxn(null);
+                            cart.setSaleType("RETAIL");
+                          }}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-red-600 hover:bg-red-50"
-                        onClick={() => {
-                          setScannedCard(null);
-                          cart.setSaleType("RETAIL");
-                        }}
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
+                      {/* Balance display — green for advance, red for due, gray for zero */}
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Balance:</span>
+                        <span className={`font-bold ${
+                          (scannedCard.balance || 0) > 0
+                            ? "text-emerald-700"
+                            : (scannedCard.balance || 0) < 0
+                            ? "text-red-600"
+                            : "text-muted-foreground"
+                        }`}>
+                          {(scannedCard.balance || 0) > 0
+                            ? `Advance: Rs ${(scannedCard.balance || 0).toLocaleString()}`
+                            : (scannedCard.balance || 0) < 0
+                            ? `Due: Rs ${Math.abs(scannedCard.balance || 0).toLocaleString()}`
+                            : "Rs 0 (no advance)"}
+                        </span>
+                      </div>
+                      {/* Last transaction */}
+                      {cardLastTxn && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Last txn:</span>
+                          <span className="font-medium">
+                            {cardLastTxn.type} Rs {(cardLastTxn.amount || 0).toLocaleString()}
+                            {cardLastTxn.createdAt && (
+                              <span className="text-muted-foreground ml-1">
+                                · {new Date(cardLastTxn.createdAt).toLocaleDateString("en-PK")}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {/* Discount hint — only if advance balance exists */}
+                      {(scannedCard.balance || 0) > 0 ? (
+                        <div className="text-[10px] text-emerald-700">
+                          ✓ Discount allowed (customer has advance balance)
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-amber-700">
+                          ⚠ No discount (no advance balance — sale will add to customer's debt)
+                        </div>
+                      )}
                     </div>
                   )}
 

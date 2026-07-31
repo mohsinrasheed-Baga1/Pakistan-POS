@@ -17,13 +17,17 @@ import { getSessionUser } from "@/lib/session";
 //        - stock += packQuantity × boxCount  (auto-divide pieces)
 //        - costPrice = purchasePrice / packQuantity
 //        - expiryDate = same expiry date
-//   5. Logs both stock movements to StockLog.
-//
-// This is the workflow the user described:
-//   "Main Store پر barcode scan ہوتے ہی اگر باکس کا barcode سکین ہوا تو
-//    پوچھے کتنے باکس ہیں اور پر باکس کتنے کا لگا ہے (purchase price)،
-//    ساتھ expiry date بھی پوچھے۔ پھر باکس کے لحاظ سے اگر 10 باکس ایڈ کریں
-//    تو خود پیس کے اندر divide کر دے۔"
+//   5. AUTO-RECALCULATE SALE PRICES by maintaining markup percentages.
+//      When the cost price changes, the sale/wholesale/shopkeeper prices
+//      are recalculated to maintain the same percentage markup as before:
+//        newSalePrice = newCostPrice × (oldSalePrice / oldCostPrice)
+//        newWholesalePrice = newCostPrice × (oldWholesale / oldCostPrice)
+//        newShopkeeperPrice = newCostPrice × (oldShopkeeper / oldCostPrice)
+//      This matches the user's spec: if they bought a box for Rs 50, set
+//      sale = Rs 60, wholesale = Rs 58, shopkeeper = Rs 52, and now they
+//      buy the same box for Rs 60, the prices auto-adjust to:
+//        sale = Rs 72, wholesale = Rs 69.60, shopkeeper = Rs 62.40
+//   6. Logs both stock movements to StockLog.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -32,7 +36,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Manager or admin only" }, { status: 403 });
   }
   const body = await req.json();
-  const { barcode, boxCount, purchasePrice, expiryDate, note } = body;
+  const { barcode, boxCount, purchasePrice, expiryDate, note, recalcPrices } = body;
 
   if (!barcode || !boxCount || Number(boxCount) <= 0) {
     return NextResponse.json(
@@ -67,7 +71,33 @@ export async function POST(req: NextRequest) {
   const packQty = boxProduct.packQuantity;
   const totalPiecesAdded = packQty * numBoxCount;
 
-  // Use a transaction so both updates succeed or fail together
+  // ─── Calculate new sale prices if cost changed and recalc is requested ───
+  // We maintain the markup percentage: newPrice = newCost × (oldPrice / oldCost)
+  const shouldRecalc = recalcPrices !== false && numPurchasePrice !== null &&
+    boxProduct.costPrice > 0 && numPurchasePrice !== boxProduct.costPrice;
+
+  let newBoxSalePrice = boxProduct.salePrice;
+  let newBoxWholesalePrice = boxProduct.wholesalePrice;
+  let newBoxShopkeeperPrice = boxProduct.shopkeeperPrice;
+  let newPieceSalePrice: number | null = null;
+  let newPieceWholesalePrice: number | null = null;
+  let newPieceShopkeeperPrice: number | null = null;
+
+  if (shouldRecalc) {
+    const oldCost = boxProduct.costPrice;
+    const ratio = numPurchasePrice / oldCost;
+    newBoxSalePrice = Math.round(boxProduct.salePrice * ratio * 100) / 100;
+    newBoxWholesalePrice = Math.round(boxProduct.wholesalePrice * ratio * 100) / 100;
+    newBoxShopkeeperPrice = Math.round(boxProduct.shopkeeperPrice * ratio * 100) / 100;
+    // Piece prices also recalc (per-piece = per-box ÷ packQty)
+    if (packQty > 0) {
+      newPieceSalePrice = Math.round((newBoxSalePrice / packQty) * 100) / 100;
+      newPieceWholesalePrice = Math.round((newBoxWholesalePrice / packQty) * 100) / 100;
+      newPieceShopkeeperPrice = Math.round((newBoxShopkeeperPrice / packQty) * 100) / 100;
+    }
+  }
+
+  // Use a transaction so all updates succeed or fail together
   const result = await db.$transaction(async (tx) => {
     // 1. Update BOX product
     const boxUpdate: any = {
@@ -78,6 +108,11 @@ export async function POST(req: NextRequest) {
     }
     if (parsedExpiry) {
       boxUpdate.expiryDate = parsedExpiry;
+    }
+    if (shouldRecalc) {
+      boxUpdate.salePrice = newBoxSalePrice;
+      boxUpdate.wholesalePrice = newBoxWholesalePrice;
+      boxUpdate.shopkeeperPrice = newBoxShopkeeperPrice;
     }
     const updatedBox = await tx.product.update({
       where: { id: boxProduct.id },
@@ -100,6 +135,11 @@ export async function POST(req: NextRequest) {
       if (parsedExpiry) {
         pieceUpdate.expiryDate = parsedExpiry;
       }
+      if (shouldRecalc && newPieceSalePrice !== null) {
+        pieceUpdate.salePrice = newPieceSalePrice;
+        pieceUpdate.wholesalePrice = newPieceWholesalePrice;
+        pieceUpdate.shopkeeperPrice = newPieceShopkeeperPrice;
+      }
       updatedPiece = await tx.product.update({
         where: { id: pieceProduct.id },
         data: pieceUpdate,
@@ -121,7 +161,7 @@ export async function POST(req: NextRequest) {
         productId: boxProduct.id,
         type: "PURCHASE",
         quantity: numBoxCount,
-        note: `Box purchase: ${numBoxCount} boxes${numPurchasePrice ? ` @ Rs ${numPurchasePrice}` : ""}${note ? ` — ${note}` : ""}`,
+        note: `Box purchase: ${numBoxCount} boxes${numPurchasePrice ? ` @ Rs ${numPurchasePrice}` : ""}${note ? ` — ${note}` : ""}${shouldRecalc ? ` (prices auto-recalculated)` : ""}`,
       },
     });
 
@@ -134,5 +174,11 @@ export async function POST(req: NextRequest) {
     pieceProduct: result.piece,
     piecesAdded: totalPiecesAdded,
     boxesAdded: numBoxCount,
+    pricesRecalculated: shouldRecalc,
+    oldBoxCost: boxProduct.costPrice,
+    newBoxCost: numPurchasePrice,
+    newBoxSalePrice: shouldRecalc ? newBoxSalePrice : null,
+    newBoxWholesalePrice: shouldRecalc ? newBoxWholesalePrice : null,
+    newBoxShopkeeperPrice: shouldRecalc ? newBoxShopkeeperPrice : null,
   });
 }

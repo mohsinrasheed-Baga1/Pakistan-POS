@@ -2887,23 +2887,34 @@ function SoftwareUpdatesCard() {
           setStatus("up-to-date");
         }
       } else {
-        // Fallback: fetch update.json from GitHub
-        const res = await fetch(
-          "https://raw.githubusercontent.com/mohsinrasheed-Baga1/shop-pos-system/main/public/update.json",
-          { cache: "no-store" }
-        );
-        if (!res.ok) throw new Error("Failed to check for updates");
-        const data = await res.json();
+        // ─── Fetch latest release version from GitHub API ────────────────
+        // Instead of relying on a static update.json file that may be out
+        // of date, we query the GitHub Releases API directly to get the
+        // latest published release tag. This always returns the actual
+        // newest version.
         const curVer = currentVersion || "0.0.0";
-        if (data?.version && isNewerVersion(data.version, curVer)) {
+        const githubRes = await fetch(
+          "https://api.github.com/repos/mohsinrasheed-Baga1/shop-pos-system/releases/latest",
+          {
+            cache: "no-store",
+            headers: { Accept: "application/vnd.github.v3+json" },
+          }
+        );
+        if (!githubRes.ok) throw new Error("Failed to check GitHub for updates");
+        const releaseData = await githubRes.json();
+        const latestTag = releaseData?.tag_name || ""; // e.g. "v2.7.42"
+        const latestVersion = latestTag.replace(/^v/, ""); // "2.7.42"
+
+        if (latestVersion && isNewerVersion(latestVersion, curVer)) {
           setUpdateInfo({
-            version: data.version,
-            releaseNotes: data.changelog?.join("\n"),
+            version: latestVersion,
+            releaseNotes: releaseData?.body || releaseData?.name || "",
           });
           setStatus("available");
-          toast.success(`Version v${data.version} is available!`);
+          toast.success(`Version v${latestVersion} is available!`);
         } else {
           setStatus("up-to-date");
+          toast.success(`You're on the latest version (v${curVer})`);
         }
       }
     } catch (err: any) {

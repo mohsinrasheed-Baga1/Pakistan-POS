@@ -1,16 +1,15 @@
 {
-  "version": "2.7.31",
+  "version": "2.7.43",
   "changelog": [
-    "FIXED: Load & Bill Payment view loading issue",
-    "FIXED: Shop Cards view loading issue",
-    "FIXED: Vendors view loading issue",
-    "FIXED: Box/Piece barcode scanning in POS restored",
-    "FIXED: Box wizard in Products now saves packBarcode, packQuantity, packPrice to database",
-    "FIXED: Barcode API now detects box scans via packBarcode lookup",
-    "FIXED: Products API (POST & PUT) now saves pack fields",
-    "NEW: Password Reset via Security Question on login page",
-    "NEW: Security Question management in Settings",
-    "NEW: Delta/Differential updates via electron-updater",
-    "IMPROVED: Update system hides repo links, downloads inside app"
+    "NEW: POS keyboard shortcuts — Alt=checkout, Ctrl+C=calculator, Ctrl+Z=cycle sale mode, Ctrl+R=reverse last item",
+    "NEW: Auto-add product to cart on scan (no quantity prompt) — qty changeable in cart",
+    "NEW: Space in search allows multi-word queries (e.g. 'lemon biscuit')",
+    "NEW: After checkout, Space acts as Tab to move between fields",
+    "NEW: Shop Card auto-selects sale mode (Regular/Wholesale/Shopkeeper) based on card type",
+    "NEW: Shop Card info panel shows customer name, ID, advance/due balance, last transaction",
+    "NEW: Card payment — no amount prompt, Enter completes sale, discount only if advance balance",
+    "NEW: Main Store box purchase auto-recalculates sale prices when cost changes (maintains markup %)",
+    "FIXED: Settings check-update now queries GitHub Releases API for actual latest version",
+    "FIXED: Product page unchanged (as requested) — no modifications in this release"
   ]
 }
