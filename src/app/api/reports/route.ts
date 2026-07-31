@@ -119,6 +119,38 @@ export async function GET(req: NextRequest) {
   });
   profitByProduct.sort((a, b) => b.profit - a.profit);
 
+  // ─── VENDOR DUE PAYMENTS ──────────────────────────────────────────────
+  // Total money we owe to vendors (sum of positive balances)
+  // Total money vendors owe us (sum of negative balances — rare, advances)
+  const vendors = await db.vendor.findMany({
+    select: { balance: true, totalPurchased: true, totalPaid: true, name: true },
+  });
+  const totalVendorDue = vendors.reduce((s, v) => s + (v.balance > 0 ? v.balance : 0), 0);
+  const totalVendorAdvance = vendors.reduce((s, v) => s + (v.balance < 0 ? Math.abs(v.balance) : 0), 0);
+  const totalVendorPurchased = vendors.reduce((s, v) => s + v.totalPurchased, 0);
+  const totalVendorPaid = vendors.reduce((s, v) => s + v.totalPaid, 0);
+  const vendorsWithDue = vendors.filter((v) => v.balance > 0).map((v) => ({
+    name: v.name,
+    balance: v.balance,
+    totalPurchased: v.totalPurchased,
+    totalPaid: v.totalPaid,
+  })).sort((a, b) => b.balance - a.balance);
+
+  // ─── CUSTOMER (SHOP CARD) CREDIT/DEBIT ────────────────────────────────
+  // balance > 0 = advance (we owe customer — they paid in advance)
+  // balance < 0 = due (customer owes us — they bought on credit)
+  const cards = await db.customerCard.findMany({
+    select: { balance: true, name: true, totalPurchases: true, totalPaid: true },
+  });
+  const totalCustomerAdvance = cards.reduce((s, c) => s + (c.balance > 0 ? c.balance : 0), 0);
+  const totalCustomerDue = cards.reduce((s, c) => s + (c.balance < 0 ? Math.abs(c.balance) : 0), 0);
+  const customersWithDue = cards.filter((c) => c.balance < 0).map((c) => ({
+    name: c.name,
+    balance: c.balance,
+    totalPurchases: c.totalPurchases,
+    totalPaid: c.totalPaid,
+  })).sort((a, b) => a.balance - b.balance); // most due first
+
   return NextResponse.json({
     range,
     totalSales,
@@ -136,5 +168,19 @@ export async function GET(req: NextRequest) {
     totalShopStock,
     totalStoreStock,
     profitByProduct: profitByProduct.slice(0, 20),
+    // ─── New: vendor and customer balances ───
+    vendorBalances: {
+      totalDue: totalVendorDue,           // money we owe vendors
+      totalAdvance: totalVendorAdvance,   // money vendors owe us (advances)
+      totalPurchased: totalVendorPurchased,
+      totalPaid: totalVendorPaid,
+      vendorsWithDue,                     // list of vendors we owe money to
+    },
+    customerBalances: {
+      totalAdvance: totalCustomerAdvance, // money we owe customers (advance payments)
+      totalDue: totalCustomerDue,         // money customers owe us (credit purchases)
+      netPosition: totalCustomerAdvance - totalCustomerDue,
+      customersWithDue,                   // list of customers who owe us
+    },
   });
 }

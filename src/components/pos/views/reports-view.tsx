@@ -18,6 +18,7 @@ import {
   CalendarDays,
   X,
   Truck,
+  CreditCard,
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -747,9 +748,23 @@ export function ReportsView() {
             <Truck className="w-5 h-5 text-emerald-600" />
             Vendor Balances
           </CardTitle>
-          <CardDescription>Total outstanding balances across all vendors</CardDescription>
+          <CardDescription>Total outstanding balances across all vendors — money we owe to vendors</CardDescription>
         </CardHeader>
         <VendorBalanceSection currency={currency} />
+      </Card>
+
+      {/* Customer (Shop Card) Balances Section */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <CreditCard className="w-5 h-5 text-emerald-600" />
+            Customer Balances (Shop Cards)
+          </CardTitle>
+          <CardDescription>
+            Advance payments (we owe customers) vs credit purchases (customers owe us)
+          </CardDescription>
+        </CardHeader>
+        <CustomerBalanceSection currency={currency} />
       </Card>
 
       {/* Custom scrollbar styling */}
@@ -972,6 +987,162 @@ function VendorBalanceSection({ currency }: { currency: string }) {
                 ))}
             </TableBody>
           </Table>
+        </div>
+      )}
+    </CardContent>
+  );
+}
+
+// ─── Customer Balances Section ────────────────────────────────────────────
+// Shows customers with advance balance (we owe them) and customers with due
+// balance (they owe us). This gives the shopkeeper a clear picture of who
+// owes money in each direction.
+function CustomerBalanceSection({ currency }: { currency: string }) {
+  const [cards, setCards] = React.useState<Array<{
+    id: string;
+    name: string;
+    balance: number;
+    totalPurchases: number;
+    totalPaid: number;
+  }>>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/cards", { cache: "no-store" });
+        const data = await res.json();
+        setCards(data.cards || []);
+      } catch {} finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) {
+    return (
+      <CardContent>
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </div>
+      </CardContent>
+    );
+  }
+
+  // balance > 0 = advance (we owe customer)
+  // balance < 0 = due (customer owes us)
+  const totalAdvance = cards.reduce((s, c) => s + (c.balance > 0 ? c.balance : 0), 0);
+  const totalDue = cards.reduce((s, c) => s + (c.balance < 0 ? Math.abs(c.balance) : 0), 0);
+  const customersWithAdvance = cards.filter((c) => c.balance > 0).sort((a, b) => b.balance - a.balance);
+  const customersWithDue = cards.filter((c) => c.balance < 0).sort((a, b) => a.balance - b.balance);
+
+  return (
+    <CardContent className="space-y-4">
+      {/* Summary row */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <div className="text-xs font-medium uppercase tracking-wider text-emerald-700">
+            Advance (We Owe Customers)
+          </div>
+          <div className="mt-1 text-xl font-bold text-emerald-700">
+            {formatMoney(totalAdvance, currency)}
+          </div>
+          <div className="text-xs text-emerald-600 mt-1">
+            {customersWithAdvance.length} customer{customersWithAdvance.length !== 1 ? "s" : ""}
+          </div>
+        </div>
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+          <div className="text-xs font-medium uppercase tracking-wider text-rose-700">
+            Due (Customers Owe Us)
+          </div>
+          <div className="mt-1 text-xl font-bold text-rose-700">
+            {formatMoney(totalDue, currency)}
+          </div>
+          <div className="text-xs text-rose-600 mt-1">
+            {customersWithDue.length} customer{customersWithDue.length !== 1 ? "s" : ""}
+          </div>
+        </div>
+      </div>
+
+      {/* Customers who owe us (due balance) */}
+      {customersWithDue.length > 0 && (
+        <div>
+          <div className="text-sm font-medium text-rose-700 mb-2">
+            Customers Who Owe Us (Credit Purchases)
+          </div>
+          <div className="overflow-x-auto max-h-[200px] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Customer</TableHead>
+                  <TableHead className="text-right">Total Purchases</TableHead>
+                  <TableHead className="text-right">Total Paid</TableHead>
+                  <TableHead className="text-right">Due Balance</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {customersWithDue.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="text-right font-mono text-sm">
+                      {formatMoney(c.totalPurchases, currency)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm">
+                      {formatMoney(c.totalPaid, currency)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono font-bold text-sm text-rose-600">
+                      {formatMoney(Math.abs(c.balance), currency)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      {/* Customers we owe (advance balance) */}
+      {customersWithAdvance.length > 0 && (
+        <div>
+          <div className="text-sm font-medium text-emerald-700 mb-2">
+            Customers We Owe (Advance Payments)
+          </div>
+          <div className="overflow-x-auto max-h-[200px] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Customer</TableHead>
+                  <TableHead className="text-right">Total Purchases</TableHead>
+                  <TableHead className="text-right">Total Paid</TableHead>
+                  <TableHead className="text-right">Advance Balance</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {customersWithAdvance.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="text-right font-mono text-sm">
+                      {formatMoney(c.totalPurchases, currency)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm">
+                      {formatMoney(c.totalPaid, currency)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono font-bold text-sm text-emerald-600">
+                      {formatMoney(c.balance, currency)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      {customersWithAdvance.length === 0 && customersWithDue.length === 0 && (
+        <div className="text-center py-6 text-muted-foreground text-sm">
+          No customer balances — all settled
         </div>
       )}
     </CardContent>

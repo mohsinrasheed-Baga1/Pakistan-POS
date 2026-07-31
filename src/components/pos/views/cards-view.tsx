@@ -18,6 +18,8 @@ import {
   XCircle,
   ArrowUpRight,
   ArrowDownLeft,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -305,6 +307,101 @@ export function CardsView({ userRole }: CardsViewProps) {
           )}
         </div>
       </div>
+
+      {/* ─── SUMMARY CARDS — financial overview of all customers ─── */}
+      {(() => {
+        // Calculate totals across all cards
+        // balance > 0 = advance (customer paid in advance, we owe them)
+        // balance < 0 = due (customer owes us)
+        // balance = 0 = settled
+        let totalAdvance = 0;  // money we owe to customers (sum of positive balances)
+        let totalDue = 0;      // money customers owe us (sum of |negative balances|)
+        let advanceCount = 0;
+        let dueCount = 0;
+        for (const c of cards) {
+          const bal = c.balance || 0;
+          if (bal > 0) {
+            totalAdvance += bal;
+            advanceCount++;
+          } else if (bal < 0) {
+            totalDue += Math.abs(bal);
+            dueCount++;
+          }
+        }
+        const netBalance = totalAdvance - totalDue; // positive = we owe more, negative = we're owed more
+
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Total Advance — money we owe to customers */}
+            <Card className="border-emerald-200 bg-emerald-50">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-emerald-700">
+                      Advance (We Owe)
+                    </p>
+                    <p className="mt-1 text-2xl font-bold text-emerald-700">
+                      Rs {totalAdvance.toLocaleString("en-PK")}
+                    </p>
+                    <p className="text-xs text-emerald-600 mt-1">
+                      {advanceCount} customer{advanceCount !== 1 ? "s" : ""} with advance
+                    </p>
+                  </div>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
+                    <TrendingUp className="h-5 w-5 text-emerald-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Total Due — money customers owe us */}
+            <Card className="border-rose-200 bg-rose-50">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-rose-700">
+                      Due (Owed to Us)
+                    </p>
+                    <p className="mt-1 text-2xl font-bold text-rose-700">
+                      Rs {totalDue.toLocaleString("en-PK")}
+                    </p>
+                    <p className="text-xs text-rose-600 mt-1">
+                      {dueCount} customer{dueCount !== 1 ? "s" : ""} with due balance
+                    </p>
+                  </div>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100">
+                    <TrendingDown className="h-5 w-5 text-rose-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Net Balance — overall position */}
+            <Card className={netBalance >= 0 ? "border-blue-200 bg-blue-50" : "border-amber-200 bg-amber-50"}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Net Position
+                    </p>
+                    <p className={`mt-1 text-2xl font-bold ${netBalance >= 0 ? "text-blue-700" : "text-amber-700"}`}>
+                      {netBalance >= 0 ? "−" : "+"}Rs {Math.abs(netBalance).toLocaleString("en-PK")}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {netBalance >= 0
+                        ? "We owe more than we're owed"
+                        : "We're owed more than we owe"}
+                    </p>
+                  </div>
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${netBalance >= 0 ? "bg-blue-100" : "bg-amber-100"}`}>
+                    <Wallet className={`h-5 w-5 ${netBalance >= 0 ? "text-blue-600" : "text-amber-600"}`} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

@@ -2848,11 +2848,30 @@ function SoftwareUpdatesCard() {
   const [errorMsg, setErrorMsg] = React.useState("");
   const [currentVersion, setCurrentVersion] = React.useState("");
 
-  // Get current version from preload or package
+  // Get current version from preload (preferred) or package.json (fallback)
   React.useEffect(() => {
-    if (typeof window !== "undefined" && window.posElectron?.version) {
-      setCurrentVersion(window.posElectron.version);
+    async function fetchVersion() {
+      // First try the Electron preload (most accurate — set by main process)
+      if (typeof window !== "undefined" && window.posElectron?.version) {
+        setCurrentVersion(window.posElectron.version);
+        return;
+      }
+      // Fallback: fetch from package.json via the Next.js API
+      // This ensures we always have a version, even in dev/browser mode
+      try {
+        const res = await fetch("/api/version", { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.version) {
+            setCurrentVersion(data.version);
+            return;
+          }
+        }
+      } catch {}
+      // Last resort: use a hardcoded fallback (will be wrong but non-empty)
+      setCurrentVersion("2.7.43");
     }
+    fetchVersion();
   }, []);
 
   // Listen for progress events from main process

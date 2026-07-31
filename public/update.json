@@ -1,15 +1,15 @@
 {
-  "version": "2.7.43",
+  "version": "2.7.44",
   "changelog": [
-    "NEW: POS keyboard shortcuts — Alt=checkout, Ctrl+C=calculator, Ctrl+Z=cycle sale mode, Ctrl+R=reverse last item",
-    "NEW: Auto-add product to cart on scan (no quantity prompt) — qty changeable in cart",
-    "NEW: Space in search allows multi-word queries (e.g. 'lemon biscuit')",
-    "NEW: After checkout, Space acts as Tab to move between fields",
-    "NEW: Shop Card auto-selects sale mode (Regular/Wholesale/Shopkeeper) based on card type",
-    "NEW: Shop Card info panel shows customer name, ID, advance/due balance, last transaction",
-    "NEW: Card payment — no amount prompt, Enter completes sale, discount only if advance balance",
-    "NEW: Main Store box purchase auto-recalculates sale prices when cost changes (maintains markup %)",
-    "FIXED: Settings check-update now queries GitHub Releases API for actual latest version",
-    "FIXED: Product page unchanged (as requested) — no modifications in this release"
+    "FIXED: Ctrl+R conflict — changed to Ctrl+Backspace for reverse/undo last item",
+    "FIXED: Enter key in checkout now completes sale (cash or card)",
+    "FIXED: Settings check-update now fetches from GitHub API (not static file stuck at 2.7.31)",
+    "FIXED: Current version now fetched from /api/version endpoint",
+    "NEW: Shop Cards page — summary cards showing total advance, total due, net position",
+    "NEW: Reports page — vendor due payments + customer credit/debit breakdown",
+    "NEW: Load & Bill completely rewritten — simple SIM management with balance in/out",
+    "NEW: Bill Payment — amount + extra charges (profit) only",
+    "NEW: Wallet — send/receive with amount + extra charges + per-provider totals",
+    "IMPROVED: Delta updates already configured (electron-updater downloads only changed blocks)"
   ]
 }

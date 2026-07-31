@@ -291,16 +291,16 @@ export function PosView({ settings }: PosViewProps) {
   }, [highlightedIndex]);
 
   // ─── KEYBOARD SHORTCUTS ──────────────────────────────────────────────────
-  // Alt          = Checkout (when cart has items)
-  // Ctrl+C       = Open calculator anywhere in app
-  // Ctrl+Z       = Cycle sale mode (Regular → Wholesale → Shopkeeper → Regular)
-  // Ctrl+R       = Reverse/undo last cart action (remove last item)
-  // Enter        = Add highlighted product to cart (when search focused)
-  //              = Complete sale (when checkout dialog open)
-  // Space        = In search: acts as normal space (multi-word queries)
-  //                After checkout: acts as Tab (move to next field)
-  // Arrow keys   = Navigate products
-  // F2/F3/F4/F12 = Checkout / Return / Calculator / Clear cart
+  // Alt              = Checkout (when cart has items)
+  // Ctrl+C           = Open calculator anywhere in app
+  // Ctrl+Z           = Cycle sale mode (Regular → Wholesale → Shopkeeper → Regular)
+  // Ctrl+Backspace   = Reverse/undo last cart action (remove last item)
+  // Enter            = Add highlighted product to cart (when search focused)
+  //                  = Complete sale (when checkout dialog open)
+  // Space            = In search: acts as normal space (multi-word queries)
+  //                    After checkout: acts as Tab (move to next field)
+  // Arrow keys       = Navigate products
+  // F2/F3/F4/F12     = Checkout / Return / Calculator / Clear cart
   React.useEffect(() => {
     function handlePosKey(e: KeyboardEvent) {
       if (returnOpen || calcOpen || receiptOpen) return;
@@ -328,8 +328,11 @@ export function PosView({ settings }: PosViewProps) {
         return;
       }
 
-      // ─── Ctrl+R = Reverse (remove last item from cart) ────────────────
-      if (e.ctrlKey && (e.key === "r" || e.key === "R")) {
+      // ─── Ctrl+Backspace = Reverse (remove last item from cart) ─────────
+      // Changed from Ctrl+R to avoid conflict with browser refresh.
+      // Ctrl+Backspace is a natural "undo last" gesture and doesn't
+      // conflict with any browser shortcut.
+      if (e.ctrlKey && e.key === "Backspace") {
         e.preventDefault();
         if (cart.items.length > 0) {
           const lastItem = cart.items[cart.items.length - 1];
@@ -341,10 +344,12 @@ export function PosView({ settings }: PosViewProps) {
         return;
       }
 
-      // ─── After checkout: Space acts as Tab ────────────────────────────
+      // ─── After checkout: Space acts as Tab + Enter completes sale ─────
       if (checkoutOpen) {
         if (e.key === " " || e.code === "Space") {
           // In checkout dialog, Space moves to next focusable element
+          // (acts like Tab). This lets the cashier navigate the checkout
+          // form with just the spacebar after pressing Alt to open it.
           e.preventDefault();
           const focusable = document.querySelectorAll<HTMLElement>(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -360,14 +365,21 @@ export function PosView({ settings }: PosViewProps) {
           }
           return;
         }
-        // Enter in checkout dialog = complete sale
+        // ─── Enter in checkout dialog = complete sale ───────────────────
+        // Enter should ALWAYS complete the sale when the checkout dialog
+        // is open, regardless of whether a shop card is linked or not.
+        // - If card is linked: card payment (auto-deduct from balance)
+        // - If no card: cash payment (uses paidAmount entered by cashier)
+        // The cashier can also press the "Complete Sale" button directly.
         if (e.key === "Enter") {
           e.preventDefault();
-          // If a shop card is linked, complete sale directly (card payment)
-          // Otherwise, the checkout dialog handles Enter normally
-          if (scannedCard) {
-            handleCheckout();
+          // Don't trigger if the active element is a SELECT dropdown that's
+          // open (Enter should select the dropdown option instead)
+          const active = document.activeElement;
+          if (active && active.tagName === "SELECT") {
+            return; // Let the SELECT handle Enter normally
           }
+          handleCheckout();
           return;
         }
         return; // Don't process other keys when checkout is open
@@ -652,7 +664,7 @@ export function PosView({ settings }: PosViewProps) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               ref={searchRef}
-              placeholder="Search by name or barcode... (↑↓ navigate, Enter add, Space checkout)"
+              placeholder="Search by name or barcode... (↑↓ navigate, Enter add, Alt checkout)"
               value={q}
               onChange={(e) => { setQ(e.target.value); setHighlightedIndex(0); }}
               className="pl-10 h-11"
