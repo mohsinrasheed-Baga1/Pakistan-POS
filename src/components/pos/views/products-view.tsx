@@ -1188,14 +1188,15 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const hasBox = piecesPerBoxNum > 0 && (boxBarcode.trim() !== "" || boxBarcodeAuto);
 
   // Generate an EAN-13 barcode when the user toggles "auto" on.
-  // EAN-13 requires 13 digits with a valid checksum (13th digit).
-  // Prefix "200" for pieces, "210" for boxes (in-store internal use).
+  // EAN-13 requires exactly 13 digits: 12 data digits + 1 checksum digit.
+  // Prefix "200" (3 digits) for pieces, "210" (3 digits) for boxes.
+  // 3 prefix + 9 random = 12 digits, then + 1 checksum = 13 digits total.
   function genBarcode(prefix: string): string {
-    let base = prefix;
+    let base = prefix;  // "200" or "210" = 3 digits
     for (let i = 0; i < 9; i++) {
       base += Math.floor(Math.random() * 10).toString();
     }
-    // Compute EAN-13 checksum (13th digit)
+    // base now has exactly 12 digits. Compute EAN-13 checksum (13th digit).
     let sum = 0;
     for (let i = 0; i < 12; i++) {
       const d = parseInt(base[i], 10);
@@ -1326,8 +1327,8 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
     setSaving(true);
     try {
       // Resolve auto-generated barcodes
-      const finalPieceBarcode = pieceBarcode.trim() || (pieceBarcodeAuto ? genBarcode("20") : "");
-      const finalBoxBarcode = boxBarcode.trim() || (boxBarcodeAuto ? genBarcode("21") : "");
+      const finalPieceBarcode = pieceBarcode.trim() || (pieceBarcodeAuto ? genBarcode("200") : "");
+      const finalBoxBarcode = boxBarcode.trim() || (boxBarcodeAuto ? genBarcode("210") : "");
 
       if (!finalPieceBarcode) {
         toast.error("Piece barcode is required (or enable auto-generate)");
