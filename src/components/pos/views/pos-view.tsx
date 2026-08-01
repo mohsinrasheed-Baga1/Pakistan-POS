@@ -182,7 +182,7 @@ export function PosView({ settings }: PosViewProps) {
     // Prevent double execution
     if (scanningRef.current) return;
     scanningRef.current = true;
-    lastScanResultRef.current = code; // Mark that a scan is in progress
+    lastScanResultRef.current = code;
 
     try {
       const res = await fetch(`/api/barcode?code=${encodeURIComponent(code)}`, {
@@ -191,40 +191,11 @@ export function PosView({ settings }: PosViewProps) {
       const data = await res.json();
       if (data.found && data.kind === "product" && data.product) {
         const product = data.product as Product;
-        // ─── AUTO-ADD TO CART (no quantity prompt) ────────────────────────
-        // User requested: when a product is scanned or selected from search,
-        // it should go directly to cart with default qty 1. The user can
-        // then change the quantity in the cart using the +/- buttons or by
-        // typing in the quantity input. This speeds up checkout — no need
-        // to confirm quantity on a separate dialog for every product.
-        const existingItem = cart.items.find((i) => i.product.id === product.id);
-        const currentInCart = existingItem ? existingItem.quantity : 0;
-        const isBoxProduct = !!product.packBarcode && product.packQuantity > 0;
-        if (!isLooseUnit(product.unit)) {
-          if (isBoxProduct) {
-            // Box product: stock in boxes
-            if (currentInCart + 1 > product.stock) {
-              toast.error(`Low stock! Only ${product.stock} boxes available`);
-              return;
-            }
-          } else {
-            // Piece product: stock in pieces
-            if (currentInCart + 1 > product.stock) {
-              toast.error(`Low stock! Only ${product.stock} ${unitLabel(product.unit)} available`);
-              return;
-            }
-          }
-        }
-        cart.addItem(product, 1);
-        if (isBoxProduct) {
-          toast.success(`Box: ${product.name} (${product.packQuantity} pcs)`);
-        } else {
-          toast.success(`Added: ${product.name}`);
-        }
-        // Clear search and refocus for next scan
-        setQ("");
-        setHighlightedIndex(0);
-        setTimeout(() => searchRef.current?.focus(), 50);
+        // ─── ASK QUANTITY FIRST, THEN ADD TO CART ──────────────────────
+        // User requested: when a product is scanned, ask quantity first.
+        // The quantity dialog opens with default value "1" auto-selected.
+        // Cashier types the quantity and presses Enter to add to cart.
+        promptQuantity(product);
       } else if (data.found && data.kind === "card" && data.card) {
         toast.success(`Shop Card: ${data.card.name} — ${data.card.type === "SHOP_KEEPER" ? "Shopkeeper" : data.card.type === "WHOLESALE" ? "Wholesale" : "Regular"} mode`);
         // ─── AUTO-SELECT SALE MODE BASED ON CARD TYPE ─────────────────────
@@ -426,11 +397,8 @@ export function PosView({ settings }: PosViewProps) {
           e.preventDefault();
           const product = products[highlightedIndex];
           if (product) {
-            // Auto-add to cart (no quantity prompt)
-            addToCart(product, 1);
-            setQ("");
-            setHighlightedIndex(0);
-            setTimeout(() => searchRef.current?.focus(), 50);
+            // Ask quantity first, then add to cart
+            promptQuantity(product);
           }
           return;
         }
@@ -814,7 +782,7 @@ export function PosView({ settings }: PosViewProps) {
                 <>
                   <ScrollArea className="h-[40vh] pr-2">
                     <div className="space-y-2">
-                      {cart.items.map((item) => {
+                      {[...cart.items].reverse().map((item) => {
                         // Per-unit price based on sale type
                         const unitPrice =
                           cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0

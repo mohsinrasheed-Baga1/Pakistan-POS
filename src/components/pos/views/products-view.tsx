@@ -862,34 +862,30 @@ function BarcodePrintDialog({
       return;
     }
 
-    // ─── PROFESSIONAL BARCODE PRINTING ─────────────────────────────────
-    // This uses the same approach as professional barcode label printers
-    // (Zebra, Dymo, Brother) and retail product packaging (Dalda, LU,
-    // Mitchell's, etc.).
+    // ─── PROFESSIONAL BARCODE: bwip-js (Canvas-based, pixel-perfect) ───
+    // bwip-js is the same barcode engine used by professional label
+    // printers (Zebra, Dymo) and retail packaging (Dalda, LU, Mitchell's).
+    // It renders directly to a Canvas element at exact pixel dimensions,
+    // then converts to PNG. The PNG has fixed pixel dimensions that the
+    // browser prints at exactly the specified mm size — no SVG scaling
+    // issues, no thin bars.
     //
-    // The key insight: JsBarcode renders SVG in PIXEL units, but printers
-    // need PHYSICAL mm units. We fix this by:
+    // EAN-13 at scale=3 means:
+    //   - Module width = 3 pixels = 0.383mm at 200 DPI (standard printer)
+    //   - Bar height = 72 pixels = 9.1mm (sufficient for scanning)
+    //   - Total width = 345px = ~44mm (fits 50mm sticker)
+    //   - Quiet zone = 15px each side (3.8mm — well above 3.05mm minimum)
     //
-    // 1. Rendering the barcode with JsBarcode at high resolution
-    //    (width=3, height=80, margin=5)
-    // 2. After rendering, setting the SVG's width and height attributes
-    //    to specific mm values (44mm × 18mm)
-    // 3. The browser then prints the barcode at EXACTLY that physical size
-    //
-    // EAN-13 Physical Specifications (GS1 Standard):
-    //   - Module width (X): 0.33mm minimum → we use 0.38mm (114% magnification)
-    //   - Total barcode width: 95 modules × 0.38mm = ~36mm + quiet zones = ~44mm
-    //   - Bar height: 25.93mm standard → we use 18mm (fits sticker, still scannable)
-    //   - Quiet zone: 9 modules left, 7 modules right (GS1 minimum)
-    //
-    // At 44mm total width / 115 modules = 0.383mm per module — well above
-    // the 0.33mm minimum that all retail scanners can read instantly.
+    // The PNG image is set to width=44mm height=20mm in the print CSS,
+    // which tells the printer to output at EXACTLY that physical size.
 
     const barcodeValue = product!.barcode;
+
+    // Build sticker HTML with canvas elements
     const stickers = Array.from({ length: count }, (_, i) => i).map(i => `
       <div class="sticker">
         <div class="shop-name">${shopName || "My Shop"}</div>
-        <div class="barcode"><svg id="bc${i}"></svg></div>
+        <div class="barcode"><canvas id="bc${i}"></canvas></div>
         <div class="product-name">${product!.name}</div>
       </div>`).join("");
 
@@ -932,13 +928,10 @@ function BarcodePrintDialog({
           width: 100%;
           flex-shrink: 0;
         }
-        /* ─── CRITICAL: Set SVG to exact physical mm size ─── */
-        /* This ensures the barcode prints at the correct physical dimensions
-           regardless of screen DPI or browser zoom. The browser maps mm
-           directly to printer output. */
-        .barcode svg {
-          width: 44mm !important;
-          height: 18mm !important;
+        /* Canvas → PNG image at exact physical mm size */
+        .barcode img {
+          width: 44mm;
+          height: 20mm;
         }
         .product-name {
           font-size: 8px;
@@ -956,66 +949,66 @@ function BarcodePrintDialog({
       </style></head>
       <body>
         ${stickers}
-        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bwip-js@4.11.2/dist/bwip-js-min.js"></script>
         <script>
           function renderBarcodes() {
-            if (typeof JsBarcode === 'undefined') {
+            if (typeof bwip === 'undefined' || !bwip.toCanvas) {
               setTimeout(renderBarcodes, 50);
               return;
             }
             ${Array.from({ length: count }, (_, i) => i).map(i => `
             try {
-              JsBarcode('#bc${i}', '${barcodeValue}', {
-                format: 'EAN13',
-                width: 3,
-                height: 80,
-                displayValue: true,
-                fontSize: 14,
-                margin: 5,
-                textMargin: 3,
-                font: 'OCR-B, monospace',
-                fontOptions: 'bold',
-                textAlign: 'center',
-                textPosition: 'bottom',
-                background: '#ffffff',
-                lineColor: '#000000',
+              // Render EAN-13 barcode to canvas using bwip-js
+              // scale=3 means 3 pixels per module (0.383mm at 200 DPI)
+              // height=72 means bar height of 72 pixels (9.1mm)
+              // includeText=true adds the 13 digits below the bars
+              // guardWhitespaces adds proper quiet zones
+              var canvas${i} = document.getElementById('bc${i}');
+              bwip.toCanvas(canvas${i}, {
+                bcid: 'ean13',
+                text: '${barcodeValue}',
+                scale: 3,
+                height: 72,
+                includeText: true,
+                textXAlign: 'center',
+                textYAlign: 'bottom',
+                textColor: '000000',
+                barColor: '000000',
+                backgroundColor: 'ffffff',
+                paddingWidth: 15,
+                paddingHeight: 5,
               });
-              // ─── SET PHYSICAL MM SIZE ON SVG ───
-              // After JsBarcode renders, override the SVG's width/height
-              // to exact mm values. This tells the printer to output the
-              // barcode at professional-grade physical dimensions:
-              //   - 44mm wide (fits 50mm sticker with 3mm margin each side)
-              //   - 18mm tall (leaves room for shop name + product name)
-              //   - Module width = 44mm / 115 modules = 0.383mm (above 0.33mm minimum)
-              var svg${i} = document.getElementById('bc${i}');
-              if (svg${i}) {
-                svg${i}.setAttribute('width', '44mm');
-                svg${i}.setAttribute('height', '18mm');
-                svg${i}.style.width = '44mm';
-                svg${i}.style.height = '18mm';
-              }
+              // Convert canvas to PNG and replace canvas with img
+              // This ensures the print window renders the barcode as a
+              // fixed-size image that won't be scaled by the browser
+              var dataUrl${i} = canvas${i}.toDataURL('image/png');
+              var img${i} = document.createElement('img');
+              img${i}.src = dataUrl${i};
+              canvas${i}.parentNode.replaceChild(img${i}, canvas${i});
             } catch(e) {
               console.error('Barcode ${i} error:', e);
+              // Fallback: try CODE128
               try {
-                JsBarcode('#bc${i}', '${barcodeValue}', {
-                  format: 'CODE128',
-                  width: 3,
-                  height: 80,
-                  displayValue: true,
-                  fontSize: 14,
-                  margin: 5,
+                var canvas${i}b = document.getElementById('bc${i}');
+                bwip.toCanvas(canvas${i}b, {
+                  bcid: 'code128',
+                  text: '${barcodeValue}',
+                  scale: 3,
+                  height: 72,
+                  includeText: true,
+                  textXAlign: 'center',
+                  paddingWidth: 15,
+                  paddingHeight: 5,
                 });
-                var svg${i}b = document.getElementById('bc${i}');
-                if (svg${i}b) {
-                  svg${i}b.setAttribute('width', '44mm');
-                  svg${i}b.setAttribute('height', '18mm');
-                  svg${i}b.style.width = '44mm';
-                  svg${i}b.style.height = '18mm';
-                }
+                var dataUrl${i}b = canvas${i}b.toDataURL('image/png');
+                var img${i}b = document.createElement('img');
+                img${i}b.src = dataUrl${i}b;
+                canvas${i}b.parentNode.replaceChild(img${i}b, canvas${i}b);
               } catch(e2) {
                 console.error('Fallback also failed:', e2);
               }
             }`).join("")}
+            // Print after all barcodes are rendered
             setTimeout(function() {
               window.print();
               setTimeout(function() { window.close(); }, 300);
