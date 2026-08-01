@@ -1461,7 +1461,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
                 <Label>Box Barcode</Label>
                 <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                   <input type="checkbox" checked={boxBarcodeAuto} onChange={(e) => { setBoxBarcodeAuto(e.target.checked); if (e.target.checked) setBoxBarcode(""); }} className="rounded" />
-                  <span className="text-amber-700">Auto-generate (Code-128)</span>
+                  <span className="text-amber-700">Auto-generate (EAN-13)</span>
                 </label>
               </div>
               <Input
@@ -1504,7 +1504,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
               <Label>Piece Barcode *</Label>
               <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                 <input type="checkbox" checked={pieceBarcodeAuto} onChange={(e) => { setPieceBarcodeAuto(e.target.checked); if (e.target.checked) setPieceBarcode(""); }} className="rounded" />
-                <span className="text-emerald-700">Auto-generate (Code-128)</span>
+                <span className="text-emerald-700">Auto-generate (EAN-13)</span>
               </label>
             </div>
             <Input

@@ -261,11 +261,11 @@ export function PosView({ settings }: PosViewProps) {
     } catch {
       toast.error("Scan lookup failed");
     } finally {
-      // Release locks after 800ms to allow next scan
-      setTimeout(() => {
-        scanningRef.current = false;
-        lastScanResultRef.current = null;
-      }, 800);
+      // Release locks immediately — the scan is complete, the product has
+      // been added to the cart. Don't wait 800ms because that blocks the
+      // next scan if the cashier scans quickly.
+      scanningRef.current = false;
+      lastScanResultRef.current = null;
     }
   }
 
@@ -864,10 +864,20 @@ export function PosView({ settings }: PosViewProps) {
                                 <Input
                                   className="h-6 w-12 text-center px-1 text-xs"
                                   value={item.quantity}
+                                  onFocus={(e) => e.target.select()}
                                   onChange={(e) => {
                                     const v = Number(e.target.value);
                                     if (!isNaN(v))
                                       cart.setQty(item.product.id, v);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    // Enter on quantity field = refocus search for next scan
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      setQ("");
+                                      setHighlightedIndex(0);
+                                      setTimeout(() => searchRef.current?.focus(), 50);
+                                    }
                                   }}
                                 />
                                 <Button

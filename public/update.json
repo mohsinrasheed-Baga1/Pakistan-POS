@@ -1,9 +1,1 @@
-{
-  "version": "2.7.51",
-  "changelog": [
-    "FIXED: Barcode scanner can't read printed sticker — SVG was being stretched by width:100% CSS",
-    "FIXED: Print CSS now uses max-width:100% instead of width:100% — barcode renders at natural size",
-    "IMPROVED: Barcode height increased from 50px to 60px for better scanning from angles",
-    "EAN-13 format confirmed as permanent standard — 13 digits with checksum, clear bars"
-  ]
-}
+{"version":"2.7.52","changelog":["Fixed: Auto-generate text now says EAN-13 (was Code-128)","Fixed: Check Update uses electron-updater for in-app download (not browser link)","Fixed: POS scan race condition — scanning lock released immediately (was 800ms delay)","New: Cart quantity field auto-selects on focus — type number + Enter for next scan"]}

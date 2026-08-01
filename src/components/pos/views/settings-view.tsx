@@ -2878,7 +2878,7 @@ function SoftwareUpdatesCard() {
           }
         }
       } catch {}
-      setCurrentVersion("2.7.51");
+      setCurrentVersion("2.7.52");
     }
     fetchVersion();
   }, []);
@@ -2904,41 +2904,41 @@ function SoftwareUpdatesCard() {
     setErrorMsg("");
 
     try {
-      // ─── ALWAYS fetch from GitHub Releases API ────────────────────────
-      // We don't use electron-updater's built-in check() because it reads
-      // the local latest.yml file bundled with the app, which is always
-      // the same version as the installed app — so it always says "up to
-      // date" even when a newer version is available on GitHub.
-      //
-      // Instead, we query the GitHub Releases API directly to get the
-      // actual latest published release tag. This always returns the real
-      // newest version, regardless of what's bundled locally.
-      const curVer = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
-      const githubRes = await fetch(
-        "https://api.github.com/repos/mohsinrasheed-Baga1/shop-pos-system/releases/latest",
-        {
-          cache: "no-store",
-          headers: { Accept: "application/vnd.github.v3+json" },
+      if (isElectronUpdater) {
+        // ─── Use electron-updater ───────────────────────────────────────
+        // electron-updater reads the publish config from package.json
+        // (provider: github, owner: mohsinrasheed-Baga1, repo: shop-pos-system)
+        // and queries GitHub Releases directly. It downloads the .exe
+        // inside the app (delta/differential if possible) and installs it.
+        const result = await window.posElectron.updater.check();
+        if (result && result.version) {
+          setUpdateInfo(result);
+          setStatus("available");
+          toast.success(`Version v${result.version} is available! Click Download to update.`);
+        } else {
+          setStatus("up-to-date");
+          toast.success(`You're on the latest version (v${currentVersion})`);
         }
-      );
-      if (!githubRes.ok) throw new Error("Failed to check GitHub for updates");
-      const releaseData = await githubRes.json();
-      const latestTag = releaseData?.tag_name || ""; // e.g. "v2.7.49"
-      const latestVersion = latestTag.replace(/^v/, ""); // "2.7.49"
-
-      if (latestVersion && isNewerVersion(latestVersion, curVer)) {
-        // Newer version available on GitHub
-        const downloadUrl = releaseData?.assets?.find((a: any) => a.name.endsWith(".exe"))?.browser_download_url || "";
-        setUpdateInfo({
-          version: latestVersion,
-          releaseNotes: releaseData?.body || releaseData?.name || "",
-          downloadUrl,
-        });
-        setStatus("available");
-        toast.success(`Version v${latestVersion} is available! Click Download to update.`);
       } else {
-        setStatus("up-to-date");
-        toast.success(`You're on the latest version (v${curVer})`);
+        // ─── Fallback: fetch from GitHub Releases API ───────────────────
+        // For browser/dev mode where electron-updater is not available.
+        const curVer = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
+        const githubRes = await fetch(
+          "https://api.github.com/repos/mohsinrasheed-Baga1/shop-pos-system/releases/latest",
+          { cache: "no-store", headers: { Accept: "application/vnd.github.v3+json" } }
+        );
+        if (!githubRes.ok) throw new Error("Failed to check GitHub for updates");
+        const releaseData = await githubRes.json();
+        const latestTag = releaseData?.tag_name || "";
+        const latestVersion = latestTag.replace(/^v/, "");
+        if (latestVersion && isNewerVersion(latestVersion, curVer)) {
+          setUpdateInfo({ version: latestVersion, releaseNotes: releaseData?.body || "" });
+          setStatus("available");
+          toast.success(`Version v${latestVersion} is available!`);
+        } else {
+          setStatus("up-to-date");
+          toast.success(`You're on the latest version (v${curVer})`);
+        }
       }
     } catch (err: any) {
       setErrorMsg(err?.message || "Failed to check for updates");
@@ -2952,27 +2952,14 @@ function SoftwareUpdatesCard() {
     setErrorMsg("");
 
     try {
-      // If we have a download URL from GitHub, open it in the browser
-      // so the user can download the new .exe and install it.
-      // electron-updater's download() reads the local latest.yml which
-      // is bundled with the current app — it doesn't know about newer
-      // releases on GitHub. So we always use the browser download approach.
-      if (updateInfo?.downloadUrl) {
-        // Open the download URL in the default browser
-        if (typeof window !== "undefined" && window.posElectron?.openExternal) {
-          window.posElectron.openExternal(updateInfo.downloadUrl);
-        } else {
-          window.open(updateInfo.downloadUrl, "_blank");
-        }
-        setStatus("downloaded");
-        toast.success("Download started in your browser. Install the new version after it finishes downloading.");
-      } else if (isElectronUpdater) {
-        // Fallback: try electron-updater's download
+      if (isElectronUpdater) {
+        // electron-updater downloads INSIDE the app (delta if possible)
+        // and shows progress via the onProgress callback.
         await window.posElectron.updater.download();
         setStatus("downloaded");
         toast.success("Update downloaded! Click Install to apply.");
       } else {
-        // No download URL — direct user to GitHub releases page
+        // Browser fallback — open GitHub releases page
         window.open("https://github.com/mohsinrasheed-Baga1/shop-pos-system/releases/latest", "_blank");
         setStatus("idle");
         toast.info("Opening GitHub releases page in your browser...");
@@ -3002,7 +2989,7 @@ function SoftwareUpdatesCard() {
     setErrorMsg("");
   }
 
-  const displayVersion = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "2.7.51";
+  const displayVersion = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "2.7.52";
 
   return (
     <Card className="shadow-sm">
