@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   Smartphone, Plus, RefreshCw, Wallet, FileText, ArrowDownLeft, ArrowUpRight,
-  TrendingUp, TrendingDown, CreditCard, BarChart3, DollarSign,
+  TrendingUp, TrendingDown, CreditCard, BarChart3, DollarSign, Search, Phone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,9 +18,19 @@ import { formatMoney } from "@/lib/pos-utils";
 
 interface LoadBillViewProps { userRole: string; }
 
-interface Company { id: string; name: string; balance: number; totalPurchased: number; totalSold: number; totalProfit: number; }
-interface WalletAccount { id: string; name: string; provider: string; phoneNumber: string|null; accountNumber: string|null; balance: number; totalReceived: number; totalSent: number; totalCharges: number; active: boolean; }
+// ─── Types ───────────────────────────────────────────────────────────────────
+interface Company {
+  id: string; name: string; balance: number; totalPurchased: number; totalSold: number; totalProfit: number;
+}
+interface WalletAccount {
+  id: string; name: string; provider: string; phoneNumber: string | null;
+  accountNumber: string | null; balance: number; totalReceived: number;
+  totalSent: number; totalCharges: number; active: boolean;
+}
 
+// ═════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═════════════════════════════════════════════════════════════════════════════
 export function LoadBillView({ userRole }: LoadBillViewProps) {
   const isAdmin = userRole === "ADMIN" || userRole === "MANAGER";
   const [refresh, setRefresh] = React.useState(0);
@@ -34,9 +44,13 @@ export function LoadBillView({ userRole }: LoadBillViewProps) {
             <Smartphone className="w-6 h-6 text-emerald-600" />
             Load & Bill Management
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Mobile Load • Bill Payment • Wallet • SIM — ایک جگہ سے سب</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            SIM Load • Bill Payment • JazzCash/Easypaisa • SIM Sales — ایک جگہ سے سب
+          </p>
         </div>
-        <Button variant="outline" size="sm" onClick={triggerRefresh}><RefreshCw className="w-4 h-4 mr-1" /> Refresh</Button>
+        <Button variant="outline" size="sm" onClick={triggerRefresh}>
+          <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+        </Button>
       </div>
 
       <DashboardSummary refreshKey={refresh} />
@@ -60,7 +74,7 @@ export function LoadBillView({ userRole }: LoadBillViewProps) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// DASHBOARD SUMMARY — today's totals at a glance
+// DASHBOARD SUMMARY
 // ═════════════════════════════════════════════════════════════════════════════
 function DashboardSummary({ refreshKey }: { refreshKey: number }) {
   const [data, setData] = React.useState<any>({});
@@ -74,30 +88,27 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
           fetch("/api/load-bill/bill-payment?limit=500", { cache: "no-store" }),
           fetch("/api/load-bill/wallet?limit=500", { cache: "no-store" }),
         ]);
-        const loadData = await loadRes.json();
-        const billData = await billRes.json();
-        const walletData = await walletRes.json();
-        const loads = loadData.transactions || [];
-        const bills = billData.transactions || billData.payments || [];
-        const wallets = walletData.transactions || [];
+        const loads = (await loadRes.json()).transactions || [];
+        const bills = (await billRes.json()).transactions || [];
+        const wallets = (await walletRes.json()).transactions || [];
 
         const today = new Date(); today.setHours(0, 0, 0, 0);
         const isToday = (d: string) => new Date(d) >= today;
 
-        const todayLoads = loads.filter((t: any) => isToday(t.createdAt));
-        const todayBills = bills.filter((t: any) => isToday(t.createdAt));
-        const todayWallets = wallets.filter((t: any) => isToday(t.createdAt));
+        const tLoads = loads.filter((t: any) => isToday(t.createdAt) && t.type === "SALE");
+        const tBills = bills.filter((t: any) => isToday(t.createdAt));
+        const tWallets = wallets.filter((t: any) => isToday(t.createdAt));
 
-        const totalLoad = todayLoads.reduce((s: number, t: any) => s + (t.salePrice || t.amount || 0), 0);
-        const totalBill = todayBills.reduce((s: number, t: any) => s + (t.totalPaid || 0), 0);
-        const totalReceived = todayWallets.filter((t: any) => t.type === "RECEIVE").reduce((s: number, t: any) => s + (t.amount + (t.serviceCharge || 0)), 0);
-        const totalSent = todayWallets.filter((t: any) => t.type === "SEND").reduce((s: number, t: any) => s + (t.amount + (t.serviceCharge || 0)), 0);
-        const totalCharges = [...todayLoads, ...todayBills, ...todayWallets].reduce((s: number, t: any) => {
+        const totalLoad = tLoads.reduce((s: number, t: any) => s + (t.salePrice || t.amount || 0), 0);
+        const totalBill = tBills.reduce((s: number, t: any) => s + (t.totalPaid || 0), 0);
+        const totalReceived = tWallets.filter((t: any) => t.type === "RECEIVE").reduce((s: number, t: any) => s + (t.amount + (t.serviceCharge || 0)), 0);
+        const totalSent = tWallets.filter((t: any) => t.type === "SEND").reduce((s: number, t: any) => s + (t.amount + (t.serviceCharge || 0)), 0);
+        const totalCharges = [...tLoads, ...tBills, ...tWallets].reduce((s: number, t: any) => {
           if (t.salePrice && t.amount) return s + (t.salePrice - t.amount);
           if (t.serviceCharge) return s + t.serviceCharge;
           return s;
         }, 0);
-        const totalDue = [...todayLoads, ...todayBills, ...todayWallets].reduce((s: number, t: any) => s + (t.due || 0), 0);
+        const totalDue = [...tLoads, ...tBills, ...tWallets].reduce((s: number, t: any) => s + (t.due || 0), 0);
         const grandTotal = totalLoad + totalBill + totalReceived;
 
         setData({ totalLoad, totalBill, totalReceived, totalSent, totalCharges, totalDue, grandTotal });
@@ -109,15 +120,15 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
   const stats = [
     { label: "آج کا کل لوڈ", value: data.totalLoad || 0, icon: Smartphone, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
     { label: "آج کے بل", value: data.totalBill || 0, icon: FileText, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
-    { label: "وصول شدہ (Wallet)", value: data.totalReceived || 0, icon: ArrowDownLeft, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
-    { label: "بھیجی گئی (Wallet)", value: data.totalSent || 0, icon: ArrowUpRight, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
-    { label: "کل سروس چارج (منافع)", value: data.totalCharges || 0, icon: TrendingUp, color: "text-amber-700", bg: "bg-amber-50 border-amber-200" },
+    { label: "وصول (Wallet)", value: data.totalReceived || 0, icon: ArrowDownLeft, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+    { label: "بھیجی (Wallet)", value: data.totalSent || 0, icon: ArrowUpRight, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
+    { label: "کل منافع", value: data.totalCharges || 0, icon: TrendingUp, color: "text-amber-700", bg: "bg-amber-50 border-amber-200" },
     { label: "آج کی کل سیل", value: data.grandTotal || 0, icon: DollarSign, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
-    { label: "بقایا وصولی", value: data.totalDue || 0, icon: TrendingDown, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
+    { label: "بقایا", value: data.totalDue || 0, icon: TrendingDown, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
       {stats.map((s, i) => (
         <Card key={i} className={s.bg}>
           <CardContent className="p-3">
@@ -136,19 +147,14 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CHECKOUT DIALOG — unified checkout for all transaction types
+// UNIFIED CHECKOUT DIALOG
 // ═════════════════════════════════════════════════════════════════════════════
-interface CheckoutProps {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  fields: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string }[];
+function CheckoutDialog({ open, onClose, title, fields, totals, onConfirm, saving }: {
+  open: boolean; onClose: () => void; title: string;
+  fields: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; options?: { value: string; label: string }[] }[];
   totals: { label: string; value: number }[];
-  onConfirm: () => void;
-  saving: boolean;
-}
-
-function CheckoutDialog({ open, onClose, title, fields, totals, onConfirm, saving }: CheckoutProps) {
+  onConfirm: () => void; saving: boolean;
+}) {
   const grandTotal = totals.reduce((s, t) => s + t.value, 0);
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -158,10 +164,16 @@ function CheckoutDialog({ open, onClose, title, fields, totals, onConfirm, savin
           {fields.map((f, i) => (
             <div key={i} className="space-y-1">
               <Label className="text-xs">{f.label}</Label>
-              <Input type={f.type || "text"} value={f.value} onChange={(e) => f.onChange(e.target.value)} placeholder={f.placeholder} className="h-9" autoFocus={i === 0} />
+              {f.type === "select" && f.options ? (
+                <select className="w-full rounded-md border border-input px-3 py-2 text-sm" value={f.value} onChange={(e) => f.onChange(e.target.value)}>
+                  <option value="">{f.placeholder || "Select"}</option>
+                  {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              ) : (
+                <Input type={f.type || "text"} value={f.value} onChange={(e) => f.onChange(e.target.value)} placeholder={f.placeholder} className="h-9" autoFocus={i === 0} />
+              )}
             </div>
           ))}
-          {/* Live totals */}
           <div className="rounded-lg bg-emerald-50 border border-emerald-300 p-3 space-y-1">
             {totals.map((t, i) => (
               <div key={i} className="flex justify-between text-sm">
@@ -188,6 +200,8 @@ function CheckoutDialog({ open, onClose, title, fields, totals, onConfirm, savin
 
 // ═════════════════════════════════════════════════════════════════════════════
 // TAB 1: LOAD MANAGEMENT
+// SIM cards treated as products with balance. Receive load adds balance.
+// Sell load deducts from balance. Remaining balance always visible.
 // ═════════════════════════════════════════════════════════════════════════════
 function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshKey: number; onRefresh: () => void }) {
   const [companies, setCompanies] = React.useState<Company[]>([]);
@@ -201,13 +215,14 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
   const [due, setDue] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [search, setSearch] = React.useState("");
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
       const [c, t] = await Promise.all([
         fetch("/api/load-bill/companies", { cache: "no-store" }),
-        fetch("/api/load-bill/mobile-load?limit=30", { cache: "no-store" }),
+        fetch("/api/load-bill/mobile-load?limit=50", { cache: "no-store" }),
       ]);
       const cd = await c.json(); const td = await t.json();
       setCompanies(cd.companies || []); setTxns(td.transactions || []);
@@ -222,9 +237,22 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
   const dueNum = parseFloat(due) || 0;
   const total = amtNum + extraNum;
 
+  // Selected company's current balance (for display in sell dialog)
+  const selectedCompany = companies.find(c => c.id === selCompany);
+  const remainingAfter = selectedCompany ? selectedCompany.balance - amtNum : 0;
+
+  // Filter companies by search
+  const filteredCompanies = companies.filter(c =>
+    !search || c.name.toLowerCase().includes(search.toLowerCase())
+  );
+
   async function handleSell() {
     if (!selCompany) { toast.error("Select company"); return; }
     if (amtNum <= 0) { toast.error("Enter amount"); return; }
+    if (selectedCompany && amtNum > selectedCompany.balance) {
+      toast.error(`Insufficient balance! Only Rs ${selectedCompany.balance.toLocaleString()} available`);
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/load-bill/mobile-load", {
@@ -233,7 +261,7 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
       });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error); setSaving(false); return; }
-      toast.success(`Load sold: Rs ${total}${dueNum > 0 ? ` (Due: Rs ${dueNum})` : ""}`);
+      toast.success(`Load sold: Rs ${total} | Remaining: Rs ${remainingAfter.toLocaleString()}`);
       setSellOpen(false); setSelCompany(""); setAmount(""); setExtra(""); setDue(""); setPhone("");
       load(); onRefresh();
     } catch { toast.error("Network error"); }
@@ -251,12 +279,17 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
       });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error); setSaving(false); return; }
-      toast.success(`Load received: Rs ${amtNum}`);
+      toast.success(`Load received: Rs ${amtNum} | New balance: Rs ${(selectedCompany!.balance + amtNum).toLocaleString()}`);
       setRecvOpen(false); setSelCompany(""); setAmount("");
       load(); onRefresh();
     } catch { toast.error("Network error"); }
     finally { setSaving(false); }
   }
+
+  const companyOptions = companies.map(c => ({
+    value: c.id,
+    label: `${c.name} — Balance: Rs ${c.balance.toLocaleString()}`,
+  }));
 
   return (
     <Card>
@@ -264,22 +297,45 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2"><Smartphone className="w-5 h-5 text-emerald-600" /> Mobile Load</CardTitle>
           <div className="flex gap-2">
-            {isAdmin && <Button size="sm" variant="outline" className="border-blue-300 text-blue-700" onClick={() => { setSelCompany(""); setAmount(""); setRecvOpen(true); }}><ArrowDownLeft className="w-4 h-4 mr-1" /> Receive</Button>}
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setSelCompany(""); setAmount(""); setExtra(""); setDue(""); setPhone(""); setSellOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Sell Load</Button>
+            {isAdmin && (
+              <Button size="sm" variant="outline" className="border-blue-300 text-blue-700"
+                onClick={() => { setSelCompany(""); setAmount(""); setRecvOpen(true); }}>
+                <ArrowDownLeft className="w-4 h-4 mr-1" /> Receive Load
+              </Button>
+            )}
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => { setSelCompany(""); setAmount(""); setExtra(""); setDue(""); setPhone(""); setSellOpen(true); }}>
+              <Plus className="w-4 h-4 mr-1" /> Sell Load
+            </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Company balances */}
+        {/* Search bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search company..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
+        </div>
+
+        {/* Company balance cards — each SIM's current balance always visible */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {companies.map(c => (
-            <div key={c.id} className="rounded-lg border p-2 text-center">
+          {filteredCompanies.map(c => (
+            <div key={c.id} className={`rounded-lg border-2 p-3 cursor-pointer transition-all ${c.balance > 0 ? "border-emerald-300 bg-emerald-50" : "border-muted bg-muted/30"}`}
+              onClick={() => { setSelCompany(c.id); setSellOpen(true); setAmount(""); setExtra(""); setDue(""); setPhone(""); }}>
               <div className="text-sm font-bold">{c.name}</div>
-              <div className="text-lg font-bold text-emerald-700">Rs {c.balance.toLocaleString()}</div>
-              <div className="text-[10px] text-muted-foreground">Sold: Rs {c.totalSold.toLocaleString()}</div>
+              <div className={`text-lg font-bold ${c.balance > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                Rs {c.balance.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                Sold: Rs {c.totalSold.toLocaleString()} • Profit: Rs {c.totalProfit.toLocaleString()}
+              </div>
             </div>
           ))}
-          {companies.length === 0 && <div className="col-span-4 text-center text-muted-foreground py-4">No companies added yet</div>}
+          {filteredCompanies.length === 0 && (
+            <div className="col-span-4 text-center text-muted-foreground py-4">
+              {companies.length === 0 ? "No companies added yet. Click Receive Load to add." : "No companies found"}
+            </div>
+          )}
         </div>
 
         {/* Recent transactions */}
@@ -290,7 +346,8 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Date</TableHead><TableHead>Company</TableHead><TableHead>Type</TableHead>
-                <TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Extra</TableHead><TableHead className="text-right">Due</TableHead>
+                <TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Extra</TableHead>
+                <TableHead className="text-right">Due</TableHead><TableHead>Phone</TableHead>
               </TableRow></TableHeader>
               <TableBody>
                 {txns.map(t => (
@@ -301,6 +358,7 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
                     <TableCell className="text-right font-mono">Rs {t.amount.toLocaleString()}</TableCell>
                     <TableCell className="text-right font-mono text-emerald-700">{t.type === "SALE" ? `Rs ${(t.salePrice - t.amount).toLocaleString()}` : "-"}</TableCell>
                     <TableCell className="text-right font-mono text-rose-600">{(t.due || 0) > 0 ? `Rs ${t.due.toLocaleString()}` : "-"}</TableCell>
+                    <TableCell className="text-xs">{t.customerPhone || "-"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -309,11 +367,12 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
         )}
       </CardContent>
 
-      {/* Sell Load Checkout */}
+      {/* Sell Load Checkout — shows current balance + remaining after sale */}
       <CheckoutDialog
-        open={sellOpen} onClose={() => setSellOpen(false)} title="Sell Mobile Load — لوڈ بیچیں" saving={saving} onConfirm={handleSell}
+        open={sellOpen} onClose={() => setSellOpen(false)} title="Sell Mobile Load — لوڈ بیچیں"
+        saving={saving} onConfirm={handleSell}
         fields={[
-          { label: "Company *", value: selCompany, onChange: setSelCompany, type: "select" },
+          { label: "Company *", value: selCompany, onChange: setSelCompany, type: "select", options: companyOptions, placeholder: "Select company" },
           { label: "Load Amount *", value: amount, onChange: setAmount, type: "number", placeholder: "e.g. 100" },
           { label: "Extra Charges (profit)", value: extra, onChange: setExtra, type: "number", placeholder: "0" },
           { label: "Due (if unpaid)", value: due, onChange: setDue, type: "number", placeholder: "0" },
@@ -322,24 +381,31 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
         totals={[
           { label: "Load Amount", value: amtNum },
           { label: "Extra Charges", value: extraNum },
+          ...(selectedCompany ? [{ label: "Current Balance", value: selectedCompany.balance }] : []),
+          ...(selectedCompany ? [{ label: "After Sale (بقایا)", value: remainingAfter }] : []),
         ]}
       />
 
-      {/* Receive Load Dialog */}
+      {/* Receive Load — adds balance to SIM */}
       <CheckoutDialog
-        open={recvOpen} onClose={() => setRecvOpen(false)} title="Receive Load — لوڈ وصول" saving={saving} onConfirm={handleReceive}
+        open={recvOpen} onClose={() => setRecvOpen(false)} title="Receive Load — لوڈ وصول"
+        saving={saving} onConfirm={handleReceive}
         fields={[
-          { label: "Company *", value: selCompany, onChange: setSelCompany, type: "select" },
+          { label: "Company *", value: selCompany, onChange: setSelCompany, type: "select", options: companyOptions, placeholder: "Select company" },
           { label: "Amount *", value: amount, onChange: setAmount, type: "number", placeholder: "e.g. 5000" },
         ]}
-        totals={[{ label: "Load Received", value: amtNum }]}
+        totals={[
+          ...(selectedCompany ? [{ label: "Current Balance", value: selectedCompany.balance }] : []),
+          { label: "Load Received", value: amtNum },
+          ...(selectedCompany ? [{ label: "New Balance", value: selectedCompany.balance + amtNum }] : []),
+        ]}
       />
     </Card>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TAB 2: BILL PAYMENT
+// TAB 2: BILL PAYMENT — amount + charges + due, daily total
 // ═════════════════════════════════════════════════════════════════════════════
 function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () => void }) {
   const [txns, setTxns] = React.useState<any[]>([]);
@@ -354,13 +420,20 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/load-bill/bill-payment?limit=30", { cache: "no-store" });
+      const res = await fetch("/api/load-bill/bill-payment?limit=50", { cache: "no-store" });
       const d = await res.json();
       setTxns(d.transactions || d.payments || []);
     } catch { toast.error("Failed"); }
     finally { setLoading(false); }
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);
+
+  // Today's total collection
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const todayTxns = txns.filter(t => new Date(t.createdAt) >= today);
+  const todayTotal = todayTxns.reduce((s, t) => s + (t.totalPaid || 0), 0);
+  const todayCharges = todayTxns.reduce((s, t) => s + (t.serviceCharge || 0), 0);
+  const todayDue = todayTxns.reduce((s, t) => s + (t.due || 0), 0);
 
   const billNum = parseFloat(billAmount) || 0;
   const chargeNum = parseFloat(charge) || 0;
@@ -377,7 +450,7 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
       });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error); setSaving(false); return; }
-      toast.success(`Bill paid: Rs ${total}${dueNum > 0 ? ` (Due: Rs ${dueNum})` : ""}`);
+      toast.success(`Bill: Rs ${total}${dueNum > 0 ? ` (Due: Rs ${dueNum})` : ""}`);
       setOpen(false); setBillAmount(""); setCharge(""); setDue("");
       load(); onRefresh();
     } catch { toast.error("Network error"); }
@@ -389,10 +462,28 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5 text-emerald-600" /> Bill Payment</CardTitle>
-          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setBillAmount(""); setCharge(""); setDue(""); setOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Bill</Button>
+          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setBillAmount(""); setCharge(""); setDue(""); setOpen(true); }}>
+            <Plus className="w-4 h-4 mr-1" /> Add Bill
+          </Button>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {/* Today's collection summary */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center">
+            <div className="text-xs text-emerald-700">آج کی کل وصولی</div>
+            <div className="text-lg font-bold text-emerald-700">Rs {todayTotal.toLocaleString()}</div>
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center">
+            <div className="text-xs text-amber-700">آج کا منافع</div>
+            <div className="text-lg font-bold text-amber-700">Rs {todayCharges.toLocaleString()}</div>
+          </div>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-center">
+            <div className="text-xs text-rose-700">آج کا بقایا</div>
+            <div className="text-lg font-bold text-rose-700">Rs {todayDue.toLocaleString()}</div>
+          </div>
+        </div>
+
         {loading ? <div className="h-20 rounded bg-muted animate-pulse" /> : txns.length === 0 ? (
           <div className="text-center text-muted-foreground py-4">No bill payments yet</div>
         ) : (
@@ -421,9 +512,17 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
       </CardContent>
 
       <CheckoutDialog
-        open={open} onClose={() => setOpen(false)} title="Bill Payment — بل ادائیگی" saving={saving} onConfirm={handleSave}
+        open={open} onClose={() => setOpen(false)} title="Bill Payment — بل ادائیگی"
+        saving={saving} onConfirm={handleSave}
         fields={[
-          { label: "Category", value: category, onChange: setCategory, type: "select" },
+          { label: "Category", value: category, onChange: setCategory, type: "select",
+            options: [
+              { value: "electricity", label: "Electricity" },
+              { value: "gas", label: "Gas" },
+              { value: "water", label: "Water" },
+              { value: "internet", label: "Internet" },
+              { value: "other", label: "Other" },
+            ] },
           { label: "Bill Amount *", value: billAmount, onChange: setBillAmount, type: "number", placeholder: "e.g. 5000" },
           { label: "Service Charge (profit)", value: charge, onChange: setCharge, type: "number", placeholder: "0" },
           { label: "Due (if unpaid)", value: due, onChange: setDue, type: "number", placeholder: "0" },
@@ -438,7 +537,7 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TAB 3: WALLET MANAGEMENT (multiple accounts)
+// TAB 3: WALLET — multiple JazzCash/Easypaisa/Bank accounts
 // ═════════════════════════════════════════════════════════════════════════════
 function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshKey: number; onRefresh: () => void }) {
   const [accounts, setAccounts] = React.useState<WalletAccount[]>([]);
@@ -452,7 +551,6 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
   const [charge, setCharge] = React.useState("");
   const [due, setDue] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  // Add account fields
   const [accName, setAccName] = React.useState("");
   const [accProvider, setAccProvider] = React.useState("JAZZCASH");
   const [accPhone, setAccPhone] = React.useState("");
@@ -477,6 +575,11 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
   const dueNum = parseFloat(due) || 0;
   const total = amtNum + chargeNum;
 
+  const selectedAccount = accounts.find(a => a.id === selAccount);
+  const balanceAfter = selectedAccount
+    ? txnType === "RECEIVE" ? selectedAccount.balance + total : selectedAccount.balance - total
+    : 0;
+
   async function handleTxn() {
     if (!selAccount) { toast.error("Select account"); return; }
     if (amtNum <= 0) { toast.error("Enter amount"); return; }
@@ -493,10 +596,10 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
       if (acc) {
         await fetch("/api/load-bill/wallet-accounts", {
           method: "PUT", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: selAccount, balance: txnType === "RECEIVE" ? acc.balance + total : acc.balance - total }),
+          body: JSON.stringify({ id: selAccount, balance: balanceAfter, totalReceived: txnType === "RECEIVE" ? total : 0, totalSent: txnType === "SEND" ? total : 0, totalCharges: chargeNum }),
         });
       }
-      toast.success(`${txnType === "RECEIVE" ? "Received" : "Sent"}: Rs ${total}${dueNum > 0 ? ` (Due: Rs ${dueNum})` : ""}`);
+      toast.success(`${txnType === "RECEIVE" ? "Received" : "Sent"}: Rs ${total} | Balance: Rs ${balanceAfter.toLocaleString()}`);
       setTxnOpen(false); setSelAccount(""); setAmount(""); setCharge(""); setDue("");
       load(); onRefresh();
     } catch { toast.error("Network error"); }
@@ -520,31 +623,52 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
     finally { setSaving(false); }
   }
 
+  const accountOptions = accounts.map(a => ({
+    value: a.id,
+    label: `${a.name} — Balance: Rs ${a.balance.toLocaleString()}`,
+  }));
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5 text-emerald-600" /> Digital Wallet</CardTitle>
           <div className="flex gap-2">
-            {isAdmin && <Button size="sm" variant="outline" onClick={() => { setAccName(""); setAccPhone(""); setAccBalance(""); setAddAccOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Account</Button>}
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setSelAccount(""); setAmount(""); setCharge(""); setDue(""); setTxnType("RECEIVE"); setTxnOpen(true); }}><Plus className="w-4 h-4 mr-1" /> New Txn</Button>
+            {isAdmin && (
+              <Button size="sm" variant="outline" onClick={() => { setAccName(""); setAccPhone(""); setAccBalance(""); setAddAccOpen(true); }}>
+                <Plus className="w-4 h-4 mr-1" /> Add Account
+              </Button>
+            )}
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => { setSelAccount(""); setAmount(""); setCharge(""); setDue(""); setTxnType("RECEIVE"); setTxnOpen(true); }}>
+              <Plus className="w-4 h-4 mr-1" /> New Txn
+            </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Account balances */}
+        {/* Account cards — each shows current balance */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {accounts.map(a => (
-            <div key={a.id} className="rounded-lg border p-3">
+            <div key={a.id} className={`rounded-lg border-2 p-3 cursor-pointer transition-all ${a.balance > 0 ? "border-emerald-300 bg-emerald-50" : "border-muted"}`}
+              onClick={() => { setSelAccount(a.id); setTxnType("RECEIVE"); setAmount(""); setCharge(""); setDue(""); setTxnOpen(true); }}>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-bold">{a.name}</span>
                 <Badge variant="outline">{a.provider}</Badge>
               </div>
-              <div className="text-xl font-bold text-emerald-700 mt-1">Rs {a.balance.toLocaleString()}</div>
-              <div className="text-[10px] text-muted-foreground">Recv: Rs {a.totalReceived.toLocaleString()} • Sent: Rs {a.totalSent.toLocaleString()} • Charges: Rs {a.totalCharges.toLocaleString()}</div>
+              <div className={`text-xl font-bold mt-1 ${a.balance > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                Rs {a.balance.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                {a.phoneNumber || a.accountNumber || ""} • Recv: Rs {a.totalReceived.toLocaleString()} • Sent: Rs {a.totalSent.toLocaleString()}
+              </div>
             </div>
           ))}
-          {accounts.length === 0 && <div className="col-span-3 text-center text-muted-foreground py-4">No accounts added yet</div>}
+          {accounts.length === 0 && (
+            <div className="col-span-3 text-center text-muted-foreground py-4">
+              No accounts added yet. Click "Add Account" to create JazzCash, Easypaisa, or Bank accounts.
+            </div>
+          )}
         </div>
 
         {/* Recent transactions */}
@@ -574,12 +698,14 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
         )}
       </CardContent>
 
-      {/* Transaction Checkout */}
+      {/* Transaction Checkout — shows current balance + after */}
       <CheckoutDialog
-        open={txnOpen} onClose={() => setTxnOpen(false)} title={`${txnType === "RECEIVE" ? "Receive" : "Send"} Money`} saving={saving} onConfirm={handleTxn}
+        open={txnOpen} onClose={() => setTxnOpen(false)} title={`${txnType === "RECEIVE" ? "Receive" : "Send"} Money`}
+        saving={saving} onConfirm={handleTxn}
         fields={[
-          { label: "Account *", value: selAccount, onChange: setSelAccount, type: "select" },
-          { label: "Type", value: txnType, onChange: setTxnType, type: "select" },
+          { label: "Account *", value: selAccount, onChange: setSelAccount, type: "select", options: accountOptions, placeholder: "Select account" },
+          { label: "Type", value: txnType, onChange: setTxnType, type: "select",
+            options: [{ value: "RECEIVE", label: "Receive Money" }, { value: "SEND", label: "Send Money" }] },
           { label: "Amount *", value: amount, onChange: setAmount, type: "number", placeholder: "e.g. 5000" },
           { label: "Service Charge", value: charge, onChange: setCharge, type: "number", placeholder: "0" },
           { label: "Due (if unpaid)", value: due, onChange: setDue, type: "number", placeholder: "0" },
@@ -587,6 +713,8 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
         totals={[
           { label: "Amount", value: amtNum },
           { label: "Service Charge", value: chargeNum },
+          ...(selectedAccount ? [{ label: "Current Balance", value: selectedAccount.balance }] : []),
+          ...(selectedAccount ? [{ label: txnType === "RECEIVE" ? "After Receive" : "After Send", value: balanceAfter }] : []),
         ]}
       />
 
@@ -615,7 +743,7 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TAB 4: SIM MANAGEMENT
+// TAB 4: SIM MANAGEMENT — New SIM + Replacement, separate stock
 // ═════════════════════════════════════════════════════════════════════════════
 function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshKey: number; onRefresh: () => void }) {
   const [sims, setSims] = React.useState<any[]>([]);
@@ -631,6 +759,7 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
   const [sellCust, setSellCust] = React.useState("");
   const [sellPhone, setSellPhone] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [search, setSearch] = React.useState("");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -645,6 +774,14 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
 
   const inStock = sims.filter(s => s.status === "IN_STOCK");
   const sold = sims.filter(s => s.status === "SOLD");
+
+  // Filter by search
+  const filteredSims = sims.filter(s =>
+    !search ||
+    s.company.toLowerCase().includes(search.toLowerCase()) ||
+    (s.phoneNumber || "").includes(search) ||
+    (s.customerName || "").toLowerCase().includes(search.toLowerCase())
+  );
 
   async function handleAddSim() {
     if (!simCompany || !simType) { toast.error("Company and type required"); return; }
@@ -680,12 +817,11 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
     finally { setSaving(false); }
   }
 
-  // Stock summary by company
-  const stockByCompany = ["Jazz", "Zong", "Ufone", "Telenor"].map(c => ({
-    company: c,
-    inStock: inStock.filter(s => s.company === c).length,
-    sold: sold.filter(s => s.company === c).length,
-  }));
+  // Stock summary by company and type
+  const companies = ["Jazz", "Zong", "Ufone", "Telenor"];
+  const newStock = companies.map(c => ({ company: c, count: inStock.filter(s => s.company === c && s.type === "NEW").length }));
+  const replStock = companies.map(c => ({ company: c, count: inStock.filter(s => s.company === c && s.type === "REPLACEMENT").length }));
+  const soldCount = sold.length;
 
   return (
     <Card>
@@ -693,35 +829,66 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2"><CreditCard className="w-5 h-5 text-emerald-600" /> SIM Management</CardTitle>
           <div className="flex gap-2">
-            {isAdmin && <Button size="sm" variant="outline" onClick={() => { setSimPhone(""); setSimCost(""); setSimSale(""); setAddOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add SIM</Button>}
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={inStock.length === 0} onClick={() => { setSellSimId(""); setSellCust(""); setSellPhone(""); setSellOpen(true); }}><ArrowUpRight className="w-4 h-4 mr-1" /> Sell SIM</Button>
+            {isAdmin && (
+              <Button size="sm" variant="outline" onClick={() => { setSimPhone(""); setSimCost(""); setSimSale(""); setAddOpen(true); }}>
+                <Plus className="w-4 h-4 mr-1" /> Add SIM
+              </Button>
+            )}
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={inStock.length === 0}
+              onClick={() => { setSellSimId(""); setSellCust(""); setSellPhone(""); setSellOpen(true); }}>
+              <ArrowUpRight className="w-4 h-4 mr-1" /> Sell SIM
+            </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Stock summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {stockByCompany.map(s => (
-            <div key={s.company} className="rounded-lg border p-2 text-center">
-              <div className="text-sm font-bold">{s.company}</div>
-              <div className="text-lg font-bold text-emerald-700">{s.inStock}</div>
-              <div className="text-[10px] text-muted-foreground">In Stock • Sold: {s.sold}</div>
-            </div>
-          ))}
+        {/* Search bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search by company, phone, or customer..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
         </div>
 
+        {/* Stock summary — New SIM and Replacement separate */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <div className="text-sm font-bold text-emerald-800 mb-2">New SIM Stock</div>
+            <div className="grid grid-cols-4 gap-1">
+              {newStock.map(s => (
+                <div key={s.company} className="text-center">
+                  <div className="text-xs text-muted-foreground">{s.company}</div>
+                  <div className="text-lg font-bold text-emerald-700">{s.count}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="text-sm font-bold text-amber-800 mb-2">Replacement SIM Stock</div>
+            <div className="grid grid-cols-4 gap-1">
+              {replStock.map(s => (
+                <div key={s.company} className="text-center">
+                  <div className="text-xs text-muted-foreground">{s.company}</div>
+                  <div className="text-lg font-bold text-amber-700">{s.count}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="text-xs text-muted-foreground">Total sold: {soldCount} SIMs</div>
+
         {/* SIM list */}
-        {loading ? <div className="h-20 rounded bg-muted animate-pulse" /> : sims.length === 0 ? (
-          <div className="text-center text-muted-foreground py-4">No SIMs in stock</div>
+        {loading ? <div className="h-20 rounded bg-muted animate-pulse" /> : filteredSims.length === 0 ? (
+          <div className="text-center text-muted-foreground py-4">No SIMs found</div>
         ) : (
-          <div className="overflow-x-auto max-h-[250px] overflow-y-auto">
+          <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Company</TableHead><TableHead>Type</TableHead><TableHead>Phone</TableHead>
-                <TableHead className="text-right">Cost</TableHead><TableHead className="text-right">Sale</TableHead><TableHead>Status</TableHead>
+                <TableHead className="text-right">Cost</TableHead><TableHead className="text-right">Sale</TableHead>
+                <TableHead>Status</TableHead><TableHead>Customer</TableHead>
               </TableRow></TableHeader>
               <TableBody>
-                {sims.map(s => (
+                {filteredSims.map(s => (
                   <TableRow key={s.id}>
                     <TableCell>{s.company}</TableCell>
                     <TableCell><Badge variant={s.type === "NEW" ? "default" : "secondary"}>{s.type}</Badge></TableCell>
@@ -729,6 +896,7 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
                     <TableCell className="text-right font-mono">Rs {(s.costPrice || 0).toLocaleString()}</TableCell>
                     <TableCell className="text-right font-mono">Rs {(s.salePrice || 0).toLocaleString()}</TableCell>
                     <TableCell><Badge variant={s.status === "IN_STOCK" ? "default" : "destructive"}>{s.status}</Badge></TableCell>
+                    <TableCell className="text-xs">{s.customerName || "-"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -775,7 +943,9 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
             <div className="space-y-1"><Label className="text-xs">Select SIM *</Label>
               <select className="w-full rounded-md border px-3 py-2 text-sm" value={sellSimId} onChange={(e) => setSellSimId(e.target.value)}>
                 <option value="">Select from stock</option>
-                {inStock.map(s => <option key={s.id} value={s.id}>{s.company} {s.type} {s.phoneNumber || ""} — Rs {s.salePrice || 0}</option>)}
+                {inStock.map(s => (
+                  <option key={s.id} value={s.id}>{s.company} {s.type} {s.phoneNumber || ""} — Rs {s.salePrice || 0}</option>
+                ))}
               </select>
             </div>
             <div className="space-y-1"><Label className="text-xs">Customer Name</Label><Input value={sellCust} onChange={(e) => setSellCust(e.target.value)} placeholder="Customer name" /></div>

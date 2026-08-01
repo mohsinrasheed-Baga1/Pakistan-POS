@@ -1135,7 +1135,7 @@ function CardPrintDialog({
 
   function handlePrint() {
     if (!card) return;
-    const win = window.open("", "_blank", "width=520,height=360");
+    const win = window.open("", "_blank", "width=600,height=850");
     if (!win) {
       toast.error("Pop-up blocked. Please allow pop-ups to print.");
       return;
@@ -1145,23 +1145,69 @@ function CardPrintDialog({
       ? `<img src="${qrDataUrl}" style="width:12mm;height:12mm;" alt="QR" />`
       : "";
 
+    // Build a single card HTML — this will be rendered TWICE on an A4
+    // portrait page: one at the top corner, one at the bottom corner.
+    // Both copies are identical so the shopkeeper can give one to the
+    // customer and keep one for records.
+    const cardHtml = `
+      <div class="card">
+        <div class="header">
+          <div class="shop-name">${escapeHtml(shopName)}</div>
+          <div class="shop-meta">
+            ${subName !== shopName ? escapeHtml(subName) : ""}${
+              shopAddress ? ` &bull; ${escapeHtml(shopAddress)}` : ""
+            }${shopPhone ? ` &bull; ${escapeHtml(shopPhone)}` : ""}
+          </div>
+        </div>
+        <div class="body">
+          <div class="holder-row">
+            <div style="display:flex;align-items:center;gap:0.5mm;">
+              <span style="font-size:8px;">&#9635;</span>
+              <span class="holder-name">${escapeHtml(card.name)}</span>
+            </div>
+            <span class="type-badge">${escapeHtml(cardTypeLabel)}</span>
+          </div>
+          <div class="barcode">
+            <svg class="barcode-svg"></svg>
+          </div>
+          <div class="qr">
+            <div style="display:flex;justify-content:center;align-items:flex-end;margin-top:0.5mm;">
+              <div style="width:10mm;height:10mm;">${qrImg}</div>
+              ${card.customerId ? `<div style="margin-left:1mm;font-size:6px;font-family:monospace;color:#555;line-height:1.2;"><span style="font-weight:bold;color:#333;font-size:6.5px;">${escapeHtml(card.customerId)}</span></div>` : ""}
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    // A4 portrait = 210mm × 297mm
+    // Card = 85.6mm × 54mm
+    // Two cards stacked vertically with a cut line between them
     win.document.write(`
       <html dir="ltr"><head><title>Shop Card ${card.cardNumber}</title>
       <style>
-        @page { size: 85.6mm 54mm; margin: 0; }
+        @page { size: A4 portrait; margin: 5mm; }
         html, body { margin: 0; padding: 0; }
-        body { width: 85.6mm; height: 54mm; }
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body {
+          width: 200mm;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: flex-start;
+          gap: 5mm;
+          padding-top: 5mm;
+          font-family: Tahoma, Arial, sans-serif;
+        }
         .card {
           width: 85.6mm;
           height: 54mm;
           border: 1px solid #000;
           display: flex;
           flex-direction: column;
-          font-family: Tahoma, Arial, sans-serif;
           overflow: hidden;
           color: #000;
           background: #fff;
+          page-break-inside: avoid;
         }
         .header {
           border-bottom: 1px solid #000;
@@ -1176,46 +1222,43 @@ function CardPrintDialog({
         .type-badge { border: 1px solid #000; padding: 0.3mm 1.5mm; font-size: 7px; font-weight: bold; color: #000; background: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
         .barcode { display: flex; justify-content: center; overflow: hidden; margin-top: 0.5mm; }
         .qr { display: flex; justify-content: center; margin-top: 0.5mm; }
+        .cut-line {
+          width: 200mm;
+          border-top: 1px dashed #999;
+          margin: 2mm 0;
+          position: relative;
+        }
+        .cut-line::after {
+          content: "✂ ---";
+          position: absolute;
+          left: 50%;
+          top: -8px;
+          transform: translateX(-50%);
+          background: #fff;
+          padding: 0 5px;
+          font-size: 10px;
+          color: #999;
+        }
       </style></head>
       <body>
-        <div class="card">
-          <div class="header">
-            <div class="shop-name">${escapeHtml(shopName)}</div>
-            <div class="shop-meta">
-              ${subName !== shopName ? escapeHtml(subName) : ""}${
-                shopAddress ? ` &bull; ${escapeHtml(shopAddress)}` : ""
-              }${shopPhone ? ` &bull; ${escapeHtml(shopPhone)}` : ""}
-            </div>
-          </div>
-          <div class="body">
-            <div class="holder-row">
-              <div style="display:flex;align-items:center;gap:0.5mm;">
-                <span style="font-size:8px;">&#9635;</span>
-                <span class="holder-name">${escapeHtml(card.name)}</span>
-              </div>
-              <span class="type-badge">${escapeHtml(cardTypeLabel)}</span>
-            </div>
-            <div class="barcode">
-              <svg id="barcode-svg"></svg>
-            </div>
-            <div class="qr">
-              <div style="display:flex;justify-content:center;align-items:flex-end;margin-top:0.5mm;">
-                <div style="width:10mm;height:10mm;">${qrImg}</div>
-                ${card.customerId ? `<div style="margin-left:1mm;font-size:6px;font-family:monospace;color:#555;line-height:1.2;"><span style="font-weight:bold;color:#333;font-size:6.5px;">${escapeHtml(card.customerId)}</span></div>` : ""}
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- Copy 1 — top corner -->
+        ${cardHtml}
+        <div class="cut-line"></div>
+        <!-- Copy 2 — bottom corner (identical) -->
+        ${cardHtml}
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         <script>
           try {
-            JsBarcode('#barcode-svg', '${escapeHtml(card.cardNumber)}', {
-              format: 'CODE128',
-              width: 1.2,
-              height: 38,
-              displayValue: true,
-              fontSize: 10,
-              textMargin: 1,
+            var svgs = document.querySelectorAll('.barcode-svg');
+            svgs.forEach(function(svg) {
+              JsBarcode(svg, '${escapeHtml(card.cardNumber)}', {
+                format: 'CODE128',
+                width: 1.2,
+                height: 38,
+                displayValue: true,
+                fontSize: 10,
+                textMargin: 1,
+              });
             });
           } catch (e) {
             console.error('barcode error', e);

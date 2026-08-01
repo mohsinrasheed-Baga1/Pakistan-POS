@@ -1,8 +1,14 @@
 {
-  "version": "2.7.48",
+  "version": "2.7.49",
   "changelog": [
-    "FIXED: Settings version display — now uses build-time env variable (NEXT_PUBLIC_APP_VERSION)",
-    "FIXED: Version is inlined at build time, no filesystem access needed at runtime",
-    "This fixes the issue where Settings showed v2.7.31 even when v2.7.47 was installed"
+    "REDESIGN: Load & Bill — SIM cards as products with balance, receive load adds, sell load auto-deducts, remaining balance always visible",
+    "NEW: Search bar in Load and SIM tabs — search by company, phone, or customer",
+    "NEW: Sell Load dialog shows current balance + remaining after sale (بقایا)",
+    "NEW: Receive Load dialog shows current balance + new balance after receive",
+    "NEW: Bill Payment — daily total collection, profit, and due summary at top",
+    "NEW: Wallet — multiple JazzCash/Easypaisa/Bank accounts, each shows balance + after-txn balance",
+    "NEW: SIM Management — New SIM and Replacement stock separate, search by phone/customer",
+    "NEW: Shop Card print — A4 portrait, 2 identical copies corner-to-corner with cut line",
+    "FIXED: Settings version display — build-time env variable (NEXT_PUBLIC_APP_VERSION)"
   ]
 }
