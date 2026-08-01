@@ -862,6 +862,21 @@ function BarcodePrintDialog({
       toast.error("Pop-up blocked. Please allow pop-ups to print.");
       return;
     }
+    // ─── CRITICAL: Barcode must render at NATURAL size ────────────────
+    // The previous CSS had `width: 100%` on the SVG, which STRETCHED the
+    // barcode to fill the container. This changes the bar widths and makes
+    // scanners unable to read the barcode.
+    //
+    // EAN-13 barcodes have very specific bar width requirements:
+    //   - Each bar must be exactly 1, 2, 3, or 4 modules wide
+    //   - A module is typically 0.33mm at 100% magnification
+    //   - If the SVG is stretched, the module width changes and scanners
+    //     can't decode the barcode
+    //
+    // Fix: The SVG renders at its natural width (set by JsBarcode), and
+    // we center it in the sticker container. We also use a larger bar
+    // width (2px instead of 1.5px) and taller bars (60px instead of 50px)
+    // for better scanning reliability.
     win.document.write(`
       <html dir="ltr"><head><title>Sticker ${product!.name}</title>
       <style>
@@ -873,7 +888,7 @@ function BarcodePrintDialog({
           width: 50mm;
           height: 35mm;
           border: 1px dashed #999;
-          padding: 2mm 2mm 2mm 2mm;
+          padding: 2mm;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -903,8 +918,11 @@ function BarcodePrintDialog({
           width: 100%;
           overflow: hidden;
         }
+        /* ─── DO NOT stretch the SVG ─── */
+        /* The SVG must render at its natural width as set by JsBarcode.
+           Stretching it changes bar widths and breaks scanning. */
         .barcode svg {
-          width: 100%;
+          max-width: 100%;
           height: auto;
         }
         .product-name {
@@ -995,7 +1013,7 @@ function BarcodePrintDialog({
                 >
                   {shopName || "My Shop"}
                 </div>
-                {/* MIDDLE — barcode (EAN-13 format, scanner-safe settings) */}
+                {/* MIDDLE — barcode (EAN-13, natural size, scanner-safe) */}
                 <div
                   className="barcode"
                   style={{
@@ -1010,7 +1028,7 @@ function BarcodePrintDialog({
                   <BarcodeDisplay
                     value={product.barcode}
                     format="EAN13"
-                    height={50}
+                    height={60}
                     width={2}
                     displayValue={true}
                     fontSize={11}

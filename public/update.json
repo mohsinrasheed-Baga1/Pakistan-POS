@@ -1,11 +1,9 @@
 {
-  "version": "2.7.50",
+  "version": "2.7.51",
   "changelog": [
-    "FIXED: Load & Bill failed to load — each API fetch is now independent (one failing doesn't break all)",
-    "FIXED: Shop Card print — cards now centered on A4 page (justify-content: center)",
-    "FIXED: Check Update — now ALWAYS fetches from GitHub Releases API (not local latest.yml)",
-    "FIXED: Check Update — if newer version found, opens download URL in browser",
-    "NEW: Electron preload — openExternal IPC handler for opening URLs in browser",
-    "FIXED: Preload version updated from 2.7.31 to 2.7.50"
+    "FIXED: Barcode scanner can't read printed sticker — SVG was being stretched by width:100% CSS",
+    "FIXED: Print CSS now uses max-width:100% instead of width:100% — barcode renders at natural size",
+    "IMPROVED: Barcode height increased from 50px to 60px for better scanning from angles",
+    "EAN-13 format confirmed as permanent standard — 13 digits with checksum, clear bars"
   ]
 }

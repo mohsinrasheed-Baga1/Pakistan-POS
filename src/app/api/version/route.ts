@@ -5,6 +5,6 @@ import { NextResponse } from "next/server";
 // This works in both dev mode and the Electron standalone build because
 // the value is inlined as a string literal — no filesystem access at runtime.
 export async function GET() {
-  const version = process.env.NEXT_PUBLIC_APP_VERSION || "2.7.50";
+  const version = process.env.NEXT_PUBLIC_APP_VERSION || "2.7.51";
   return NextResponse.json({ version });
 }
