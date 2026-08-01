@@ -386,6 +386,16 @@ if (!gotLock) {
     }
   });
 
+  // Open a URL in the default browser (used by Check Updates download)
+  ipcMain.handle("pos:open-external", async (_evt, url) => {
+    if (typeof url !== "string" || !url) return;
+    try {
+      await shell.openExternal(url);
+    } catch (e) {
+      console.error("[POS] Failed to open external URL:", e);
+    }
+  });
+
   app.on("second-instance", () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();

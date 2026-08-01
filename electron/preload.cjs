@@ -2,10 +2,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("posElectron", {
-  version: "2.7.31",
+  version: "2.7.50",
   platform: process.platform,
   // Open a folder in the OS file explorer (used by Multi-Computer Sharing)
   openPath: (p) => ipcRenderer.invoke("pos:open-path", p),
+  // Open a URL in the default browser (used by Check Updates download)
+  openExternal: (url) => ipcRenderer.invoke("pos:open-external", url),
 
   // Google Drive Cloud Backup API
   googleDrive: {

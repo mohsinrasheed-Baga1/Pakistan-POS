@@ -83,14 +83,22 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
   React.useEffect(() => {
     (async () => {
       try {
-        const [loadRes, billRes, walletRes] = await Promise.all([
-          fetch("/api/load-bill/mobile-load?limit=500", { cache: "no-store" }),
-          fetch("/api/load-bill/bill-payment?limit=500", { cache: "no-store" }),
-          fetch("/api/load-bill/wallet?limit=500", { cache: "no-store" }),
-        ]);
-        const loads = (await loadRes.json()).transactions || [];
-        const bills = (await billRes.json()).transactions || [];
-        const wallets = (await walletRes.json()).transactions || [];
+        // Fetch each endpoint separately so one failing doesn't break all
+        let loads: any[] = [];
+        let bills: any[] = [];
+        let wallets: any[] = [];
+        try {
+          const r = await fetch("/api/load-bill/mobile-load?limit=500", { cache: "no-store" });
+          if (r.ok) { const d = await r.json(); loads = d.transactions || []; }
+        } catch {}
+        try {
+          const r = await fetch("/api/load-bill/bill-payment?limit=500", { cache: "no-store" });
+          if (r.ok) { const d = await r.json(); bills = d.transactions || d.payments || []; }
+        } catch {}
+        try {
+          const r = await fetch("/api/load-bill/wallet?limit=500", { cache: "no-store" });
+          if (r.ok) { const d = await r.json(); wallets = d.transactions || []; }
+        } catch {}
 
         const today = new Date(); today.setHours(0, 0, 0, 0);
         const isToday = (d: string) => new Date(d) >= today;
@@ -220,12 +228,19 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const [c, t] = await Promise.all([
-        fetch("/api/load-bill/companies", { cache: "no-store" }),
-        fetch("/api/load-bill/mobile-load?limit=50", { cache: "no-store" }),
-      ]);
-      const cd = await c.json(); const td = await t.json();
-      setCompanies(cd.companies || []); setTxns(td.transactions || []);
+      // Fetch separately so one failing doesn't break the other
+      let cd: any = { companies: [] };
+      let td: any = { transactions: [] };
+      try {
+        const r = await fetch("/api/load-bill/companies", { cache: "no-store" });
+        if (r.ok) cd = await r.json();
+      } catch {}
+      try {
+        const r = await fetch("/api/load-bill/mobile-load?limit=50", { cache: "no-store" });
+        if (r.ok) td = await r.json();
+      } catch {}
+      setCompanies(cd.companies || []);
+      setTxns(td.transactions || []);
     } catch { toast.error("Failed to load"); }
     finally { setLoading(false); }
   }, []);
@@ -559,12 +574,18 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const [a, t] = await Promise.all([
-        fetch("/api/load-bill/wallet-accounts", { cache: "no-store" }),
-        fetch("/api/load-bill/wallet?limit=30", { cache: "no-store" }),
-      ]);
-      const ad = await a.json(); const td = await t.json();
-      setAccounts(ad.accounts || []); setTxns(td.transactions || []);
+      let ad: any = { accounts: [] };
+      let td: any = { transactions: [] };
+      try {
+        const r = await fetch("/api/load-bill/wallet-accounts", { cache: "no-store" });
+        if (r.ok) ad = await r.json();
+      } catch {}
+      try {
+        const r = await fetch("/api/load-bill/wallet?limit=30", { cache: "no-store" });
+        if (r.ok) td = await r.json();
+      } catch {}
+      setAccounts(ad.accounts || []);
+      setTxns(td.transactions || []);
     } catch { toast.error("Failed"); }
     finally { setLoading(false); }
   }, []);

@@ -1190,12 +1190,12 @@ function CardPrintDialog({
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         body {
           width: 200mm;
+          min-height: 287mm;
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: flex-start;
+          justify-content: center;
           gap: 5mm;
-          padding-top: 5mm;
           font-family: Tahoma, Arial, sans-serif;
         }
         .card {
