@@ -862,24 +862,26 @@ function BarcodePrintDialog({
       return;
     }
 
-    // ─── PROFESSIONAL BARCODE: bwip-js (Canvas-based, pixel-perfect) ───
-    // bwip-js is the same barcode engine used by professional label
-    // printers (Zebra, Dymo) and retail packaging (Dalda, LU, Mitchell's).
-    // It renders directly to a Canvas element at exact pixel dimensions,
-    // then converts to PNG. The PNG has fixed pixel dimensions that the
-    // browser prints at exactly the specified mm size — no SVG scaling
-    // issues, no thin bars.
+    // ─── PROFESSIONAL BARCODE: JsBarcode → Canvas → PNG ───────────────
+    // JsBarcode renders to a Canvas element (not SVG). Canvas gives us
+    // pixel-perfect bars that don't get scaled by the browser. We then
+    // convert the Canvas to a PNG image and display it at exact physical
+    // mm dimensions (44mm × 20mm) in the print CSS.
     //
-    // EAN-13 at scale=3 means:
-    //   - Module width = 3 pixels = 0.383mm at 200 DPI (standard printer)
-    //   - Bar height = 72 pixels = 9.1mm (sufficient for scanning)
-    //   - Total width = 345px = ~44mm (fits 50mm sticker)
-    //   - Quiet zone = 15px each side (3.8mm — well above 3.05mm minimum)
+    // This is the same approach used by professional label printers:
+    //   1. Render barcode to Canvas at high resolution
+    //   2. Convert Canvas to PNG (fixed pixel dimensions)
+    //   3. Display PNG as <img> with CSS width/height in mm
+    //   4. Browser prints the image at exactly that physical size
     //
-    // The PNG image is set to width=44mm height=20mm in the print CSS,
-    // which tells the printer to output at EXACTLY that physical size.
+    // EAN-13 settings:
+    //   - width: 3 (3px per module = 0.383mm at 200 DPI — above 0.33mm minimum)
+    //   - height: 80 (80px bar height = ~10mm — sufficient for scanning)
+    //   - margin: 15 (15px quiet zone = ~1.9mm — above 1.5mm minimum)
+    //   - fontSize: 14 (bold, readable digits below bars)
 
     const barcodeValue = product!.barcode;
+    const bcValue = barcodeValue;
 
     // Build sticker HTML with canvas elements
     const stickers = Array.from({ length: count }, (_, i) => i).map(i => `
@@ -928,7 +930,6 @@ function BarcodePrintDialog({
           width: 100%;
           flex-shrink: 0;
         }
-        /* Canvas → PNG image at exact physical mm size */
         .barcode img {
           width: 44mm;
           height: 20mm;
@@ -949,56 +950,50 @@ function BarcodePrintDialog({
       </style></head>
       <body>
         ${stickers}
-        <script src="https://cdn.jsdelivr.net/npm/bwip-js@4.11.2/dist/bwip-js-min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         <script>
           function renderBarcodes() {
-            if (typeof bwip === 'undefined' || !bwip.toCanvas) {
+            if (typeof JsBarcode === 'undefined') {
               setTimeout(renderBarcodes, 50);
               return;
             }
             ${Array.from({ length: count }, (_, i) => i).map(i => `
             try {
-              // Render EAN-13 barcode to canvas using bwip-js
-              // scale=3 means 3 pixels per module (0.383mm at 200 DPI)
-              // height=72 means bar height of 72 pixels (9.1mm)
-              // includeText=true adds the 13 digits below the bars
-              // guardWhitespaces adds proper quiet zones
+              // Render EAN-13 to a Canvas element (not SVG!)
+              // Canvas gives pixel-perfect bars that don't get scaled
               var canvas${i} = document.getElementById('bc${i}');
-              bwip.toCanvas(canvas${i}, {
-                bcid: 'ean13',
-                text: '${barcodeValue}',
-                scale: 3,
-                height: 72,
-                includeText: true,
-                textXAlign: 'center',
-                textYAlign: 'bottom',
-                textColor: '000000',
-                barColor: '000000',
-                backgroundColor: 'ffffff',
-                paddingWidth: 15,
-                paddingHeight: 5,
+              JsBarcode(canvas${i}, '${bcValue}', {
+                format: 'EAN13',
+                width: 3,
+                height: 80,
+                displayValue: true,
+                fontSize: 14,
+                margin: 15,
+                textMargin: 3,
+                font: 'monospace',
+                fontOptions: 'bold',
+                textAlign: 'center',
+                textPosition: 'bottom',
+                background: '#ffffff',
+                lineColor: '#000000',
               });
-              // Convert canvas to PNG and replace canvas with img
-              // This ensures the print window renders the barcode as a
-              // fixed-size image that won't be scaled by the browser
+              // Convert Canvas to PNG image
               var dataUrl${i} = canvas${i}.toDataURL('image/png');
               var img${i} = document.createElement('img');
               img${i}.src = dataUrl${i};
               canvas${i}.parentNode.replaceChild(img${i}, canvas${i});
             } catch(e) {
-              console.error('Barcode ${i} error:', e);
-              // Fallback: try CODE128
+              console.error('Barcode ${i} EAN-13 error:', e);
+              // Fallback: CODE128
               try {
                 var canvas${i}b = document.getElementById('bc${i}');
-                bwip.toCanvas(canvas${i}b, {
-                  bcid: 'code128',
-                  text: '${barcodeValue}',
-                  scale: 3,
-                  height: 72,
-                  includeText: true,
-                  textXAlign: 'center',
-                  paddingWidth: 15,
-                  paddingHeight: 5,
+                JsBarcode(canvas${i}b, '${bcValue}', {
+                  format: 'CODE128',
+                  width: 3,
+                  height: 80,
+                  displayValue: true,
+                  fontSize: 14,
+                  margin: 15,
                 });
                 var dataUrl${i}b = canvas${i}b.toDataURL('image/png');
                 var img${i}b = document.createElement('img');

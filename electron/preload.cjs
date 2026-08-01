@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("posElectron", {
-  version: "2.7.56",
+  version: "2.7.57",
   platform: process.platform,
   // Open a folder in the OS file explorer (used by Multi-Computer Sharing)
   openPath: (p) => ipcRenderer.invoke("pos:open-path", p),

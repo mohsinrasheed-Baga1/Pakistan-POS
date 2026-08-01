@@ -55,6 +55,8 @@ export function PosView({ settings }: PosViewProps) {
   const [lastSale, setLastSale] = React.useState<any>(null);
   const [scannedCard, setScannedCard] = React.useState<any>(null);
   const [cardLastTxn, setCardLastTxn] = React.useState<any>(null);
+  const [cardSearch, setCardSearch] = React.useState("");
+  const [cardSearchResults, setCardSearchResults] = React.useState<any[]>([]);
   const [receiptOpen, setReceiptOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [returnOpen, setReturnOpen] = React.useState(false);
@@ -108,6 +110,24 @@ export function PosView({ settings }: PosViewProps) {
     const t = setTimeout(loadProducts, 200);
     return () => clearTimeout(t);
   }, [loadProducts]);
+
+  // Search shop cards when user types in checkout card search
+  React.useEffect(() => {
+    if (!cardSearch.trim()) {
+      setCardSearchResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/cards?q=${encodeURIComponent(cardSearch)}`, { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          setCardSearchResults((data.cards || []).slice(0, 8));
+        }
+      } catch {}
+    }, 200);
+    return () => clearTimeout(t);
+  }, [cardSearch]);
 
   function addToCart(product: Product, qty: number = 1) {
     if (!product.active) {
@@ -1089,6 +1109,70 @@ export function PosView({ settings }: PosViewProps) {
               </div>
             </div>
 
+            {/* ─── Shop Card selector with search ─── */}
+            {/* User can search for a customer's shop card and link it to the sale */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1">
+                <CreditCard className="w-3 h-3" />
+                Shop Card (optional)
+              </Label>
+              {scannedCard ? (
+                <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-2">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-emerald-600" />
+                    <div>
+                      <div className="text-sm font-medium">{scannedCard.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {scannedCard.cardNumber} • Balance: Rs {(scannedCard.balance || 0).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 text-red-600" onClick={() => { setScannedCard(null); setCardLastTxn(null); cart.setSaleType("RETAIL"); }}>
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                  <Input
+                    placeholder="Search customer card by name or number..."
+                    value={cardSearch}
+                    onChange={(e) => setCardSearch(e.target.value)}
+                    className="pl-8 h-9 text-sm"
+                  />
+                  {cardSearch && cardSearchResults.length > 0 && (
+                    <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border bg-white shadow-lg">
+                      {cardSearchResults.map((c: any) => (
+                        <button
+                          key={c.id}
+                          className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b last:border-0"
+                          onClick={() => {
+                            setScannedCard(c);
+                            setCardSearch("");
+                            // Auto-select sale mode based on card type
+                            if (c.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
+                            else if (c.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
+                            else cart.setSaleType("RETAIL");
+                            // Fetch last transaction
+                            fetch(`/api/cards/${c.id}/transactions?limit=1`, { cache: "no-store" })
+                              .then(r => r.json())
+                              .then(d => setCardLastTxn(d.transactions?.[0] || null))
+                              .catch(() => {});
+                          }}
+                        >
+                          <div className="text-sm font-medium">{c.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {c.cardNumber} • {c.type === "SHOP_KEEPER" ? "Shopkeeper" : c.type === "WHOLESALE" ? "Wholesale" : "Regular"}
+                            {" • Bal: Rs "}{(c.balance || 0).toLocaleString()}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-3 gap-2">
               {[
                 { v: "CASH", label: "Cash", icon: Banknote },
@@ -1427,12 +1511,15 @@ function CalculatorDialog({ open, onOpenChange }: CalculatorDialogProps) {
   const [previousValue, setPreviousValue] = React.useState<number | null>(null);
   const [operation, setOperation] = React.useState<string | null>(null);
   const [waitingForOperand, setWaitingForOperand] = React.useState(false);
+  // History of all entered numbers and operations — e.g. "345 + 35 + 345 + 454 + 64"
+  const [history, setHistory] = React.useState<string>("");
 
   function reset() {
     setDisplay("0");
     setPreviousValue(null);
     setOperation(null);
     setWaitingForOperand(false);
+    setHistory("");
   }
 
   React.useEffect(() => {
@@ -1459,7 +1546,7 @@ function CalculatorDialog({ open, onOpenChange }: CalculatorDialogProps) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, display, previousValue, operation, waitingForOperand]);
+  }, [open, display, previousValue, operation, waitingForOperand, history]);
 
   function inputDigit(d: string) {
     if (waitingForOperand) {
@@ -1513,6 +1600,12 @@ function CalculatorDialog({ open, onOpenChange }: CalculatorDialogProps) {
 
   function performOperation(nextOp: string) {
     const current = parseFloat(display);
+    // Append to history: "345 + 35 + ..."
+    if (history === "") {
+      setHistory(`${current} ${nextOp}`);
+    } else {
+      setHistory(`${history} ${current} ${nextOp}`);
+    }
     if (previousValue === null) {
       setPreviousValue(current);
     } else if (operation && !waitingForOperand) {
@@ -1528,6 +1621,8 @@ function CalculatorDialog({ open, onOpenChange }: CalculatorDialogProps) {
     if (operation === null || previousValue === null) return;
     const current = parseFloat(display);
     const result = compute(previousValue, current, operation);
+    // Final history: "345 + 35 + 345 + 454 + 64 = 1243"
+    setHistory(`${history} ${current} =`);
     setDisplay(Number.isFinite(result) ? String(result) : "Error");
     setPreviousValue(null);
     setOperation(null);
@@ -1543,12 +1638,15 @@ function CalculatorDialog({ open, onOpenChange }: CalculatorDialogProps) {
           <DialogTitle>Calculator</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="bg-muted rounded-lg p-4 text-right">
-            <div className="text-xs text-muted-foreground h-4 truncate">
-              {previousValue !== null && operation
-                ? `${previousValue} ${operation}`
-                : ""}
-            </div>
+          {/* Display area — shows history (all entered numbers) + current total */}
+          <div className="bg-muted rounded-lg p-4 text-right space-y-1">
+            {/* History line: shows all entered numbers and operations */}
+            {history && (
+              <div className="text-xs text-muted-foreground truncate font-mono">
+                {history}
+              </div>
+            )}
+            {/* Current value / total */}
             <div className="text-3xl font-mono font-bold tracking-tight truncate">
               {display}
             </div>

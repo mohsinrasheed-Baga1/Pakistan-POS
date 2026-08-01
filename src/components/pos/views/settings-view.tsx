@@ -2878,7 +2878,7 @@ function SoftwareUpdatesCard() {
           }
         }
       } catch {}
-      setCurrentVersion("2.7.56");
+      setCurrentVersion("2.7.57");
     }
     fetchVersion();
   }, []);
@@ -2989,7 +2989,7 @@ function SoftwareUpdatesCard() {
     setErrorMsg("");
   }
 
-  const displayVersion = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "2.7.56";
+  const displayVersion = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "2.7.57";
 
   return (
     <Card className="shadow-sm">
