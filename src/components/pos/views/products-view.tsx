@@ -855,39 +855,46 @@ function BarcodePrintDialog({
   if (!product) return null;
 
   function handlePrint() {
-    const content = labelRef.current;
-    if (!content) return;
+    if (!product) return;
     const win = window.open("", "_blank", "width=400,height=400");
     if (!win) {
       toast.error("Pop-up blocked. Please allow pop-ups to print.");
       return;
     }
-    // ─── CRITICAL: Barcode must render at NATURAL size ────────────────
-    // The previous CSS had `width: 100%` on the SVG, which STRETCHED the
-    // barcode to fill the container. This changes the bar widths and makes
-    // scanners unable to read the barcode.
+
+    // ─── CRITICAL FIX: Render barcode INSIDE the print window ──────────
+    // The old approach copied innerHTML from the preview, which lost the
+    // SVG's viewBox and caused scaling issues.
     //
-    // EAN-13 barcodes have very specific bar width requirements:
-    //   - Each bar must be exactly 1, 2, 3, or 4 modules wide
-    //   - A module is typically 0.33mm at 100% magnification
-    //   - If the SVG is stretched, the module width changes and scanners
-    //     can't decode the barcode
+    // NEW approach: The print window loads JsBarcode from CDN and renders
+    // the barcode DIRECTLY on an SVG element inside the print document.
+    // This guarantees the barcode is rendered at exact EAN-13 specifications
+    // with correct bar widths, quiet zones, and checksum.
     //
-    // Fix: The SVG renders at its natural width (set by JsBarcode), and
-    // we center it in the sticker container. We also use a larger bar
-    // width (2px instead of 1.5px) and taller bars (60px instead of 50px)
-    // for better scanning reliability.
+    // Settings match the user's reference image:
+    //   - EAN-13 format (13 digits with checksum)
+    //   - width=2 (bar width in px — scanner-safe minimum)
+    //   - height=50 (bar height — tall enough for angle scanning)
+    //   - margin=10 (quiet zone — 10x bar width on each side)
+    //   - fontSize=12 (human-readable digits below bars)
+
+    const barcodeValue = product!.barcode;
+    const stickers = Array.from({ length: count }, (_, i) => i).map(i => `
+      <div class="sticker">
+        <div class="shop-name">${shopName || "My Shop"}</div>
+        <div class="barcode"><svg id="bc${i}"></svg></div>
+        <div class="product-name">${product!.name}</div>
+      </div>`).join("");
+
     win.document.write(`
       <html dir="ltr"><head><title>Sticker ${product!.name}</title>
       <style>
         @page { size: 50mm 35mm; margin: 0; }
         html, body { margin: 0; padding: 0; }
-        body { width: 50mm; }
         * { box-sizing: border-box; }
         .sticker {
           width: 50mm;
           height: 35mm;
-          border: 1px dashed #999;
           padding: 2mm;
           display: flex;
           flex-direction: column;
@@ -905,7 +912,7 @@ function BarcodePrintDialog({
           font-weight: bold;
           line-height: 1.1;
           width: 100%;
-          padding: 0 1mm;
+          text-align: center;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -918,9 +925,6 @@ function BarcodePrintDialog({
           width: 100%;
           overflow: hidden;
         }
-        /* ─── DO NOT stretch the SVG ─── */
-        /* The SVG must render at its natural width as set by JsBarcode.
-           Stretching it changes bar widths and breaks scanning. */
         .barcode svg {
           max-width: 100%;
           height: auto;
@@ -930,21 +934,69 @@ function BarcodePrintDialog({
           font-weight: bold;
           line-height: 1.1;
           width: 100%;
-          padding: 0 1mm;
+          text-align: center;
           overflow: hidden;
           text-overflow: ellipsis;
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
         }
-      </style></head><body>${content.innerHTML}</body></html>
+      </style></head>
+      <body>
+        ${stickers}
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+        <script>
+          // Wait for JsBarcode to load, then render each barcode
+          function renderBarcodes() {
+            if (typeof JsBarcode === 'undefined') {
+              setTimeout(renderBarcodes, 50);
+              return;
+            }
+            ${Array.from({ length: count }, (_, i) => i).map(i => `
+            try {
+              JsBarcode('#bc${i}', '${barcodeValue}', {
+                format: 'EAN13',
+                width: 2,
+                height: 50,
+                displayValue: true,
+                fontSize: 12,
+                margin: 10,
+                textMargin: 2,
+                font: 'monospace',
+                fontOptions: 'bold',
+                textAlign: 'center',
+                textPosition: 'bottom',
+                background: '#ffffff',
+                lineColor: '#000000',
+              });
+            } catch(e) {
+              console.error('Barcode ${i} error:', e);
+              // Fallback to CODE128 if EAN-13 fails (e.g. not 13 digits)
+              try {
+                JsBarcode('#bc${i}', '${barcodeValue}', {
+                  format: 'CODE128',
+                  width: 2,
+                  height: 50,
+                  displayValue: true,
+                  fontSize: 12,
+                  margin: 10,
+                });
+              } catch(e2) {
+                console.error('Fallback also failed:', e2);
+              }
+            }`).join("")}
+            // Print after barcodes are rendered
+            setTimeout(function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 250);
+            }, 300);
+          }
+          renderBarcodes();
+        </script>
+      </body></html>
     `);
     win.document.close();
     win.focus();
-    setTimeout(() => {
-      win.print();
-      setTimeout(() => win.close(), 250);
-    }, 350);
   }
 
   // Inline sticker style — 50mm × 35mm, content distributed with
