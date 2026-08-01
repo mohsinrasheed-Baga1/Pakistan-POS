@@ -862,32 +862,18 @@ function BarcodePrintDialog({
       return;
     }
 
-    // ─── PROFESSIONAL BARCODE: JsBarcode → Canvas → PNG ───────────────
-    // JsBarcode renders to a Canvas element (not SVG). Canvas gives us
-    // pixel-perfect bars that don't get scaled by the browser. We then
-    // convert the Canvas to a PNG image and display it at exact physical
-    // mm dimensions (44mm × 20mm) in the print CSS.
-    //
-    // This is the same approach used by professional label printers:
-    //   1. Render barcode to Canvas at high resolution
-    //   2. Convert Canvas to PNG (fixed pixel dimensions)
-    //   3. Display PNG as <img> with CSS width/height in mm
-    //   4. Browser prints the image at exactly that physical size
-    //
-    // EAN-13 settings:
-    //   - width: 3 (3px per module = 0.383mm at 200 DPI — above 0.33mm minimum)
-    //   - height: 80 (80px bar height = ~10mm — sufficient for scanning)
-    //   - margin: 15 (15px quiet zone = ~1.9mm — above 1.5mm minimum)
-    //   - fontSize: 14 (bold, readable digits below bars)
+    // ─── EXACT SAME APPROACH AS SHOP CARD ──────────────────────────────
+    // Shop Card barcode works perfectly — scanner reads it instantly.
+    // We copy that EXACT same approach here: SVG element + JsBarcode
+    // render directly on SVG. No Canvas, no PNG conversion, no mm
+    // dimensions. Just simple JsBarcode on SVG like Shop Card does.
 
-    const barcodeValue = product!.barcode;
-    const bcValue = barcodeValue;
+    const bcValue = product!.barcode;
 
-    // Build sticker HTML with canvas elements
     const stickers = Array.from({ length: count }, (_, i) => i).map(i => `
       <div class="sticker">
         <div class="shop-name">${shopName || "My Shop"}</div>
-        <div class="barcode"><canvas id="bc${i}"></canvas></div>
+        <div class="barcode"><svg class="barcode-svg" id="svg${i}"></svg></div>
         <div class="product-name">${product!.name}</div>
       </div>`).join("");
 
@@ -900,11 +886,11 @@ function BarcodePrintDialog({
         .sticker {
           width: 50mm;
           height: 35mm;
-          padding: 1.5mm 2mm;
+          padding: 2mm;
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: space-between;
+          justify-content: space-evenly;
           font-family: Tahoma, Arial, sans-serif;
           color: #000;
           background: #fff;
@@ -921,18 +907,12 @@ function BarcodePrintDialog({
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          flex-shrink: 0;
         }
         .barcode {
           display: flex;
           align-items: center;
           justify-content: center;
           width: 100%;
-          flex-shrink: 0;
-        }
-        .barcode img {
-          width: 44mm;
-          height: 20mm;
         }
         .product-name {
           font-size: 8px;
@@ -945,71 +925,51 @@ function BarcodePrintDialog({
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
-          flex-shrink: 0;
         }
       </style></head>
       <body>
         ${stickers}
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         <script>
-          function renderBarcodes() {
-            if (typeof JsBarcode === 'undefined') {
-              setTimeout(renderBarcodes, 50);
-              return;
-            }
-            ${Array.from({ length: count }, (_, i) => i).map(i => `
-            try {
-              // Render EAN-13 to a Canvas element (not SVG!)
-              // Canvas gives pixel-perfect bars that don't get scaled
-              var canvas${i} = document.getElementById('bc${i}');
-              JsBarcode(canvas${i}, '${bcValue}', {
+          try {
+            var svgs = document.querySelectorAll('.barcode-svg');
+            svgs.forEach(function(svg) {
+              JsBarcode(svg, '${bcValue}', {
                 format: 'EAN13',
-                width: 3,
-                height: 80,
+                width: 2,
+                height: 50,
                 displayValue: true,
-                fontSize: 14,
-                margin: 15,
-                textMargin: 3,
-                font: 'monospace',
-                fontOptions: 'bold',
-                textAlign: 'center',
-                textPosition: 'bottom',
-                background: '#ffffff',
-                lineColor: '#000000',
+                fontSize: 12,
+                margin: 10,
+                textMargin: 2,
               });
-              // Convert Canvas to PNG image
-              var dataUrl${i} = canvas${i}.toDataURL('image/png');
-              var img${i} = document.createElement('img');
-              img${i}.src = dataUrl${i};
-              canvas${i}.parentNode.replaceChild(img${i}, canvas${i});
-            } catch(e) {
-              console.error('Barcode ${i} EAN-13 error:', e);
-              // Fallback: CODE128
-              try {
-                var canvas${i}b = document.getElementById('bc${i}');
-                JsBarcode(canvas${i}b, '${bcValue}', {
+            });
+          } catch (e) {
+            console.error('barcode error', e);
+            // Fallback to CODE128 if EAN-13 fails
+            try {
+              var svgs2 = document.querySelectorAll('.barcode-svg');
+              svgs2.forEach(function(svg) {
+                JsBarcode(svg, '${bcValue}', {
                   format: 'CODE128',
-                  width: 3,
-                  height: 80,
+                  width: 2,
+                  height: 50,
                   displayValue: true,
-                  fontSize: 14,
-                  margin: 15,
+                  fontSize: 12,
+                  margin: 10,
+                  textMargin: 2,
                 });
-                var dataUrl${i}b = canvas${i}b.toDataURL('image/png');
-                var img${i}b = document.createElement('img');
-                img${i}b.src = dataUrl${i}b;
-                canvas${i}b.parentNode.replaceChild(img${i}b, canvas${i}b);
-              } catch(e2) {
-                console.error('Fallback also failed:', e2);
-              }
-            }`).join("")}
-            // Print after all barcodes are rendered
-            setTimeout(function() {
-              window.print();
-              setTimeout(function() { window.close(); }, 300);
-            }, 500);
+              });
+            } catch (e2) {
+              console.error('fallback error', e2);
+            }
           }
-          renderBarcodes();
+          window.onload = function () {
+            setTimeout(function () {
+              window.print();
+              setTimeout(function () { window.close(); }, 250);
+            }, 400);
+          };
         </script>
       </body></html>
     `);
