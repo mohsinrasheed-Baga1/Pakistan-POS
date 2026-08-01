@@ -2846,18 +2846,28 @@ function SoftwareUpdatesCard() {
   const [updateInfo, setUpdateInfo] = React.useState<UpdateInfo | null>(null);
   const [progress, setProgress] = React.useState(0);
   const [errorMsg, setErrorMsg] = React.useState("");
-  const [currentVersion, setCurrentVersion] = React.useState("");
+  // Get current version — try multiple sources in priority order:
+  // 1. NEXT_PUBLIC_APP_VERSION (build-time env, always available)
+  // 2. Electron preload (window.posElectron.version)
+  // 3. /api/version endpoint (server-side)
+  // 4. Hardcoded fallback
+  const [currentVersion, setCurrentVersion] = React.useState(
+    process.env.NEXT_PUBLIC_APP_VERSION || ""
+  );
 
-  // Get current version from preload (preferred) or package.json (fallback)
   React.useEffect(() => {
+    // If we already have the version from build-time env, use it
+    if (process.env.NEXT_PUBLIC_APP_VERSION) {
+      setCurrentVersion(process.env.NEXT_PUBLIC_APP_VERSION);
+      return;
+    }
+    // Try Electron preload
+    if (typeof window !== "undefined" && window.posElectron?.version) {
+      setCurrentVersion(window.posElectron.version);
+      return;
+    }
+    // Fallback: fetch from /api/version
     async function fetchVersion() {
-      // First try the Electron preload (most accurate — set by main process)
-      if (typeof window !== "undefined" && window.posElectron?.version) {
-        setCurrentVersion(window.posElectron.version);
-        return;
-      }
-      // Fallback: fetch from package.json via the Next.js API
-      // This ensures we always have a version, even in dev/browser mode
       try {
         const res = await fetch("/api/version", { cache: "no-store" });
         if (res.ok) {
@@ -2868,8 +2878,7 @@ function SoftwareUpdatesCard() {
           }
         }
       } catch {}
-      // Last resort: use a hardcoded fallback (will be wrong but non-empty)
-      setCurrentVersion("2.7.47");
+      setCurrentVersion("2.7.48");
     }
     fetchVersion();
   }, []);
@@ -2982,7 +2991,7 @@ function SoftwareUpdatesCard() {
     setErrorMsg("");
   }
 
-  const displayVersion = currentVersion || "2.7.47";
+  const displayVersion = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "2.7.48";
 
   return (
     <Card className="shadow-sm">

@@ -1,17 +1,8 @@
 {
-  "version": "2.7.47",
+  "version": "2.7.48",
   "changelog": [
-    "COMPLETE REDESIGN: Load & Bill Management module — professional POS-style interface",
-    "NEW: Dashboard Summary — today's total load, bills, wallet received/sent, profit, due, grand total",
-    "NEW: Load Management — receive load from company, sell with extra charges + due tracking, live company balances",
-    "NEW: Bill Payment — amount + service charge + due tracking, auto-separates bill amount from profit",
-    "NEW: Digital Wallet Management — multiple JazzCash/Easypaisa/Bank accounts, receive/send with charges, per-account ledger",
-    "NEW: SIM Management — add SIMs to stock (New/Replacement), sell SIMs, per-company stock summary",
-    "NEW: Unified Checkout — every transaction shows live total (amount + charges) before confirming",
-    "NEW: Reports tab — load/bill/wallet/SIM profit summary, total due, grand total profit",
-    "NEW: Due tracking on all transaction types (load, bill, wallet) — record partial payments",
-    "NEW: Database tables: WalletAccount (multiple accounts), SimStock (SIM inventory)",
-    "NEW: API endpoints: /api/load-bill/wallet-accounts (CRUD), /api/load-bill/sim-stock (CRUD + sell)",
-    "FIXED: Settings version display — reads package.json from filesystem at runtime"
+    "FIXED: Settings version display — now uses build-time env variable (NEXT_PUBLIC_APP_VERSION)",
+    "FIXED: Version is inlined at build time, no filesystem access needed at runtime",
+    "This fixes the issue where Settings showed v2.7.31 even when v2.7.47 was installed"
   ]
 }
