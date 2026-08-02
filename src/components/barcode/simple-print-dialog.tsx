@@ -39,6 +39,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
   const { settings, loading: settingsLoading } = useBarcodeSettings();
   const [count, setCount] = React.useState(1);
   const barcodeSvgRef = React.useRef<SVGSVGElement>(null);
+  const [barcodeReady, setBarcodeReady] = React.useState(false);
 
   // Fetch shop settings if not provided
   const [fetchedShopName, setFetchedShopName] = React.useState(shopName || "My Shop");
@@ -61,10 +62,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     const isEan13 = /^\d{13}$/.test(barcodeValue);
     const format = isEan13 ? "EAN13" : "CODE128";
 
-    // Load JsBarcode dynamically
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
-    script.onload = () => {
+    const renderFn = () => {
       if (!barcodeSvgRef.current || !(window as any).JsBarcode) return;
       try {
         (window as any).JsBarcode(barcodeSvgRef.current, barcodeValue, {
@@ -82,9 +80,9 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
           background: "#ffffff",
           lineColor: "#000000",
         });
+        setBarcodeReady(true); // trigger preview re-render
       } catch (e) {
         console.error("JsBarcode error:", e);
-        // Fallback to CODE128 if EAN13 fails
         try {
           (window as any).JsBarcode(barcodeSvgRef.current, barcodeValue, {
             format: "CODE128",
@@ -94,24 +92,31 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
             fontSize: 12,
             margin: 4,
           });
+          setBarcodeReady(true);
         } catch (e2) {
           console.error("JsBarcode fallback error:", e2);
         }
       }
     };
-    document.head.appendChild(script);
-    return () => { script.remove(); };
+
+    if ((window as any).JsBarcode) {
+      renderFn();
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
+      script.onload = renderFn;
+      document.head.appendChild(script);
+    }
   }, [product, settings, settingsLoading]);
 
   if (!product) return null;
 
   const { widthMm, heightMm } = getStickerDimensions(settings);
 
-  // Get SVG outer HTML for print
+  // Get SVG outer HTML for print — reads from the hidden ref element
   function getBarcodeSvgHtml(): string {
     if (!barcodeSvgRef.current) return "";
     const svg = barcodeSvgRef.current;
-    // Clone and add explicit width/height for print
     const clone = svg.cloneNode(true) as SVGElement;
     clone.setAttribute("style", "display:block;width:100%;height:auto;max-height:15mm;");
     clone.setAttribute("preserveAspectRatio", "xMidYMid meet");
@@ -286,6 +291,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
                 </div>
               ) : (
                 <div
+                  key={barcodeReady ? "ready" : "pending"} // forces re-render when barcodeReady changes
                   style={{
                     transform: `scale(${previewScale})`,
                     transformOrigin: "center",
@@ -303,7 +309,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
           </div>
 
           {/* Right: Controls */}
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
             <div>
               <Label className="text-xs font-medium">Product</Label>
               <div className="text-sm font-medium truncate" title={product.name}>{product.name}</div>
@@ -317,14 +323,15 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
               <div className="text-sm font-bold text-emerald-700">Rs {product.salePrice.toLocaleString()}</div>
             </div>
             <div>
-              <Label className="text-xs font-medium">Copies</Label>
+              <Label className="text-xs font-medium">تعداد / Copies</Label>
               <Input
                 type="number"
                 min={1}
                 max={500}
                 value={count}
                 onChange={(e) => setCount(Math.min(500, Math.max(1, Number(e.target.value) || 1)))}
-                className="h-9"
+                className="h-9 text-base font-bold"
+                autoFocus
               />
             </div>
           </div>

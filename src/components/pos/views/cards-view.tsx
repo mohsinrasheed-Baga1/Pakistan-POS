@@ -64,6 +64,7 @@ import {
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
+import { Receipt as ReceiptComponent } from "@/components/pos/receipt";
 // @ts-ignore - qrcode has no bundled types in this project
 import QRCode from "qrcode";
 import type { CustomerCard, CardTransaction, TransactionType, Settings } from "@/types";
@@ -115,6 +116,7 @@ export function CardsView({ userRole }: CardsViewProps) {
   const [detailTransactions, setDetailTransactions] = React.useState<CardTransaction[]>([]);
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [detailCardSales, setDetailCardSales] = React.useState<any[]>([]);
+  const [receiptSale, setReceiptSale] = React.useState<any | null>(null);
   const [txDialogOpen, setTxDialogOpen] = React.useState(false);
   const [txForm, setTxForm] = React.useState(emptyTxForm);
   const [txSaving, setTxSaving] = React.useState(false);
@@ -253,6 +255,16 @@ export function CardsView({ userRole }: CardsViewProps) {
   function openTxDialog(type?: TransactionType) {
     setTxForm({ ...emptyTxForm, type: type || emptyTxForm.type });
     setTxDialogOpen(true);
+  }
+
+  // View a sale's receipt — fetches full sale details (with items) then opens receipt dialog
+  async function viewSaleReceipt(saleId: string) {
+    try {
+      const res = await fetch(`/api/sales/${saleId}`, { cache: "no-store" });
+      if (!res.ok) { toast.error("Receipt not found"); return; }
+      const data = await res.json();
+      setReceiptSale(data.sale || data);
+    } catch { toast.error("Failed to load receipt"); }
   }
 
   async function handleTxSave() {
@@ -668,9 +680,19 @@ export function CardsView({ userRole }: CardsViewProps) {
         onClose={() => setPrintCard(null)}
       />
 
-      {/* Card Detail / Scan Summary Dialog */}
+      {/* Receipt Dialog — shows full sale receipt when clicked from purchase history */}
+      {receiptSale && (
+        <ReceiptComponent
+          sale={receiptSale}
+          settings={settings}
+          open={!!receiptSale}
+          onOpenChange={(o) => !o && setReceiptSale(null)}
+        />
+      )}
+
+      {/* Card Detail / Scan Summary Dialog — wider to fit all content */}
       <Dialog open={!!detailCard} onOpenChange={(o) => !o && setDetailCard(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wallet className="w-5 h-5 text-emerald-600" />
@@ -863,16 +885,24 @@ export function CardsView({ userRole }: CardsViewProps) {
                       </TableHeader>
                       <TableBody>
                         {detailCardSales.map((sale: any) => (
-                          <TableRow key={sale.id}>
+                          <TableRow
+                            key={sale.id}
+                            className="cursor-pointer hover:bg-emerald-50"
+                            onClick={() => viewSaleReceipt(sale.id)}
+                            title="Click to view receipt"
+                          >
                             <TableCell className="text-xs">
                               {new Date(sale.createdAt).toLocaleDateString("en-PK")}
                             </TableCell>
-                            <TableCell className="text-xs font-mono">{sale.invoiceNo}</TableCell>
+                            <TableCell className="text-xs font-mono text-blue-600 underline">{sale.invoiceNo}</TableCell>
                             <TableCell className="text-right font-medium">
                               {formatMoney(sale.total, currency)}
                             </TableCell>
                             <TableCell className="text-right text-xs">
                               {sale.items?.length || 0} items
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <Receipt className="w-3.5 h-3.5 text-emerald-600" />
                             </TableCell>
                           </TableRow>
                         ))}
