@@ -106,11 +106,16 @@ function generateSvg(format: BarcodeFormat, value: string, opts: GenerateOptions
 // PNG generation (base64)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generatePngBase64(format: BarcodeFormat, value: string, opts: GenerateOptions): string {
+async function generatePngBase64(format: BarcodeFormat, value: string, opts: GenerateOptions): Promise<{ base64: string; widthPx: number; heightPx: number }> {
   const bwipOpts = getBwipOptions(format, value, opts);
-  // bwip-js toBuffer returns a PNG Buffer synchronously
-  const pngBuffer = (bwipjs as any).toBuffer(bwipOpts);
-  return pngBuffer.toString("base64");
+  // bwip-js toBuffer returns a PROMISE (not synchronous Buffer)
+  // We must await it.
+  const pngBuffer: Buffer = await (bwipjs as any).toBuffer(bwipOpts);
+  const base64 = pngBuffer.toString("base64");
+  // Read PNG dimensions from IHDR (bytes 16-23)
+  const widthPx = pngBuffer.readUInt32BE(16);
+  const heightPx = pngBuffer.readUInt32BE(20);
+  return { base64, widthPx, heightPx };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,17 +211,12 @@ export async function generateBarcode(opts: GenerateOptions): Promise<GenerateRe
   for (const scale of scales) {
     try {
       const svg = generateSvg(format, value, { ...opts, scale });
-      const pngBase64 = generatePngBase64(format, value, { ...opts, scale });
+      const { base64: pngBase64, widthPx, heightPx } = await generatePngBase64(format, value, { ...opts, scale });
 
       // Calculate physical size in mm (for sticker layout)
-      // bwip-js PNG dimensions = scale * modules * 1px
       // At 72 DPI: 1px = 25.4/72 mm = 0.353mm
-      // For CODE128: ~50-100 modules depending on text length
-      const pngBuffer = Buffer.from(pngBase64, "base64");
-      const pngWidthPx = pngBuffer.readUInt32BE(16); // PNG IHDR width at offset 16
-      const pngHeightPx = pngBuffer.readUInt32BE(20); // PNG IHDR height at offset 20
-      const widthMm = (pngWidthPx * 25.4) / 72; // 72 DPI base, scale multiplies
-      const heightMm = (pngHeightPx * 25.4) / 72;
+      const widthMm = (widthPx * 25.4) / 72;
+      const heightMm = (heightPx * 25.4) / 72;
 
       let verified = true;
       if (shouldVerify) {
@@ -239,6 +239,7 @@ export async function generateBarcode(opts: GenerateOptions): Promise<GenerateRe
       }
       // Verification failed — try next scale
     } catch (e: any) {
+      console.error("[generateBarcode] scale", scale, "failed:", e.message);
       lastResult = {
         success: false,
         value,
