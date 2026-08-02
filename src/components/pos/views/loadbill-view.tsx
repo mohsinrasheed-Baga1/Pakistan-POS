@@ -765,9 +765,12 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
 
 // ═════════════════════════════════════════════════════════════════════════════
 // TAB 4: SIM MANAGEMENT — New SIM + Replacement, separate stock
+// When a SIM is sold, its costPrice is auto-deducted from the linked
+// MobileLoadCompany's balance (represents paying back company credit).
 // ═════════════════════════════════════════════════════════════════════════════
 function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshKey: number; onRefresh: () => void }) {
   const [sims, setSims] = React.useState<any[]>([]);
+  const [companies, setCompanies] = React.useState<Company[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [addOpen, setAddOpen] = React.useState(false);
   const [sellOpen, setSellOpen] = React.useState(false);
@@ -776,18 +779,31 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
   const [simPhone, setSimPhone] = React.useState("");
   const [simCost, setSimCost] = React.useState("");
   const [simSale, setSimSale] = React.useState("");
+  const [linkedCompanyId, setLinkedCompanyId] = React.useState("");
+  const [linkedSimId, setLinkedSimId] = React.useState("");
   const [sellSimId, setSellSimId] = React.useState("");
   const [sellCust, setSellCust] = React.useState("");
   const [sellPhone, setSellPhone] = React.useState("");
+  const [sellSalePrice, setSellSalePrice] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [search, setSearch] = React.useState("");
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/load-bill/sim-stock", { cache: "no-store" });
-      const d = await res.json();
-      setSims(d.sims || []);
+      // Fetch SIMs and load companies separately so one failing doesn't break both
+      let sd: any = { sims: [] };
+      let cd: any = { companies: [] };
+      try {
+        const r = await fetch("/api/load-bill/sim-stock", { cache: "no-store" });
+        if (r.ok) sd = await r.json();
+      } catch {}
+      try {
+        const r = await fetch("/api/load-bill/companies", { cache: "no-store" });
+        if (r.ok) cd = await r.json();
+      } catch {}
+      setSims(sd.sims || []);
+      setCompanies(cd.companies || []);
     } catch { toast.error("Failed"); }
     finally { setLoading(false); }
   }, []);
@@ -804,18 +820,34 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
     (s.customerName || "").toLowerCase().includes(search.toLowerCase())
   );
 
+  // Linked company name lookup
+  const companyById = (id: string) => companies.find(c => c.id === id);
+
+  // Selected SIM for sell dialog
+  const selectedSim = inStock.find(s => s.id === sellSimId);
+  const selectedLinkedCompany = selectedSim?.linkedCompanyId ? companyById(selectedSim.linkedCompanyId) : null;
+  const finalSaleNum = parseFloat(sellSalePrice) || selectedSim?.salePrice || 0;
+  const costNum = selectedSim?.costPrice || 0;
+  const profitNum = finalSaleNum - costNum;
+  const balanceAfterDeduction = selectedLinkedCompany ? selectedLinkedCompany.balance - costNum : 0;
+
   async function handleAddSim() {
     if (!simCompany || !simType) { toast.error("Company and type required"); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/load-bill/sim-stock", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: simCompany, type: simType, phoneNumber: simPhone, costPrice: simCost, salePrice: simSale }),
+        body: JSON.stringify({
+          company: simCompany, type: simType, phoneNumber: simPhone,
+          costPrice: simCost, salePrice: simSale,
+          linkedCompanyId: linkedCompanyId || undefined,
+          linkedSimId: linkedSimId || undefined,
+        }),
       });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error); setSaving(false); return; }
-      toast.success("SIM added to stock");
-      setAddOpen(false); setSimPhone(""); setSimCost(""); setSimSale("");
+      toast.success("SIM added to stock" + (linkedCompanyId ? " (linked to load company)" : ""));
+      setAddOpen(false); setSimPhone(""); setSimCost(""); setSimSale(""); setLinkedCompanyId(""); setLinkedSimId("");
       load(); onRefresh();
     } catch { toast.error("Network error"); }
     finally { setSaving(false); }
@@ -827,21 +859,28 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
     try {
       const res = await fetch("/api/load-bill/sim-stock", {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: sellSimId, customerName: sellCust, customerPhone: sellPhone }),
+        body: JSON.stringify({
+          id: sellSimId, customerName: sellCust, customerPhone: sellPhone,
+          salePrice: finalSaleNum,
+        }),
       });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error); setSaving(false); return; }
-      toast.success("SIM sold");
-      setSellOpen(false); setSellSimId(""); setSellCust(""); setSellPhone("");
+      // Show success message with deduction info
+      const deductionMsg = d.companyAfter
+        ? ` | Load balance: Rs ${d.companyAfter.balance.toLocaleString()}`
+        : "";
+      toast.success(`SIM sold for Rs ${finalSaleNum.toLocaleString()} (Profit: Rs ${d.profit.toLocaleString()})${deductionMsg}`);
+      setSellOpen(false); setSellSimId(""); setSellCust(""); setSellPhone(""); setSellSalePrice("");
       load(); onRefresh();
     } catch { toast.error("Network error"); }
     finally { setSaving(false); }
   }
 
-  // Stock summary by company and type
-  const companies = ["Jazz", "Zong", "Ufone", "Telenor"];
-  const newStock = companies.map(c => ({ company: c, count: inStock.filter(s => s.company === c && s.type === "NEW").length }));
-  const replStock = companies.map(c => ({ company: c, count: inStock.filter(s => s.company === c && s.type === "REPLACEMENT").length }));
+  // Stock summary by sim company and type
+  const simCompanies = ["Jazz", "Zong", "Ufone", "Telenor"];
+  const newStock = simCompanies.map(c => ({ company: c, count: inStock.filter(s => s.company === c && s.type === "NEW").length }));
+  const replStock = simCompanies.map(c => ({ company: c, count: inStock.filter(s => s.company === c && s.type === "REPLACEMENT").length }));
   const soldCount = sold.length;
 
   return (
@@ -851,12 +890,12 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
           <CardTitle className="flex items-center gap-2"><CreditCard className="w-5 h-5 text-emerald-600" /> SIM Management</CardTitle>
           <div className="flex gap-2">
             {isAdmin && (
-              <Button size="sm" variant="outline" onClick={() => { setSimPhone(""); setSimCost(""); setSimSale(""); setAddOpen(true); }}>
+              <Button size="sm" variant="outline" onClick={() => { setSimPhone(""); setSimCost(""); setSimSale(""); setLinkedCompanyId(""); setLinkedSimId(""); setAddOpen(true); }}>
                 <Plus className="w-4 h-4 mr-1" /> Add SIM
               </Button>
             )}
             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={inStock.length === 0}
-              onClick={() => { setSellSimId(""); setSellCust(""); setSellPhone(""); setSellOpen(true); }}>
+              onClick={() => { setSellSimId(""); setSellCust(""); setSellPhone(""); setSellSalePrice(""); setSellOpen(true); }}>
               <ArrowUpRight className="w-4 h-4 mr-1" /> Sell SIM
             </Button>
           </div>
@@ -906,6 +945,7 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
               <TableHeader><TableRow>
                 <TableHead>Company</TableHead><TableHead>Type</TableHead><TableHead>Phone</TableHead>
                 <TableHead className="text-right">Cost</TableHead><TableHead className="text-right">Sale</TableHead>
+                <TableHead>Linked Load Co.</TableHead>
                 <TableHead>Status</TableHead><TableHead>Customer</TableHead>
               </TableRow></TableHeader>
               <TableBody>
@@ -916,6 +956,13 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
                     <TableCell className="text-xs">{s.phoneNumber || "-"}</TableCell>
                     <TableCell className="text-right font-mono">Rs {(s.costPrice || 0).toLocaleString()}</TableCell>
                     <TableCell className="text-right font-mono">Rs {(s.salePrice || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-xs">
+                      {s.linkedCompanyId ? (
+                        <Badge variant="outline" className="text-blue-700 border-blue-300">
+                          {companyById(s.linkedCompanyId)?.name || "Linked"}
+                        </Badge>
+                      ) : <span className="text-muted-foreground">-</span>}
+                    </TableCell>
                     <TableCell><Badge variant={s.status === "IN_STOCK" ? "default" : "destructive"}>{s.status}</Badge></TableCell>
                     <TableCell className="text-xs">{s.customerName || "-"}</TableCell>
                   </TableRow>
@@ -928,7 +975,7 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
 
       {/* Add SIM Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Add SIM to Stock</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
@@ -948,6 +995,31 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
               <div className="space-y-1"><Label className="text-xs">Cost Price</Label><Input type="number" value={simCost} onChange={(e) => setSimCost(e.target.value)} placeholder="0" /></div>
               <div className="space-y-1"><Label className="text-xs">Sale Price</Label><Input type="number" value={simSale} onChange={(e) => setSimSale(e.target.value)} placeholder="0" /></div>
             </div>
+            {/* Linked Load Company — selling this SIM will deduct costPrice from this company's balance */}
+            <div className="space-y-1">
+              <Label className="text-xs">Linked Load Company (optional)</Label>
+              <select className="w-full rounded-md border px-3 py-2 text-sm" value={linkedCompanyId} onChange={(e) => setLinkedCompanyId(e.target.value)}>
+                <option value="">— None —</option>
+                {companies.filter(c => c.active).map(c => (
+                  <option key={c.id} value={c.id}>{c.name} — Balance: Rs {c.balance.toLocaleString()}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-muted-foreground">
+                Selling this SIM will deduct Rs {parseFloat(simCost) || 0} from the linked load company's balance
+              </p>
+            </div>
+            {/* For Replacement SIM — link to a sold SIM's phone number */}
+            {simType === "REPLACEMENT" && (
+              <div className="space-y-1">
+                <Label className="text-xs">Link to Original SIM (optional)</Label>
+                <select className="w-full rounded-md border px-3 py-2 text-sm" value={linkedSimId} onChange={(e) => setLinkedSimId(e.target.value)}>
+                  <option value="">— None —</option>
+                  {sold.map(s => (
+                    <option key={s.id} value={s.id}>{s.company} {s.phoneNumber || ""} — {s.customerName || "Customer"}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
@@ -956,25 +1028,54 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
         </DialogContent>
       </Dialog>
 
-      {/* Sell SIM Dialog */}
+      {/* Sell SIM Dialog — shows deduction preview */}
       <Dialog open={sellOpen} onOpenChange={setSellOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Sell SIM</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1"><Label className="text-xs">Select SIM *</Label>
-              <select className="w-full rounded-md border px-3 py-2 text-sm" value={sellSimId} onChange={(e) => setSellSimId(e.target.value)}>
+              <select className="w-full rounded-md border px-3 py-2 text-sm" value={sellSimId} onChange={(e) => {
+                setSellSimId(e.target.value);
+                setSellSalePrice(""); // reset so default is used
+              }}>
                 <option value="">Select from stock</option>
                 {inStock.map(s => (
                   <option key={s.id} value={s.id}>{s.company} {s.type} {s.phoneNumber || ""} — Rs {s.salePrice || 0}</option>
                 ))}
               </select>
             </div>
+            {selectedSim && (
+              <div className="rounded-lg bg-muted/40 border p-3 space-y-1 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Cost Price:</span><span className="font-mono">Rs {costNum.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Default Sale Price:</span><span className="font-mono">Rs {(selectedSim.salePrice || 0).toLocaleString()}</span></div>
+                {selectedLinkedCompany && (
+                  <div className="flex justify-between"><span className="text-muted-foreground">Linked Load Co.:</span><span className="font-medium text-blue-700">{selectedLinkedCompany.name}</span></div>
+                )}
+                {selectedLinkedCompany && (
+                  <div className="flex justify-between"><span className="text-muted-foreground">Current Balance:</span><span className="font-mono">Rs {selectedLinkedCompany.balance.toLocaleString()}</span></div>
+                )}
+                {selectedLinkedCompany && (
+                  <div className="flex justify-between text-rose-700"><span>After Deduction:</span><span className="font-mono font-bold">Rs {balanceAfterDeduction.toLocaleString()}</span></div>
+                )}
+              </div>
+            )}
+            <div className="space-y-1"><Label className="text-xs">Sale Price (editable)</Label>
+              <Input type="number" value={sellSalePrice} onChange={(e) => setSellSalePrice(e.target.value)} placeholder={(selectedSim?.salePrice || 0).toString()} />
+            </div>
+            {selectedSim && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-300 p-2 flex justify-between">
+                <span className="text-sm font-medium text-emerald-800">Profit:</span>
+                <span className={`font-mono font-bold ${profitNum >= 0 ? "text-emerald-700" : "text-rose-700"}`}>Rs {profitNum.toLocaleString()}</span>
+              </div>
+            )}
             <div className="space-y-1"><Label className="text-xs">Customer Name</Label><Input value={sellCust} onChange={(e) => setSellCust(e.target.value)} placeholder="Customer name" /></div>
             <div className="space-y-1"><Label className="text-xs">Customer Phone</Label><Input value={sellPhone} onChange={(e) => setSellPhone(e.target.value)} placeholder="03001234567" /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSellOpen(false)}>Cancel</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving || !sellSimId} onClick={handleSellSim}>{saving ? "..." : "Sell SIM"}</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving || !sellSimId} onClick={handleSellSim}>
+              {saving ? "..." : `Sell SIM — Rs ${finalSaleNum.toLocaleString()}`}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

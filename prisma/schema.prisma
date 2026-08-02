@@ -294,19 +294,26 @@ model WalletAccount {
 
 // SIM stock management (new SIMs + replacements)
 model SimStock {
-  id            String   @id @default(cuid())
-  company       String                       // Jazz | Zong | Ufone | Telenor
-  type          String                       // NEW | REPLACEMENT
-  phoneNumber   String?                      // SIM phone number (if pre-allocated)
-  costPrice     Float    @default(0)          // Purchase cost
-  salePrice     Float    @default(0)          // Sale price to customer
-  status        String   @default("IN_STOCK") // IN_STOCK | SOLD
-  soldAt        DateTime?
-  customerName  String?
-  customerPhone String?
-  note          String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(cuid())
+  company         String                       // Jazz | Zong | Ufone | Telenor
+  type            String                       // NEW | REPLACEMENT
+  phoneNumber     String?                      // SIM phone number (if pre-allocated)
+  costPrice       Float    @default(0)          // Purchase cost
+  salePrice       Float    @default(0)          // Sale price to customer
+  status          String   @default("IN_STOCK") // IN_STOCK | SOLD
+  soldAt          DateTime?
+  customerName    String?
+  customerPhone   String?
+  note            String?
+  // Linked load company — when this SIM is sold, its costPrice is deducted
+  // from the linked MobileLoadCompany's balance. This represents the
+  // shopkeeper paying back the credit the company gave for the SIM.
+  linkedCompanyId String?
+  // Linked SIM (for replacement SIMs) — points to the original SIM's id
+  // whose phone number is being replaced.
+  linkedSimId     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model Settings {

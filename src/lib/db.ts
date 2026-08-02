@@ -466,6 +466,14 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["accountId", "TEXT"],
     ["due", "REAL NOT NULL DEFAULT 0"],
   ],
+  // SimStock: link each SIM to a MobileLoadCompany so that selling the SIM
+  // automatically deducts its cost from the linked company's balance.
+  // This represents the shopkeeper paying back the cost of the SIM (which
+  // the company gave on credit) by reducing the load balance owed.
+  SimStock: [
+    ["linkedCompanyId", "TEXT"],
+    ["linkedSimId", "TEXT"],
+  ],
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

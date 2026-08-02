@@ -633,6 +633,7 @@ export function PosView({ settings }: PosViewProps) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               ref={searchRef}
+              data-barcode-input="true"
               placeholder="Search by name or barcode... (↑↓ navigate, Enter add, Alt checkout)"
               value={q}
               onChange={(e) => { setQ(e.target.value); setHighlightedIndex(0); }}
