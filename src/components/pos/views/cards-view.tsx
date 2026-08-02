@@ -20,6 +20,7 @@ import {
   ArrowDownLeft,
   TrendingUp,
   TrendingDown,
+  Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,6 +114,7 @@ export function CardsView({ userRole }: CardsViewProps) {
   const [detailCard, setDetailCard] = React.useState<CustomerCard | null>(null);
   const [detailTransactions, setDetailTransactions] = React.useState<CardTransaction[]>([]);
   const [detailLoading, setDetailLoading] = React.useState(false);
+  const [detailCardSales, setDetailCardSales] = React.useState<any[]>([]);
   const [txDialogOpen, setTxDialogOpen] = React.useState(false);
   const [txForm, setTxForm] = React.useState(emptyTxForm);
   const [txSaving, setTxSaving] = React.useState(false);
@@ -226,10 +228,21 @@ export function CardsView({ userRole }: CardsViewProps) {
     setDetailTransactions([]);
     setDetailLoading(true);
     try {
+      // Fetch card details (includes transactions)
       const res = await fetch(`/api/cards/${c.id}`, { cache: "no-store" });
       const data = await res.json();
       setDetailCard(data.card);
       setDetailTransactions(data.card.transactions || []);
+
+      // Also fetch sales linked to this card (purchase history)
+      try {
+        const salesRes = await fetch(`/api/sales?limit=50`, { cache: "no-store" });
+        if (salesRes.ok) {
+          const salesData = await salesRes.json();
+          const cardSales = (salesData.sales || []).filter((s: any) => s.cardId === c.id);
+          setDetailCardSales(cardSales);
+        }
+      } catch {}
     } catch {
       toast.error("Failed to load card details");
     } finally {
@@ -828,6 +841,50 @@ export function CardsView({ userRole }: CardsViewProps) {
                   No transactions yet — ابھی تک کوئی لین دین نہیں
                 </div>
               )}
+
+              {/* ─── Purchase History (Sales linked to this card) ─── */}
+              <div className="mt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Receipt className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm font-bold text-blue-700">
+                    Purchase History — خریداری کی تاریخ ({detailCardSales.length} sales)
+                  </span>
+                </div>
+                {detailCardSales.length > 0 ? (
+                  <div className="rounded-lg border overflow-hidden max-h-[200px] overflow-y-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Invoice</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                          <TableHead className="text-right">Items</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {detailCardSales.map((sale: any) => (
+                          <TableRow key={sale.id}>
+                            <TableCell className="text-xs">
+                              {new Date(sale.createdAt).toLocaleDateString("en-PK")}
+                            </TableCell>
+                            <TableCell className="text-xs font-mono">{sale.invoiceNo}</TableCell>
+                            <TableCell className="text-right font-medium">
+                              {formatMoney(sale.total, currency)}
+                            </TableCell>
+                            <TableCell className="text-right text-xs">
+                              {sale.items?.length || 0} items
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center text-sm text-muted-foreground py-2">
+                    No purchases yet — ابھی تک کوئی خریداری نہیں
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>
