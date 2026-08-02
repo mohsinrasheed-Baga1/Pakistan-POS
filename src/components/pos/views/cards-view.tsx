@@ -1014,8 +1014,8 @@ export function CardVisual({
       >
         <div
           style={{
-            fontWeight: 900,
-            fontSize: "16px",
+            fontWeight: "bold",
+            fontSize: "14px",
             lineHeight: 1.15,
             color: "#000",
             letterSpacing: "0.3px",
@@ -1023,7 +1023,7 @@ export function CardVisual({
         >
           {shopName}
         </div>
-        <div style={{ fontSize: "7px", lineHeight: 1.15, color: "#333" }}>
+        <div style={{ fontWeight: 700, fontSize: "9px", lineHeight: 1.15, color: "#333" }}>
           {subName !== shopName ? subName : ""}
           {shopAddress ? ` • ${shopAddress}` : ""}
           {shopPhone ? ` • ${shopPhone}` : ""}
@@ -1272,8 +1272,8 @@ function CardPrintDialog({
           padding: 1.5mm 2mm 0.5mm;
           text-align: center;
         }
-        .shop-name { font-weight: 900; font-size: 16px; line-height: 1.15; color: #000; letter-spacing: 0.3px; }
-        .shop-meta { font-size: 7px; line-height: 1.15; color: #333; }
+        .shop-name { font-weight: bold; font-size: 14px; line-height: 1.15; color: #000; letter-spacing: 0.3px; }
+        .shop-meta { font-weight: 700; font-size: 9px; line-height: 1.15; color: #333; }
         .body { flex: 1; padding: 1mm 2mm; display: flex; flex-direction: column; gap: 0.5mm; }
         .holder-row { display: flex; align-items: center; justify-content: space-between; gap: 1mm; }
         .holder-name { font-size: 11px; font-weight: bold; color: #000; text-transform: uppercase; }
