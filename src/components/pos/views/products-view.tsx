@@ -862,16 +862,15 @@ function BarcodePrintDialog({
       return;
     }
 
-    // ─── PROFESSIONAL BARCODE STICKER PRINT ────────────────────────────
-    // Why this approach works for scanners:
-    // 1. Sticker size 50mm × 30mm — standard thermal label, fits EAN-13
-    // 2. Barcode width=3 (3px per module) — thick bars, scanner-friendly
-    // 3. Barcode height=70 — taller bars = better scan angle tolerance
-    // 4. SVG has explicit width/height attributes — no browser scaling
-    // 5. print-color-adjust: exact — forces pure black bars on print
-    // 6. Quiet zone (margin: 8) — 8px white space on each side, required
-    //    by EAN-13 spec for scanner to detect start/stop guards
-    // 7. fontSize: 14 — readable human-readable digits below bars
+    // ─── PROFESSIONAL BARCODE STICKER PRINT (v2) ───────────────────────
+    // FIX: Previously the SVG was wider than the 50mm sticker, so bars on
+    // the right were being clipped by overflow:hidden. Now we:
+    // 1. Use width=2 (smaller natural SVG width — 226px instead of 339px)
+    // 2. Force SVG to scale to container with width:100% !important
+    // 3. Use viewBox-compatible scaling so ALL bars are visible
+    // 4. Reduce height + fontSize to make barcode more compact
+    // 5. Keep print-color-adjust:exact for pure black bars on print
+    // Result: smaller barcode, ALL bars visible, still scannable.
 
     const bcValue = product!.barcode;
     const bcName = (product!.name || "").replace(/'/g, "\\'");
@@ -898,7 +897,7 @@ function BarcodePrintDialog({
         .sticker {
           width: 50mm;
           height: 30mm;
-          padding: 1.5mm 2mm;
+          padding: 1mm 1.5mm;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -913,9 +912,9 @@ function BarcodePrintDialog({
         }
         .sticker:last-child { page-break-after: auto; }
         .shop-name {
-          font-size: 9px;
+          font-size: 8px;
           font-weight: bold;
-          line-height: 1.1;
+          line-height: 1;
           width: 100%;
           text-align: center;
           white-space: nowrap;
@@ -930,16 +929,23 @@ function BarcodePrintDialog({
           width: 100%;
           flex: 1;
           min-height: 0;
+          overflow: hidden;
         }
+        /* CRITICAL: Force SVG to fit within container width.
+           JsBarcode sets explicit width/height attributes on the SVG,
+           which can exceed the 50mm sticker width and get clipped.
+           Using !important + width:100% ensures the SVG scales down
+           to fit the container, so ALL bars are visible. */
         .barcode-wrap svg {
           display: block;
-          max-width: 100%;
-          height: auto;
+          width: 100% !important;
+          height: auto !important;
+          max-height: 17mm;
         }
         .product-name {
-          font-size: 8px;
+          font-size: 7px;
           font-weight: bold;
-          line-height: 1.1;
+          line-height: 1;
           width: 100%;
           text-align: center;
           overflow: hidden;
@@ -952,47 +958,53 @@ function BarcodePrintDialog({
         @media print {
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .sticker { page-break-after: always; }
+          .barcode-wrap svg { width: 100% !important; height: auto !important; }
         }
       </style></head>
       <body>
         ${stickers}
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         <script>
-          function renderBarcodes(format, fallbackAttempt) {
+          function renderBarcodes(format) {
             var svgs = document.querySelectorAll('.barcode-svg');
             svgs.forEach(function(svg) {
               try {
                 JsBarcode(svg, '${bcValue}', {
                   format: format,
-                  width: 3,
-                  height: 70,
+                  width: 2,
+                  height: 50,
                   displayValue: true,
-                  fontSize: 14,
+                  fontSize: 11,
                   font: 'monospace',
                   fontOptions: 'bold',
-                  margin: 8,
+                  margin: 4,
                   marginTop: 0,
                   marginBottom: 0,
-                  textMargin: 2,
+                  textMargin: 1,
                   background: '#ffffff',
                   lineColor: '#000000',
                 });
+                // Force SVG attributes to be overridden by CSS
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
               } catch (e) {
                 console.error('barcode render error', e);
               }
             });
           }
           try {
-            renderBarcodes('EAN13', false);
+            renderBarcodes('EAN13');
           } catch (e) {
-            try { renderBarcodes('CODE128', true); } catch (e2) { console.error('all barcode attempts failed', e2); }
+            try { renderBarcodes('CODE128'); } catch (e2) { console.error('all barcode attempts failed', e2); }
           }
           window.onload = function () {
             setTimeout(function () {
               window.focus();
               window.print();
               setTimeout(function () { window.close(); }, 400);
-            }, 600);
+            }, 700);
           };
         </script>
       </body></html>

@@ -61,7 +61,11 @@ export function PosView({ settings }: PosViewProps) {
   const [submitting, setSubmitting] = React.useState(false);
   const [returnOpen, setReturnOpen] = React.useState(false);
   const [calcOpen, setCalcOpen] = React.useState(false);
-  const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+  // -1 means NO product is highlighted. Only after the user starts typing
+  // in the search box do we auto-highlight the first match (index 0).
+  // This prevents the first product from being accidentally added to cart
+  // when the user scans a different barcode.
+  const [highlightedIndex, setHighlightedIndex] = React.useState(-1);
   const [qtyOpen, setQtyOpen] = React.useState(false);
   const [qtyProduct, setQtyProduct] = React.useState<Product | null>(null);
   const [qtyValue, setQtyValue] = React.useState("");
@@ -164,9 +168,10 @@ export function PosView({ settings }: PosViewProps) {
       }
     }
     cart.addItem(product, qty);
-    // After adding, clear search and refocus for next product
+    // After adding, clear search and reset highlight so the first product
+    // is NOT auto-selected for the next scan/search.
     setQ("");
-    setHighlightedIndex(0);
+    setHighlightedIndex(-1);
     setTimeout(() => searchRef.current?.focus(), 50);
   }
 
@@ -378,28 +383,34 @@ export function PosView({ settings }: PosViewProps) {
       }
 
       // Arrow key navigation through products
-      if (isSearchFocused || (!active || active.tagName !== "INPUT")) {
+      // Only active when user is searching (q is non-empty) or has already
+      // started navigating. Prevents accidental selection of first product.
+      if ((isSearchFocused && q.trim()) || (!active || active.tagName !== "INPUT")) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          setHighlightedIndex((p) => Math.min(p + 1, products.length - 1));
+          setHighlightedIndex((p) => p < 0 ? 0 : Math.min(p + 1, products.length - 1));
           return;
         } else if (e.key === "ArrowUp") {
           e.preventDefault();
-          setHighlightedIndex((p) => Math.max(p - 1, 0));
+          setHighlightedIndex((p) => p < 0 ? products.length - 1 : Math.max(p - 1, 0));
           return;
         } else if (e.key === "ArrowRight") {
           e.preventDefault();
-          setHighlightedIndex((p) => Math.min(p + 4, products.length - 1));
+          setHighlightedIndex((p) => p < 0 ? 0 : Math.min(p + 4, products.length - 1));
           return;
         } else if (e.key === "ArrowLeft") {
           e.preventDefault();
-          setHighlightedIndex((p) => Math.max(p - 4, 0));
+          setHighlightedIndex((p) => p < 0 ? 0 : Math.max(p - 4, 0));
           return;
         } else if (e.key === "Enter" && products.length > 0 && isSearchFocused) {
-          e.preventDefault();
-          const product = products[highlightedIndex];
-          if (product) {
-            promptQuantity(product);
+          // Only add product if one is actually highlighted.
+          // When highlightedIndex is -1 (no search yet), Enter does nothing.
+          if (highlightedIndex >= 0 && highlightedIndex < products.length) {
+            e.preventDefault();
+            const product = products[highlightedIndex];
+            if (product) {
+              promptQuantity(product);
+            }
           }
           return;
         }
@@ -443,7 +454,7 @@ export function PosView({ settings }: PosViewProps) {
       else if (e.key === "F4") { e.preventDefault(); setCalcOpen(true); }
       else if (e.key === "F9") { e.preventDefault(); cart.setSaleType(cart.saleType === "RETAIL" ? "WHOLESALE" : cart.saleType === "WHOLESALE" ? "SHOPKEEPER" : "RETAIL"); }
       else if (e.key === "F12") { e.preventDefault(); cart.clear(); setScannedCard(null); toast.success("Cart cleared"); setTimeout(() => searchRef.current?.focus(), 50); }
-      else if (e.key === "Escape") { setQ(""); setHighlightedIndex(0); searchRef.current?.focus(); }
+      else if (e.key === "Escape") { setQ(""); setHighlightedIndex(-1); searchRef.current?.focus(); }
     }
     window.addEventListener("keydown", handlePosKey);
     return () => window.removeEventListener("keydown", handlePosKey);
@@ -636,7 +647,13 @@ export function PosView({ settings }: PosViewProps) {
               data-barcode-input="true"
               placeholder="Search by name or barcode... (↑↓ navigate, Enter add, Alt checkout)"
               value={q}
-              onChange={(e) => { setQ(e.target.value); setHighlightedIndex(0); }}
+              onChange={(e) => {
+                const v = e.target.value;
+                setQ(v);
+                // Only highlight first match when user is actively searching.
+                // When search is cleared, remove highlight entirely.
+                setHighlightedIndex(v.trim() ? 0 : -1);
+              }}
               className="pl-10 h-11"
             />
           </div>
@@ -845,7 +862,7 @@ export function PosView({ settings }: PosViewProps) {
                                     if (e.key === "Enter") {
                                       e.preventDefault();
                                       setQ("");
-                                      setHighlightedIndex(0);
+                                      setHighlightedIndex(-1);
                                       setTimeout(() => searchRef.current?.focus(), 50);
                                     }
                                   }}
