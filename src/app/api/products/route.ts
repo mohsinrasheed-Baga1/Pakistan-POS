@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
 import { generateInternalBarcode } from "@/lib/pos-utils";
+import { generateProductCode, generateBarcodeValue } from "@/lib/product-code";
+import { generateBarcode } from "@/lib/barcode-engine";
 
 export async function GET(req: NextRequest) {
   const user = await getSessionUser();
@@ -17,6 +19,7 @@ export async function GET(req: NextRequest) {
     where.OR = [
       { name: { contains: q } },
       { barcode: { contains: q } },
+      { productCode: { contains: q } },
     ];
   }
   if (categoryId) where.categoryId = categoryId;
@@ -40,20 +43,17 @@ export async function POST(req: NextRequest) {
 
   // Determine barcode
   let barcode = body.barcode?.trim();
-  let barcodeType = body.barcodeType || "EAN13";
+  let barcodeType = body.barcodeType || "CODE128";
   const hasBarcode = body.hasBarcode !== false;
 
   if (!barcode || barcode === "") {
-    // auto-generate an internal EAN-13 barcode for loose items (sugar, ghee, etc.)
-    // EAN-13 is the most widely supported retail barcode format — virtually
-    // every scanner can read it reliably. The user explicitly requested
-    // EAN-13 as the permanent standard for this app.
-    barcode = generateInternalBarcode();
-    barcodeType = "EAN13";
+    // Auto-generate an internal product code (e.g. "RICE00120") for new products
+    // This becomes both the human-readable product code AND the barcode value.
+    const productCode = await generateProductCode(body.categoryId);
+    barcode = generateBarcodeValue(productCode); // For CODE128, this equals productCode
+    barcodeType = "CODE128";
   } else {
     // User scanned or typed a real manufacturer barcode.
-    // If it's 13 digits, use EAN-13 format. Otherwise use CODE128.
-    // This handles both EAN-13 product barcodes and shorter/longer codes.
     if (/^\d{13}$/.test(barcode)) {
       barcodeType = "EAN13";
     } else {
@@ -68,6 +68,42 @@ export async function POST(req: NextRequest) {
       { error: "This barcode already exists" },
       { status: 400 }
     );
+  }
+
+  // ─── Generate verified barcode SVG + PNG using bwip-js ──────────────
+  // This pre-renders the barcode at product creation time so it doesn't
+  // need to be regenerated on every print. The SVG is stored in the DB
+  // and used directly for sticker printing.
+  let barcodeSvg: string | null = null;
+  let barcodePng: string | null = null;
+  let barcodeVerified = false;
+  let productCode: string | null = null;
+
+  try {
+    // For internal products (CODE128), the productCode is the barcode value
+    if (barcodeType === "CODE128" && !body.barcode?.trim()) {
+      productCode = barcode; // e.g. "RICE00120"
+    } else if (body.productCode?.trim()) {
+      productCode = body.productCode.trim();
+    }
+
+    const genResult = await generateBarcode({
+      format: barcodeType as any,
+      value: barcode,
+      scale: 2,
+      height: 10,
+      includeText: true,
+      verify: true,
+    });
+
+    if (genResult.success) {
+      barcodeSvg = genResult.svg;
+      barcodePng = genResult.pngBase64;
+      barcodeVerified = genResult.verified;
+    }
+  } catch (e) {
+    console.error("[products POST] barcode generation failed:", e);
+    // Continue without pre-rendered barcode — StickerPrinter will generate on-demand
   }
 
   const product = await db.product.create({
@@ -94,6 +130,13 @@ export async function POST(req: NextRequest) {
       packBarcode: body.packBarcode || null,
       packQuantity: Number(body.packQuantity) || 0,
       packPrice: Number(body.packPrice) || 0,
+      // Industrial Barcode System
+      productCode,
+      barcodeSvg,
+      barcodePng,
+      barcodeVerified,
+      stickerSize: body.stickerSize || "50x30",
+      packingDate: body.packingDate ? new Date(body.packingDate) : null,
     },
     include: { category: true, vendor: true },
   });

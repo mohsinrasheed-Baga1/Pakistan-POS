@@ -35,6 +35,13 @@ export interface Product {
   packBarcode: string | null;
   packQuantity: number;
   packPrice: number;
+  // Industrial Barcode System (v2.8.0)
+  productCode: string | null;
+  barcodeSvg: string | null;
+  barcodePng: string | null;
+  barcodeVerified: boolean;
+  stickerSize: string;
+  packingDate: string | null;
 }
 
 export interface Category {

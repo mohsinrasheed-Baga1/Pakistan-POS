@@ -54,6 +54,8 @@ import {
 import { toast } from "sonner";
 import { formatMoney, unitLabel } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
+import { StickerPrinter } from "@/components/barcode/sticker-printer";
+import { useBarcodeGeneration } from "@/hooks/use-barcode-generation";
 import { ImageUpload } from "@/components/pos/image-upload";
 import type { Product, Category, Vendor } from "@/types";
 
@@ -831,9 +833,9 @@ function BarcodePrintDialog({
 }) {
   const [count, setCount] = React.useState(1);
   const [shopName, setShopName] = React.useState<string>("");
-  const labelRef = React.useRef<HTMLDivElement>(null);
+  const { generate, loading, result } = useBarcodeGeneration();
 
-  // Fetch shop name from settings (used at the top of the sticker)
+  // Fetch shop name from settings
   React.useEffect(() => {
     if (!product) return;
     let active = true;
@@ -847,291 +849,78 @@ function BarcodePrintDialog({
       .catch(() => {
         if (active) setShopName("My Shop");
       });
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [product]);
 
-  if (!product) return null;
-
-  function handlePrint() {
+  // Auto-generate barcode when product changes (or use cached one)
+  React.useEffect(() => {
     if (!product) return;
-    const win = window.open("", "_blank", "width=600,height=600");
-    if (!win) {
-      toast.error("Pop-up blocked. Please allow pop-ups to print.");
+
+    // If product already has a pre-rendered verified SVG, use it directly
+    if (product.barcodeSvg && product.barcodeVerified) {
+      // Already have a verified barcode — no need to regenerate
       return;
     }
 
-    // ─── PROFESSIONAL BARCODE STICKER PRINT (v3) ───────────────────────
-    // FIX v3: Even smaller barcode to ensure NOTHING is cut off.
-    // The EAN-13 barcode has 113 modules. At width=1.5, that's 170px natural
-    // width. The 50mm sticker has ~47mm usable width = ~178px at 96dpi.
-    // So width=1.5 fits naturally without any scaling needed.
-    //
-    // Key changes from v2:
-    // - width=1.5 (was 2) — smaller natural SVG, fits without scaling
-    // - height=40 (was 50) — shorter barcode
-    // - fontSize=9 (was 11) — smaller text below bars
-    // - margin=2 (was 4) — smaller quiet zone
-    // - max-height: 14mm (was 17mm) — ensures barcode fits in 30mm sticker
-    // - SVG width:auto instead of 100% — let it use natural size, centered
+    // Generate a new barcode using bwip-js (server-side) + ZXing verification
+    const format = (product.barcodeType as any) || "CODE128";
+    const value = product.productCode || product.barcode;
 
-    const bcValue = product!.barcode;
-    const bcName = (product!.name || "").replace(/'/g, "\\'");
+    generate({
+      format: format === "EAN13" ? "EAN13" : "CODE128",
+      value,
+      scale: 2,
+      height: 10,
+      includeText: true,
+      verify: true,
+    }).catch(() => {
+      toast.error("Failed to generate verified barcode");
+    });
+  }, [product, generate]);
 
-    const stickers = Array.from({ length: count }, (_, i) => i).map(i => `
-      <div class="sticker">
-        <div class="shop-name">${(shopName || "My Shop").replace(/'/g, "\\'")}</div>
-        <div class="barcode-wrap">
-          <svg class="barcode-svg" id="svg${i}" xmlns="http://www.w3.org/2000/svg"></svg>
-        </div>
-        <div class="product-name">${bcName}</div>
-      </div>`).join("");
+  if (!product) return null;
 
-    win.document.write(`
-      <html dir="ltr"><head><title>Sticker ${bcName}</title>
-      <style>
-        @page { size: 50mm 30mm; margin: 0; }
-        html, body {
-          margin: 0; padding: 0;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
-        * { box-sizing: border-box; }
-        .sticker {
-          width: 50mm;
-          height: 30mm;
-          padding: 1mm 2mm;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: space-between;
-          font-family: Tahoma, Arial, sans-serif;
-          color: #000;
-          background: #fff;
-          text-align: center;
-          overflow: hidden;
-          page-break-after: always;
-          page-break-inside: avoid;
-        }
-        .sticker:last-child { page-break-after: auto; }
-        .shop-name {
-          font-size: 8px;
-          font-weight: bold;
-          line-height: 1;
-          width: 100%;
-          text-align: center;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          color: #000;
-        }
-        .barcode-wrap {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 100%;
-          flex: 1;
-          min-height: 0;
-          overflow: hidden;
-        }
-        /* SVG uses natural size (auto), centered in container.
-           max-width:100% ensures it never exceeds sticker width.
-           This is safer than width:100% which could stretch the bars. */
-        .barcode-wrap svg {
-          display: block;
-          max-width: 100%;
-          max-height: 14mm;
-          width: auto;
-          height: auto;
-        }
-        .product-name {
-          font-size: 7px;
-          font-weight: bold;
-          line-height: 1;
-          width: 100%;
-          text-align: center;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          display: -webkit-box;
-          -webkit-line-clamp: 1;
-          -webkit-box-orient: vertical;
-          color: #000;
-        }
-        @media print {
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          .sticker { page-break-after: always; }
-          .barcode-wrap svg { max-width: 100%; max-height: 14mm; }
-        }
-      </style></head>
-      <body>
-        ${stickers}
-        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-        <script>
-          function renderBarcodes(format) {
-            var svgs = document.querySelectorAll('.barcode-svg');
-            svgs.forEach(function(svg) {
-              try {
-                JsBarcode(svg, '${bcValue}', {
-                  format: format,
-                  width: 1.5,
-                  height: 40,
-                  displayValue: true,
-                  fontSize: 9,
-                  font: 'monospace',
-                  fontOptions: 'bold',
-                  margin: 2,
-                  marginTop: 0,
-                  marginBottom: 0,
-                  textMargin: 1,
-                  background: '#ffffff',
-                  lineColor: '#000000',
-                });
-              } catch (e) {
-                console.error('barcode render error', e);
-              }
-            });
-          }
-          try {
-            renderBarcodes('EAN13');
-          } catch (e) {
-            try { renderBarcodes('CODE128'); } catch (e2) { console.error('all barcode attempts failed', e2); }
-          }
-          window.onload = function () {
-            setTimeout(function () {
-              window.focus();
-              window.print();
-              setTimeout(function () { window.close(); }, 400);
-            }, 700);
-          };
-        </script>
-      </body></html>
-    `);
-    win.document.close();
-    win.focus();
-  }
+  // Use pre-rendered SVG from DB if available, otherwise use freshly generated one
+  const barcodeSvg = product.barcodeSvg || result?.svg || "";
+  const verified = product.barcodeVerified || result?.verified || false;
+  const barcodeText = product.productCode || product.barcode;
 
-  // Inline sticker style — 50mm × 35mm, content distributed with
-  // space-between so there's no empty gap at the bottom.
-  const stickerStyle: React.CSSProperties = {
-    width: "50mm",
-    height: "35mm",
-    border: "1px dashed #d1d5db",
-    padding: "2mm",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "space-evenly",
-    color: "#000",
-    background: "#fff",
-    textAlign: "center",
-    overflow: "hidden",
+  const stickerData = {
+    shopName,
+    productName: product.name,
+    barcodeSvg,
+    barcodeText,
+    verified,
+    salePrice: product.salePrice,
+    weight: product.unit !== "piece" ? `${product.stock} ${unitLabel(product.unit)}` : undefined,
+    packingDate: product.packingDate ? new Date(product.packingDate).toLocaleDateString("en-PK") : undefined,
+    expiryDate: product.expiryDate ? new Date(product.expiryDate).toLocaleDateString("en-PK") : undefined,
   };
 
   return (
     <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader className="flex-shrink-0">
-          <DialogTitle>Print Barcode Sticker</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Printer className="w-5 h-5" />
+            Industrial Barcode Sticker Printer
+          </DialogTitle>
         </DialogHeader>
-        {/* Scrollable sticker preview area — page itself never moves */}
-        <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
-          <div className="text-center text-xs text-muted-foreground">
-            Sticker size: 50mm × 35mm. Shop name (top, with padding) — Barcode + digits (middle) —
-            Product name (bottom, larger font).
-          </div>
-          <div className="flex items-center gap-2">
-            <Label className="whitespace-nowrap">Quantity</Label>
-            <Input
-              type="number"
-              min={1}
-              max={100}
-              value={count}
-              onChange={(e) =>
-                setCount(
-                  Math.min(100, Math.max(1, Number(e.target.value) || 1))
-                )
-              }
-              className="text-left w-24"
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw className="w-6 h-6 animate-spin text-emerald-600 mr-2" />
+              <span className="text-sm">Generating verified barcode...</span>
+            </div>
+          ) : (
+            <StickerPrinter
+              data={stickerData}
+              count={count}
+              defaultSize={(product.stickerSize as any) || "50x30"}
+              onClose={onClose}
             />
-          </div>
-          <div
-            ref={labelRef}
-            className="bg-white border rounded p-2 flex flex-wrap gap-1 justify-center"
-          >
-            {Array.from({ length: count }).map((_, i) => (
-              <div key={i} className="sticker" style={stickerStyle}>
-                {/* TOP — shop name */}
-                <div
-                  className="shop-name"
-                  style={{
-                    fontSize: "9px",
-                    fontWeight: "bold",
-                    lineHeight: 1.1,
-                    width: "100%",
-                    padding: "0 1mm",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {shopName || "My Shop"}
-                </div>
-                {/* MIDDLE — barcode (EAN-13, natural size, scanner-safe) */}
-                <div
-                  className="barcode"
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "100%",
-                    overflow: "hidden",
-                  }}
-                >
-                  <BarcodeDisplay
-                    value={product.barcode}
-                    format="EAN13"
-                    height={60}
-                    width={2}
-                    displayValue={true}
-                    fontSize={11}
-                    margin={10}
-                  />
-                </div>
-                {/* BOTTOM — product name */}
-                <div
-                  className="product-name"
-                  style={{
-                    fontSize: "9px",
-                    fontWeight: "bold",
-                    lineHeight: 1.1,
-                    width: "100%",
-                    padding: "0 1mm",
-                    overflow: "hidden",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical" as any,
-                  }}
-                >
-                  {product.name}
-                </div>
-              </div>
-            ))}
-          </div>
+          )}
         </div>
-        {/* Sticky footer — always visible regardless of sticker count */}
-        <DialogFooter className="flex-shrink-0 border-t pt-3 mt-2 bg-background">
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
-          <Button
-            className="bg-emerald-600 hover:bg-emerald-700"
-            onClick={handlePrint}
-          >
-            <Printer className="w-4 h-4 mr-2" /> Print
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -413,6 +413,14 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["packBarcode", "TEXT"],
     ["packQuantity", "REAL NOT NULL DEFAULT 0"],
     ["packPrice", "REAL NOT NULL DEFAULT 0"],
+    // ─── Industrial Barcode System (v2.8.0) ──────────────────────────
+    // NOTE: barcodeType is already in the original schema, so not listed here.
+    ["productCode", "TEXT"],
+    ["barcodeSvg", "TEXT"],
+    ["barcodePng", "TEXT"],
+    ["barcodeVerified", "BOOLEAN NOT NULL DEFAULT 0"],
+    ["stickerSize", "TEXT NOT NULL DEFAULT '50x30'"],
+    ["packingDate", "DATETIME"],
   ],
   Sale: [
     ["cardId", "TEXT"],
