@@ -55,6 +55,7 @@ import { toast } from "sonner";
 import { formatMoney, unitLabel } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
 import { StickerPrinter } from "@/components/barcode/sticker-printer";
+import { SimplePrintDialog } from "@/components/barcode/simple-print-dialog";
 import { useBarcodeGeneration } from "@/hooks/use-barcode-generation";
 import { ImageUpload } from "@/components/pos/image-upload";
 import type { Product, Category, Vendor } from "@/types";
@@ -806,8 +807,8 @@ export function ProductsView({ userRole }: ProductsViewProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* print barcode dialog */}
-      <BarcodePrintDialog
+      {/* print barcode dialog — simple, uses saved settings */}
+      <SimplePrintDialog
         product={printProduct}
         onClose={() => setPrintProduct(null)}
       />

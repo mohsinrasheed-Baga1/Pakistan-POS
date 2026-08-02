@@ -85,12 +85,14 @@ import {
   HardDriveDownload,
   ChevronDown,
   ChevronUp,
+  Barcode as BarcodeIcon,
 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { BarcodeSettingsPage } from "@/components/settings/barcode-settings-page";
 import type { Settings } from "@/types";
 import { useAppStore } from "@/stores/use-pos-store";
 
@@ -296,6 +298,7 @@ export function SettingsView() {
           { id: "migration", label: "Data Migration", icon: HardDriveDownload, color: "emerald" },
           { id: "shortcuts", label: "Shortcuts", icon: Keyboard, color: "emerald" },
           { id: "scanner", label: "Barcode Scanner", icon: ScanBarcode, color: "emerald" },
+          { id: "barcode", label: "Barcode & Sticker", icon: BarcodeIcon, color: "emerald" },
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -335,6 +338,7 @@ export function SettingsView() {
       {activeSection === "migration" && <DataMigrationCard />}
       {activeSection === "shortcuts" && <ShortcutsCard />}
       {activeSection === "scanner" && <ScannerCard />}
+      {activeSection === "barcode" && <BarcodeSettingsPage />}
     </div>
   );
 }

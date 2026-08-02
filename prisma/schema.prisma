@@ -356,3 +356,60 @@ model Settings {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+// ─── Barcode & Sticker Settings (v2.9.0) ─────────────────────────────────────
+// Stores all barcode/sticker/printer configuration. Per-user settings.
+// Loaded automatically when POS starts and used by every sticker print.
+model BarcodeSettings {
+  id              String   @id @default("default")
+
+  // SECTION 1: General
+  defaultBarcodeType String @default("CODE128") // CODE128 | QR | EAN13
+  autoGenerate      Boolean @default(true)
+  autoVerify        Boolean @default(true)
+  autoRegenerate    Boolean @default(true)
+  humanReadable     Boolean @default(true)
+  saveBarcodeImage  Boolean @default(true)
+  saveBarcodeSvg    Boolean @default(true)
+
+  // SECTION 2: Sticker
+  stickerSize       String  @default("50x30") // 40x30 | 50x25 | 50x30 | 60x40 | custom
+  customWidth       Float   @default(50)  // mm
+  customHeight      Float   @default(30)  // mm
+  labelGap          Float   @default(2)   // mm
+  margin            Float   @default(1.5) // mm
+
+  // SECTION 3: Printer
+  printerType       String  @default("thermal203") // thermal203 | thermal300 | a4
+  darkness          Int     @default(50)  // 0-100
+  printSpeed        Int     @default(50)  // 0-100
+  autoCut           Boolean @default(false)
+  feedAfterPrint    Boolean @default(true)
+
+  // SECTION 4: Sticker Design — which fields to show + order (JSON array)
+  // Default order: storeLogo, storeName, productName, productCode, barcode,
+  // barcodeNumber, sellingPrice, purchasePrice, weight, unit, packingDate,
+  // expiryDate, batchNumber, manufacturingDate
+  // Note: JSON stored as TEXT. Default set by application code if empty.
+  stickerFields     String  @default("[]")
+
+  // SECTION 5: Text Settings
+  fontFamily        String  @default("Tahoma")
+  fontSize          Int     @default(8)
+  fontBold          Boolean @default(true)
+  textAlign         String  @default("center") // left | center | right
+  lineSpacing       Float   @default(1.1)
+  textColor         String  @default("#000000")
+
+  // SECTION 6: Barcode Settings
+  barcodeWidth      Int     @default(2)     // module width in px
+  barcodeHeight      Int     @default(40)    // bar height in px
+  quietZone         Int     @default(4)     // mm
+  barcodeTopMargin  Int     @default(0)     // mm
+  barcodeBottomMargin Int   @default(0)     // mm
+  centerBarcode     Boolean @default(true)
+  highResSvg        Boolean @default(true)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

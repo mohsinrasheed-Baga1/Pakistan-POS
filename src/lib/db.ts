@@ -373,6 +373,43 @@ CREATE TABLE IF NOT EXISTS SimStock (
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS BarcodeSettings (
+  id TEXT PRIMARY KEY NOT NULL DEFAULT 'default',
+  defaultBarcodeType TEXT NOT NULL DEFAULT 'CODE128',
+  autoGenerate BOOLEAN NOT NULL DEFAULT 1,
+  autoVerify BOOLEAN NOT NULL DEFAULT 1,
+  autoRegenerate BOOLEAN NOT NULL DEFAULT 1,
+  humanReadable BOOLEAN NOT NULL DEFAULT 1,
+  saveBarcodeImage BOOLEAN NOT NULL DEFAULT 1,
+  saveBarcodeSvg BOOLEAN NOT NULL DEFAULT 1,
+  stickerSize TEXT NOT NULL DEFAULT '50x30',
+  customWidth REAL NOT NULL DEFAULT 50,
+  customHeight REAL NOT NULL DEFAULT 30,
+  labelGap REAL NOT NULL DEFAULT 2,
+  margin REAL NOT NULL DEFAULT 1.5,
+  printerType TEXT NOT NULL DEFAULT 'thermal203',
+  darkness INTEGER NOT NULL DEFAULT 50,
+  printSpeed INTEGER NOT NULL DEFAULT 50,
+  autoCut BOOLEAN NOT NULL DEFAULT 0,
+  feedAfterPrint BOOLEAN NOT NULL DEFAULT 1,
+  stickerFields TEXT NOT NULL DEFAULT '["storeName","productName","productCode","barcode","barcodeNumber","sellingPrice","expiryDate"]',
+  fontFamily TEXT NOT NULL DEFAULT 'Tahoma',
+  fontSize INTEGER NOT NULL DEFAULT 8,
+  fontBold BOOLEAN NOT NULL DEFAULT 1,
+  textAlign TEXT NOT NULL DEFAULT 'center',
+  lineSpacing REAL NOT NULL DEFAULT 1.1,
+  textColor TEXT NOT NULL DEFAULT '#000000',
+  barcodeWidth INTEGER NOT NULL DEFAULT 2,
+  barcodeHeight INTEGER NOT NULL DEFAULT 40,
+  quietZone INTEGER NOT NULL DEFAULT 4,
+  barcodeTopMargin INTEGER NOT NULL DEFAULT 0,
+  barcodeBottomMargin INTEGER NOT NULL DEFAULT 0,
+  centerBarcode BOOLEAN NOT NULL DEFAULT 1,
+  highResSvg BOOLEAN NOT NULL DEFAULT 1,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL
+);
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
