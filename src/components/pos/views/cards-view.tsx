@@ -1162,11 +1162,12 @@ function CardPrintDialog({
         <div class="body">
           <div class="holder-row">
             <div style="display:flex;align-items:center;gap:0.5mm;">
-              <span style="font-size:8px;">&#9635;</span>
+              <span style="font-size:10px;">&#9635;</span>
               <span class="holder-name">${escapeHtml(card.name)}</span>
             </div>
             <span class="type-badge">${escapeHtml(cardTypeLabel)}</span>
           </div>
+          ${card.phone ? `<div class="phone-row">Ph: ${escapeHtml(card.phone)}</div>` : ""}
           <div class="barcode">
             <svg class="barcode-svg"></svg>
           </div>
@@ -1190,12 +1191,12 @@ function CardPrintDialog({
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         body {
           width: 200mm;
-          min-height: 287mm;
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: center;
+          justify-content: flex-start;
           gap: 5mm;
+          padding-top: 5mm;
           font-family: Tahoma, Arial, sans-serif;
         }
         .card {
@@ -1218,7 +1219,8 @@ function CardPrintDialog({
         .shop-meta { font-size: 7px; line-height: 1.15; color: #333; }
         .body { flex: 1; padding: 1mm 2mm; display: flex; flex-direction: column; gap: 0.5mm; }
         .holder-row { display: flex; align-items: center; justify-content: space-between; gap: 1mm; }
-        .holder-name { font-size: 8px; font-weight: bold; color: #000; text-transform: uppercase; }
+        .holder-name { font-size: 11px; font-weight: bold; color: #000; text-transform: uppercase; }
+        .phone-row { font-size: 9px; font-weight: bold; color: #333; margin-top: 0.5mm; }
         .type-badge { border: 1px solid #000; padding: 0.3mm 1.5mm; font-size: 7px; font-weight: bold; color: #000; background: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
         .barcode { display: flex; justify-content: center; overflow: hidden; margin-top: 0.5mm; }
         .qr { display: flex; justify-content: center; margin-top: 0.5mm; }

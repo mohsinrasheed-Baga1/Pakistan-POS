@@ -199,10 +199,8 @@ export function PosView({ settings }: PosViewProps) {
   const lastScanResultRef = React.useRef<string | null>(null);
 
   async function handleScannedCode(code: string) {
-    // Prevent double execution
-    if (scanningRef.current) return;
-    scanningRef.current = true;
-    lastScanResultRef.current = code;
+    // No scanning lock — the old lock caused "Unknown barcode" errors
+    // when it got stuck in true state. Each scan is independent.
 
     try {
       const res = await fetch(`/api/barcode?code=${encodeURIComponent(code)}`, {
@@ -211,10 +209,6 @@ export function PosView({ settings }: PosViewProps) {
       const data = await res.json();
       if (data.found && data.kind === "product" && data.product) {
         const product = data.product as Product;
-        // ─── ASK QUANTITY FIRST, THEN ADD TO CART ──────────────────────
-        // User requested: when a product is scanned, ask quantity first.
-        // The quantity dialog opens with default value "1" auto-selected.
-        // Cashier types the quantity and presses Enter to add to cart.
         promptQuantity(product);
       } else if (data.found && data.kind === "card" && data.card) {
         toast.success(`Shop Card: ${data.card.name} — ${data.card.type === "SHOP_KEEPER" ? "Shopkeeper" : data.card.type === "WHOLESALE" ? "Wholesale" : "Regular"} mode`);
@@ -251,12 +245,6 @@ export function PosView({ settings }: PosViewProps) {
       }
     } catch {
       toast.error("Scan lookup failed");
-    } finally {
-      // Release locks immediately — the scan is complete, the product has
-      // been added to the cart. Don't wait 800ms because that blocks the
-      // next scan if the cashier scans quickly.
-      scanningRef.current = false;
-      lastScanResultRef.current = null;
     }
   }
 
@@ -408,16 +396,9 @@ export function PosView({ settings }: PosViewProps) {
           setHighlightedIndex((p) => Math.max(p - 4, 0));
           return;
         } else if (e.key === "Enter" && products.length > 0 && isSearchFocused) {
-          // CRITICAL: Don't add highlighted product if a scan is in progress
-          // (scanner's Enter also triggers this — causes double-add)
-          if (scanningRef.current || lastScanResultRef.current) {
-            e.preventDefault();
-            return;
-          }
           e.preventDefault();
           const product = products[highlightedIndex];
           if (product) {
-            // Ask quantity first, then add to cart
             promptQuantity(product);
           }
           return;
