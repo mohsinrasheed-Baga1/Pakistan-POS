@@ -286,7 +286,7 @@ export function PosView({ settings }: PosViewProps) {
   // Arrow keys       = Navigate products
   // F2/F3/F4/F12     = Checkout / Return / Calculator / Clear cart
   React.useEffect(() => {
-    function handlePosKey(e: KeyboardEvent) {
+    async function handlePosKey(e: KeyboardEvent) {
       if (returnOpen || calcOpen || receiptOpen) return;
 
       // ─── Ctrl+C = Calculator ──────────────────────────────────────────
@@ -402,14 +402,43 @@ export function PosView({ settings }: PosViewProps) {
           e.preventDefault();
           setHighlightedIndex((p) => p < 0 ? 0 : Math.max(p - 4, 0));
           return;
-        } else if (e.key === "Enter" && products.length > 0 && isSearchFocused) {
-          // Only add product if one is actually highlighted.
-          // When highlightedIndex is -1 (no search yet), Enter does nothing.
-          if (highlightedIndex >= 0 && highlightedIndex < products.length) {
-            e.preventDefault();
-            const product = products[highlightedIndex];
-            if (product) {
-              promptQuantity(product);
+        } else if (e.key === "Enter" && isSearchFocused) {
+          // ─── DIRECT BARCODE LOOKUP ON ENTER ───────────────────────────
+          // When Enter is pressed in search, we do a DIRECT barcode lookup
+          // via /api/barcode instead of relying on the (potentially stale)
+          // products list. This fixes the bug where scanning a barcode
+          // would add the FIRST product (from the old unfiltered list)
+          // instead of the scanned product.
+          //
+          // Why this is needed: The products list updates via a 200ms
+          // debounce + async fetch. When the scanner types fast and sends
+          // Enter, the products state hasn't updated yet, so
+          // products[highlightedIndex] points to the WRONG product.
+          //
+          // Solution: /api/barcode does an exact-match lookup, which is
+          // instant and reliable. If the search text is a valid barcode,
+          // we get the correct product. If not (e.g. user typed a name),
+          // we fall back to the highlighted product in the filtered list.
+          e.preventDefault();
+          const searchText = q.trim();
+          if (searchText) {
+            // Try barcode lookup first
+            try {
+              const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
+              const data = await res.json();
+              if (data.found && data.kind === "product" && data.product) {
+                // Clear search so the next scan starts fresh
+                setQ("");
+                setHighlightedIndex(-1);
+                promptQuantity(data.product as Product);
+                return;
+              }
+            } catch {}
+            // Barcode not found — fall back to highlighted product
+            if (highlightedIndex >= 0 && highlightedIndex < products.length) {
+              promptQuantity(products[highlightedIndex]);
+            } else {
+              toast.warning(`No product found for: ${searchText}`);
             }
           }
           return;

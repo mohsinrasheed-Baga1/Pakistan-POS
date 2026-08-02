@@ -862,15 +862,19 @@ function BarcodePrintDialog({
       return;
     }
 
-    // ─── PROFESSIONAL BARCODE STICKER PRINT (v2) ───────────────────────
-    // FIX: Previously the SVG was wider than the 50mm sticker, so bars on
-    // the right were being clipped by overflow:hidden. Now we:
-    // 1. Use width=2 (smaller natural SVG width — 226px instead of 339px)
-    // 2. Force SVG to scale to container with width:100% !important
-    // 3. Use viewBox-compatible scaling so ALL bars are visible
-    // 4. Reduce height + fontSize to make barcode more compact
-    // 5. Keep print-color-adjust:exact for pure black bars on print
-    // Result: smaller barcode, ALL bars visible, still scannable.
+    // ─── PROFESSIONAL BARCODE STICKER PRINT (v3) ───────────────────────
+    // FIX v3: Even smaller barcode to ensure NOTHING is cut off.
+    // The EAN-13 barcode has 113 modules. At width=1.5, that's 170px natural
+    // width. The 50mm sticker has ~47mm usable width = ~178px at 96dpi.
+    // So width=1.5 fits naturally without any scaling needed.
+    //
+    // Key changes from v2:
+    // - width=1.5 (was 2) — smaller natural SVG, fits without scaling
+    // - height=40 (was 50) — shorter barcode
+    // - fontSize=9 (was 11) — smaller text below bars
+    // - margin=2 (was 4) — smaller quiet zone
+    // - max-height: 14mm (was 17mm) — ensures barcode fits in 30mm sticker
+    // - SVG width:auto instead of 100% — let it use natural size, centered
 
     const bcValue = product!.barcode;
     const bcName = (product!.name || "").replace(/'/g, "\\'");
@@ -897,7 +901,7 @@ function BarcodePrintDialog({
         .sticker {
           width: 50mm;
           height: 30mm;
-          padding: 1mm 1.5mm;
+          padding: 1mm 2mm;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -931,16 +935,15 @@ function BarcodePrintDialog({
           min-height: 0;
           overflow: hidden;
         }
-        /* CRITICAL: Force SVG to fit within container width.
-           JsBarcode sets explicit width/height attributes on the SVG,
-           which can exceed the 50mm sticker width and get clipped.
-           Using !important + width:100% ensures the SVG scales down
-           to fit the container, so ALL bars are visible. */
+        /* SVG uses natural size (auto), centered in container.
+           max-width:100% ensures it never exceeds sticker width.
+           This is safer than width:100% which could stretch the bars. */
         .barcode-wrap svg {
           display: block;
-          width: 100% !important;
-          height: auto !important;
-          max-height: 17mm;
+          max-width: 100%;
+          max-height: 14mm;
+          width: auto;
+          height: auto;
         }
         .product-name {
           font-size: 7px;
@@ -958,7 +961,7 @@ function BarcodePrintDialog({
         @media print {
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .sticker { page-break-after: always; }
-          .barcode-wrap svg { width: 100% !important; height: auto !important; }
+          .barcode-wrap svg { max-width: 100%; max-height: 14mm; }
         }
       </style></head>
       <body>
@@ -971,24 +974,19 @@ function BarcodePrintDialog({
               try {
                 JsBarcode(svg, '${bcValue}', {
                   format: format,
-                  width: 2,
-                  height: 50,
+                  width: 1.5,
+                  height: 40,
                   displayValue: true,
-                  fontSize: 11,
+                  fontSize: 9,
                   font: 'monospace',
                   fontOptions: 'bold',
-                  margin: 4,
+                  margin: 2,
                   marginTop: 0,
                   marginBottom: 0,
                   textMargin: 1,
                   background: '#ffffff',
                   lineColor: '#000000',
                 });
-                // Force SVG attributes to be overridden by CSS
-                svg.removeAttribute('width');
-                svg.removeAttribute('height');
-                svg.style.width = '100%';
-                svg.style.height = 'auto';
               } catch (e) {
                 console.error('barcode render error', e);
               }
