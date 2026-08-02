@@ -27,12 +27,11 @@ import {
   getStickerDimensions,
 } from "@/lib/barcode-settings";
 import { buildStickerHtml, buildPrintHtml, StickerData } from "@/lib/sticker-builder";
-import { useBarcodeGeneration } from "@/hooks/use-barcode-generation";
 
 export function BarcodeSettingsPage() {
   const { settings, loading, reload } = useBarcodeSettings();
   const [saving, setSaving] = React.useState(false);
-  const { generate: generateBarcode } = useBarcodeGeneration();
+  const previewBarcodeRef = React.useRef<SVGSVGElement>(null);
 
   const [draft, setDraft] = React.useState<BarcodeSettings>(settings);
   React.useEffect(() => { if (!loading) setDraft(settings); }, [settings, loading]);
@@ -53,25 +52,48 @@ export function BarcodeSettingsPage() {
     currency: "Rs",
   });
 
-  // Generate barcode for preview
+  // Render barcode using JsBarcode (client-side — proven working)
   React.useEffect(() => {
-    let active = true;
-    (async () => {
-      const result = await generateBarcode({
-        format: draft.defaultBarcodeType as any,
-        value: previewProduct.productCode,
-        scale: draft.barcodeWidth,
-        height: draft.barcodeHeight,
-        includeText: draft.humanReadable,
-        verify: draft.autoVerify,
-      });
-      if (active && result) {
-        setPreviewProduct(prev => ({ ...prev, barcodeSvg: result.svg }));
+    if (!previewBarcodeRef.current) return;
+    const value = previewProduct.productCode;
+    if (!value) return;
+
+    const format = draft.defaultBarcodeType === "EAN13" && /^\d{13}$/.test(value) ? "EAN13" : "CODE128";
+
+    const renderBarcode = () => {
+      if (!(window as any).JsBarcode || !previewBarcodeRef.current) return;
+      try {
+        (window as any).JsBarcode(previewBarcodeRef.current, value, {
+          format,
+          width: draft.barcodeWidth || 2,
+          height: draft.barcodeHeight || 40,
+          displayValue: draft.humanReadable,
+          fontSize: 12,
+          font: "monospace",
+          fontOptions: "bold",
+          margin: draft.quietZone || 4,
+          textMargin: 2,
+          background: "#ffffff",
+          lineColor: "#000000",
+        });
+        // Get the SVG outer HTML and store it in previewProduct for sticker builder
+        const svgHtml = previewBarcodeRef.current.outerHTML;
+        setPreviewProduct(prev => ({ ...prev, barcodeSvg: svgHtml }));
+      } catch (e) {
+        console.error("JsBarcode error:", e);
       }
-    })();
-    return () => { active = false; };
+    };
+
+    if ((window as any).JsBarcode) {
+      renderBarcode();
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
+      script.onload = renderBarcode;
+      document.head.appendChild(script);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.defaultBarcodeType, draft.barcodeWidth, draft.barcodeHeight, draft.humanReadable, draft.autoVerify, previewProduct.productCode]);
+  }, [draft.defaultBarcodeType, draft.barcodeWidth, draft.barcodeHeight, draft.humanReadable, draft.quietZone, previewProduct.productCode]);
 
   const update = <K extends keyof BarcodeSettings>(key: K, value: BarcodeSettings[K]) => {
     setDraft(prev => ({ ...prev, [key]: value }));
@@ -413,6 +435,8 @@ export function BarcodeSettingsPage() {
           </div>
         </div>
       </div>
+      {/* Hidden SVG for JsBarcode rendering — source for preview + print */}
+      <svg ref={previewBarcodeRef} style={{ position: "absolute", left: "-9999px", width: "200px", height: "60px" }} />
     </div>
   );
 }

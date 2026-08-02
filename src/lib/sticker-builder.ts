@@ -33,19 +33,17 @@ export function buildStickerHtml(data: StickerData, settings: BarcodeSettings): 
   const { widthMm, heightMm } = getStickerDimensions(settings);
   const fields = settings.stickerFields;
 
-  // ─── Fix barcode SVG sizing ──────────────────────────────────────────
-  // bwip-js returns SVG with a viewBox but NO width/height attributes.
-  // Without explicit dimensions, the SVG renders at 0px or default 300x150
-  // in the browser, making the barcode invisible.
-  // Fix: inject width="100%" and height="auto" into the <svg> tag, plus
-  // a style to ensure it fills its container and stays within bounds.
+  // ─── Barcode SVG handling ────────────────────────────────────────────
+  // JsBarcode renders SVG with explicit width/height attributes, so the
+  // SVG displays correctly. We just ensure it's constrained to the
+  // sticker width via CSS max-width.
   let barcodeSvg = data.barcodeSvg || "";
   if (barcodeSvg) {
-    // Add width, height, and style to the opening <svg tag
-    barcodeSvg = barcodeSvg.replace(
-      /<svg /,
-      '<svg style="display:block;width:100%;height:auto;max-height:15mm;" preserveAspectRatio="xMidYMid meet" '
-    );
+    // Ensure SVG has style to constrain it within the sticker
+    // JsBarcode sets width/height attrs, but we add max-width:100% as safety
+    if (!barcodeSvg.includes("style=")) {
+      barcodeSvg = barcodeSvg.replace(/<svg /, '<svg style="display:block;max-width:100%;height:auto;" ');
+    }
   }
 
   // Build each field's HTML

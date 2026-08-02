@@ -1014,8 +1014,8 @@ export function CardVisual({
       >
         <div
           style={{
-            fontWeight: "bold",
-            fontSize: "14px",
+            fontWeight: 900,
+            fontSize: "16px",
             lineHeight: 1.15,
             color: "#000",
             letterSpacing: "0.3px",
@@ -1272,7 +1272,7 @@ function CardPrintDialog({
           padding: 1.5mm 2mm 0.5mm;
           text-align: center;
         }
-        .shop-name { font-weight: bold; font-size: 14px; line-height: 1.15; color: #000; letter-spacing: 0.3px; }
+        .shop-name { font-weight: 900; font-size: 16px; line-height: 1.15; color: #000; letter-spacing: 0.3px; }
         .shop-meta { font-size: 7px; line-height: 1.15; color: #333; }
         .body { flex: 1; padding: 1mm 2mm; display: flex; flex-direction: column; gap: 0.5mm; }
         .holder-row { display: flex; align-items: center; justify-content: space-between; gap: 1mm; }
