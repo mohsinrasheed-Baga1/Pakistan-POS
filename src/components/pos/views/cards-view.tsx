@@ -690,13 +690,18 @@ export function CardsView({ userRole }: CardsViewProps) {
         />
       )}
 
-      {/* Card Detail / Scan Summary Dialog — wider to fit all content */}
+      {/* Card Detail — FULL SCREEN modal (like a separate page) */}
       <Dialog open={!!detailCard} onOpenChange={(o) => !o && setDetailCard(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+        <DialogContent className="max-w-[95vw] w-full h-[95vh] overflow-y-auto p-6">
+          <DialogHeader className="flex-shrink-0 sticky top-0 bg-background z-10 pb-3 border-b">
+            <DialogTitle className="flex items-center gap-2 text-lg">
               <Wallet className="w-5 h-5 text-emerald-600" />
               Card Details — تفصیلات
+              {detailCard && (
+                <span className="text-sm text-muted-foreground ml-2">
+                  {detailCard.name} • {detailCard.cardNumber}
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
           {detailCard && (

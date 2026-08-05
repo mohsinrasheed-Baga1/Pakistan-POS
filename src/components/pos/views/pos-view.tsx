@@ -289,17 +289,8 @@ export function PosView({ settings }: PosViewProps) {
     async function handlePosKey(e: KeyboardEvent) {
       if (returnOpen || calcOpen || receiptOpen) return;
 
-      // ─── Ctrl+C = Calculator ──────────────────────────────────────────
-      if (e.ctrlKey && (e.key === "c" || e.key === "C")) {
-        // Only trigger if no text is selected (otherwise Ctrl+C should copy)
-        const selection = window.getSelection();
-        if (selection && selection.toString().length > 0) return;
-        e.preventDefault();
-        setCalcOpen(true);
-        return;
-      }
-
       // ─── Ctrl+Z = Cycle sale mode ─────────────────────────────────────
+      // Note: Ctrl+C calculator is now handled globally by AppShell
       if (e.ctrlKey && (e.key === "z" || e.key === "Z")) {
         e.preventDefault();
         const modes = ["RETAIL", "WHOLESALE", "SHOPKEEPER"] as const;
@@ -422,24 +413,34 @@ export function PosView({ settings }: PosViewProps) {
           e.preventDefault();
           const searchText = q.trim();
           if (searchText) {
-            // Try barcode lookup first
+            // Try barcode lookup first — exact match only
             try {
               const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
               const data = await res.json();
               if (data.found && data.kind === "product" && data.product) {
-                // Clear search so the next scan starts fresh
+                // Barcode found — add the correct product
                 setQ("");
                 setHighlightedIndex(-1);
                 promptQuantity(data.product as Product);
                 return;
               }
-            } catch {}
-            // Barcode not found — fall back to highlighted product
-            if (highlightedIndex >= 0 && highlightedIndex < products.length) {
-              promptQuantity(products[highlightedIndex]);
-            } else {
-              toast.warning(`No product found for: ${searchText}`);
+              // Barcode NOT found — DO NOT fall back to highlighted product.
+              // This prevents adding the wrong product (financial loss risk).
+              // Only show warning.
+              if (data.found === false) {
+                toast.warning(`Unknown barcode: ${searchText}`);
+                setQ("");
+                setHighlightedIndex(-1);
+                return;
+              }
+            } catch {
+              toast.error("Scan lookup failed");
+              return;
             }
+            // If barcode lookup didn't return found=true, treat as unknown
+            toast.warning(`Unknown barcode: ${searchText}`);
+            setQ("");
+            setHighlightedIndex(-1);
           }
           return;
         }

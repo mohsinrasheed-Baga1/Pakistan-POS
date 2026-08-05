@@ -42,6 +42,7 @@ import { ExpensesView } from "@/components/pos/views/expenses-view";
 import { LoadBillView } from "@/components/pos/views/loadbill-view";
 import { NotificationsBell } from "@/components/pos/notifications-bell";
 import { toast } from "sonner";
+import { GlobalCalculator } from "@/components/pos/global-calculator";
 
 interface AppShellProps {
   user: { id: string; name?: string | null; email?: string | null; role: string };
@@ -75,13 +76,25 @@ export function AppShell({ user, settings }: AppShellProps) {
     (n) => !n.minRole || roleOrder[user.role as keyof typeof roleOrder] >= roleOrder[n.minRole as keyof typeof roleOrder]
   );
 
-  // Global shortcut: Ctrl+Shift+P → jump to POS from any page
+  // Global calculator state — opens with Ctrl+C on ANY page
+  const [calcOpen, setCalcOpen] = React.useState(false);
+
+  // Global shortcuts: Ctrl+Shift+P → POS, Ctrl+C → Calculator (any page)
   React.useEffect(() => {
     function handleGlobalKey(e: KeyboardEvent) {
+      // Ctrl+Shift+P → jump to POS
       if (e.ctrlKey && e.shiftKey && (e.key === "P" || e.key === "p")) {
         e.preventDefault();
         setView("pos");
         toast.success("→ POS");
+        return;
+      }
+      // Ctrl+C → toggle calculator (only if no text is selected, so copy still works)
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "c" || e.key === "C")) {
+        const selection = window.getSelection();
+        if (selection && selection.toString().length > 0) return; // let copy work
+        e.preventDefault();
+        setCalcOpen(prev => !prev);
       }
     }
     window.addEventListener("keydown", handleGlobalKey);
@@ -289,6 +302,9 @@ export function AppShell({ user, settings }: AppShellProps) {
           </footer>
         </main>
       </div>
+
+      {/* Global Calculator — opens with Ctrl+C on ANY page */}
+      <GlobalCalculator open={calcOpen} onOpenChange={setCalcOpen} />
     </div>
   );
 }

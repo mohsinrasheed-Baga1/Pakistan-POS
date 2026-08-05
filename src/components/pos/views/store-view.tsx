@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { formatMoney, unitLabel } from "@/lib/pos-utils";
+import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
 import type { Product } from "@/types";
 
 type StoreProduct = Omit<Product, "category"> & {
@@ -206,6 +207,62 @@ export function StoreView() {
   const [boxPurchaseLookup, setBoxPurchaseLookup] = React.useState<any>(null);
   const [boxPurchaseLooking, setBoxPurchaseLooking] = React.useState(false);
   const [boxPurchaseSaving, setBoxPurchaseSaving] = React.useState(false);
+
+  // ─── GLOBAL BARCODE SCANNER ─────────────────────────────────────────────
+  // When ANY barcode is scanned on the Main Store page (regardless of focus),
+  // open the Box Purchase dialog, fill the barcode, and auto-lookup the product.
+  // This shows the product's previous cost price + expiry date so the user
+  // can quickly confirm or change them before recording the purchase.
+  const handleStoreScan = React.useCallback((code: string) => {
+    // Open the purchase dialog if not already open
+    if (!boxPurchaseOpen) {
+      setBoxPurchaseOpen(true);
+    }
+    // Set the barcode and trigger lookup
+    setBoxPurchaseBarcode(code);
+    // Defer lookup so state updates first
+    setTimeout(() => {
+      lookupBoxBarcodeWithCode(code);
+    }, 100);
+  }, [boxPurchaseOpen]);
+
+  useBarcodeScanner(handleStoreScan);
+
+  // Lookup variant that accepts a code directly (for scanner)
+  async function lookupBoxBarcodeWithCode(code: string) {
+    if (!code) return;
+    setBoxPurchaseLooking(true);
+    setBoxPurchaseLookup(null);
+    try {
+      const res = await fetch(`/api/products?barcode=${encodeURIComponent(code)}`, { cache: "no-store" });
+      const data = await res.json();
+      const p = data.products?.[0];
+      if (!p) {
+        toast.error("No product found with this barcode — add it first in Products");
+        setBoxPurchaseLooking(false);
+        return;
+      }
+      setBoxPurchaseLookup(p);
+      // Pre-fill previous purchase price + expiry date
+      if (p.costPrice > 0) setBoxPurchasePrice(p.costPrice.toString());
+      if (p.expiryDate) {
+        setBoxPurchaseExpiry(new Date(p.expiryDate).toISOString().slice(0, 10));
+      }
+      setBoxPurchaseCount("");
+      setBoxPurchaseNote("");
+
+      const isBox = !!p.packBarcode && p.packQuantity > 0;
+      if (isBox) {
+        toast.success(`Found: ${p.name} (Box — ${p.packQuantity} pcs per box)`);
+      } else {
+        toast.success(`Found: ${p.name} (Piece product)`);
+      }
+    } catch {
+      toast.error("Failed to look up barcode");
+    } finally {
+      setBoxPurchaseLooking(false);
+    }
+  }
 
   const load = React.useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -400,9 +457,17 @@ export function StoreView() {
           return;
         }
         const totalPieces = count * (boxPurchaseLookup.packQuantity || 0);
-        toast.success(
-          `Purchase recorded: ${count} boxes × ${boxPurchaseLookup.packQuantity} pcs = ${totalPieces} pieces added`
-        );
+        // Show whether prices were auto-recalculated
+        if (data.pricesRecalculated) {
+          toast.success(
+            `Purchase recorded: ${count} boxes × ${boxPurchaseLookup.packQuantity} pcs = ${totalPieces} pieces\n` +
+            `Prices auto-adjusted: Sale Rs ${data.newBoxSalePrice} | Wholesale Rs ${data.newBoxWholesalePrice} | Shopkeeper Rs ${data.newBoxShopkeeperPrice}`
+          );
+        } else {
+          toast.success(
+            `Purchase recorded: ${count} boxes × ${boxPurchaseLookup.packQuantity} pcs = ${totalPieces} pieces added`
+          );
+        }
       } else {
         // ─── PIECE PURCHASE ───────────────────────────────────────────────
         // Use the regular stock API to add pieces directly

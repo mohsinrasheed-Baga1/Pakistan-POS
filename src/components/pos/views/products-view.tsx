@@ -962,6 +962,8 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const [pieceShopkeeperPrice, setPieceShopkeeperPrice] = React.useState("");
   const [pieceStock, setPieceStock] = React.useState("");
   const [pieceMinStock, setPieceMinStock] = React.useState("");
+  // Unit field — allows selling by piece, kg, gram, litre, etc.
+  const [pieceUnit, setPieceUnit] = React.useState("piece");
 
   // Box info
   const [boxBarcode, setBoxBarcode] = React.useState("");
@@ -1071,6 +1073,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
         setPieceShopkeeperPrice((editProduct.shopkeeperPrice || 0).toString());
         setPieceStock(editProduct.stock.toString());
         setPieceMinStock(editProduct.minStock.toString());
+        setPieceUnit(editProduct.unit || "piece");
 
         fetch("/api/products", { cache: "no-store" })
           .then(r => r.json())
@@ -1156,7 +1159,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
         salePrice: isBox ? (Number(pieceSalePrice) || autoPieceSale) : Number(pieceSalePrice) || 0,
         wholesalePrice: isBox ? (Number(pieceWholesalePrice) || autoPieceWholesale) : Number(pieceWholesalePrice) || 0,
         shopkeeperPrice: isBox ? (Number(pieceShopkeeperPrice) || autoPieceShopkeeper) : Number(pieceShopkeeperPrice) || 0,
-        unit: "piece", stock: pieceStockValue,
+        unit: pieceUnit || "piece", stock: pieceStockValue,
         minStock: Number(pieceMinStock) || 0,
         expiryDate: expiryDate || null,
         manufacturingDate: manufacturingDate || null,
@@ -1422,10 +1425,19 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
               </div>
             </div>
 
-            {/* Total Stock (auto from boxes, or manual) + Low Stock Alert */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* Unit selector + Total Stock (auto from boxes, or manual) + Low Stock Alert */}
+            <div className="grid grid-cols-3 gap-2">
               <div className="space-y-2">
-                <Label>Total Stock (pieces)</Label>
+                <Label>Unit</Label>
+                <Select value={pieceUnit} onValueChange={setPieceUnit}>
+                  <SelectTrigger className="bg-emerald-100/70"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {UNITS.map((u) => <SelectItem key={u.v} value={u.v}>{u.l}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Total Stock</Label>
                 <Input
                   type="number"
                   value={totalPieces > 0 ? totalPieces.toString() : pieceStock}
