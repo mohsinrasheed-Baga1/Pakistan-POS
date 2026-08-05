@@ -230,6 +230,12 @@ export function PosView({ settings }: PosViewProps) {
           cart.setSaleType("RETAIL");
         }
         setScannedCard(data.card);
+        // ─── AUTO-FILL CUSTOMER NAME + PHONE FROM CARD ────────────────────
+        // When a shop card is scanned, the customer's name and phone are
+        // automatically filled in the checkout form so they appear on the receipt.
+        if (data.card.name) {
+          cart.setCustomer(data.card.name, data.card.phone || cart.customerPhone);
+        }
         // ─── FETCH LAST TRANSACTION FOR THIS CARD ─────────────────────────
         // The POS page displays the card's last transaction so the cashier
         // can see the customer's recent activity at a glance.
@@ -798,9 +804,9 @@ export function PosView({ settings }: PosViewProps) {
           )}
         </div>
 
-        {/* Cart section */}
+        {/* Cart section — darker background for visual contrast with products panel */}
         <div className="lg:sticky lg:top-4 h-fit">
-          <Card className="border-emerald-100">
+          <Card className="border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/30 shadow-md">
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="font-bold flex items-center gap-2">
@@ -1321,6 +1327,8 @@ function ReturnDialog({
   const [sale, setSale] = React.useState<any>(null);
   const [notFound, setNotFound] = React.useState(false);
   const [returning, setReturning] = React.useState(false);
+  // Track which item IDs are selected for return
+  const [selectedItemIds, setSelectedItemIds] = React.useState<string[]>([]);
 
   function reset() {
     setInvoiceNo("");
@@ -1328,6 +1336,7 @@ function ReturnDialog({
     setNotFound(false);
     setSearching(false);
     setReturning(false);
+    setSelectedItemIds([]);
   }
 
   React.useEffect(() => {
@@ -1336,6 +1345,23 @@ function ReturnDialog({
       return () => clearTimeout(t);
     }
   }, [open]);
+
+  // When sale is loaded, select ALL items by default (user can deselect)
+  React.useEffect(() => {
+    if (sale?.items) {
+      setSelectedItemIds(sale.items.map((it: any) => it.id));
+    } else {
+      setSelectedItemIds([]);
+    }
+  }, [sale]);
+
+  function toggleItem(itemId: string) {
+    setSelectedItemIds(prev =>
+      prev.includes(itemId)
+        ? prev.filter(id => id !== itemId)
+        : [...prev, itemId]
+    );
+  }
 
   async function findSale() {
     const q = invoiceNo.trim();
@@ -1370,21 +1396,27 @@ function ReturnDialog({
     }
   }
 
-  async function returnAll() {
+  async function returnSelected() {
     if (!sale) return;
+    if (selectedItemIds.length === 0) {
+      toast.error("Select at least one item to return");
+      return;
+    }
     setReturning(true);
     try {
       const res = await fetch(`/api/sales/${sale.id}/return`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "POS return" }),
+        body: JSON.stringify({
+          reason: selectedItemIds.length === sale.items.length ? "Full return" : "Partial return",
+          itemIds: selectedItemIds,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
         const msg = (data.error || "").toLowerCase();
         if (msg.includes("already")) {
           toast.error("This sale has already been returned");
-          // refresh sale state to reflect RETURNED
           setSale({ ...sale, status: "RETURNED" });
         } else {
           toast.error(data.error || "Return failed");
@@ -1392,7 +1424,10 @@ function ReturnDialog({
         setReturning(false);
         return;
       }
-      toast.success("Sale returned successfully. Items restocked.");
+      const msg = data.isFullReturn
+        ? "Sale returned successfully. All items restocked."
+        : `Partial return done. ${data.itemsReturned} of ${data.itemsTotal} items returned. Refund: Rs ${data.refundAmount?.toLocaleString()}`;
+      toast.success(msg);
       onReturned?.();
       onOpenChange(false);
     } catch {
@@ -1403,6 +1438,11 @@ function ReturnDialog({
   }
 
   const alreadyReturned = sale?.status === "RETURNED";
+  const selectedRefundAmount = sale?.items
+    ? sale.items
+        .filter((it: any) => selectedItemIds.includes(it.id))
+        .reduce((sum: number, it: any) => sum + (it.lineTotal || 0), 0)
+    : 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1410,7 +1450,7 @@ function ReturnDialog({
         <DialogHeader>
           <DialogTitle>Return / Refund Sale</DialogTitle>
           <DialogDescription>
-            Scan the receipt barcode OR enter the invoice number
+            Scan the receipt barcode OR enter the invoice number. Select items to return.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -1477,39 +1517,78 @@ function ReturnDialog({
                   </div>
                 )}
                 <Separator />
-                <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
-                  {(sale.items || []).map((it: any) => (
-                    <div
-                      key={it.id}
-                      className="flex items-center justify-between text-sm gap-2"
+                {/* ─── Items with checkboxes for selection ─── */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">
+                    Select items to return ({selectedItemIds.length}/{sale.items?.length || 0})
+                  </span>
+                  <div className="flex gap-1">
+                    <button
+                      className="text-xs text-blue-600 hover:underline"
+                      onClick={() => setSelectedItemIds(sale.items?.map((it: any) => it.id) || [])}
+                      disabled={alreadyReturned}
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="truncate">{it.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {it.quantity} {unitLabel(it.unit)} ×{" "}
-                          {formatMoney(it.price, currency)}
+                      Select All
+                    </button>
+                    <span className="text-xs text-muted-foreground">|</span>
+                    <button
+                      className="text-xs text-blue-600 hover:underline"
+                      onClick={() => setSelectedItemIds([])}
+                      disabled={alreadyReturned}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
+                  {(sale.items || []).map((it: any) => {
+                    const checked = selectedItemIds.includes(it.id);
+                    return (
+                      <label
+                        key={it.id}
+                        className={`flex items-center gap-2 text-sm rounded-md p-1.5 cursor-pointer transition-colors ${
+                          checked ? "bg-rose-50 border border-rose-200" : "hover:bg-muted/50"
+                        } ${alreadyReturned ? "opacity-50 pointer-events-none" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleItem(it.id)}
+                          className="w-4 h-4 accent-rose-600"
+                          disabled={alreadyReturned}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate">{it.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {it.quantity} {unitLabel(it.unit)} ×{" "}
+                            {formatMoney(it.price, currency)}
+                          </div>
                         </div>
-                      </div>
-                      <div className="font-medium whitespace-nowrap">
-                        {formatMoney(it.lineTotal, currency)}
-                      </div>
-                    </div>
-                  ))}
+                        <div className="font-medium whitespace-nowrap">
+                          {formatMoney(it.lineTotal, currency)}
+                        </div>
+                      </label>
+                    );
+                  })}
                 </div>
                 <Separator />
                 <div className="flex justify-between font-bold">
-                  <span>Total</span>
-                  <span className="text-emerald-700">
-                    {formatMoney(sale.total, currency)}
+                  <span>Refund Amount</span>
+                  <span className="text-rose-700">
+                    {formatMoney(selectedRefundAmount, currency)}
                   </span>
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Sale Total</span>
+                  <span>{formatMoney(sale.total, currency)}</span>
                 </div>
               </div>
               <Button
-                className="w-full bg-emerald-600 hover:bg-emerald-700"
-                onClick={returnAll}
-                disabled={returning || alreadyReturned}
+                className="w-full bg-rose-600 hover:bg-rose-700"
+                onClick={returnSelected}
+                disabled={returning || alreadyReturned || selectedItemIds.length === 0}
               >
-                {returning ? "Processing..." : "Return All Items"}
+                {returning ? "Processing..." : `Return ${selectedItemIds.length} Item${selectedItemIds.length !== 1 ? "s" : ""} — ${formatMoney(selectedRefundAmount, currency)}`}
               </Button>
             </div>
           )}

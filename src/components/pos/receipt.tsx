@@ -131,10 +131,31 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
             <span>Date:</span>
             <span>{new Date(sale.createdAt).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })}</span>
           </div>
+
+          {/* ─── Customer Type (Regular / Wholesale / Shopkeeper) ─── */}
+          {sale.saleType && (
+            <div className="row" style={{ fontSize: tableFontSize }}>
+              <span>Type:</span>
+              <span>
+                {sale.saleType === "RETAIL" ? "Regular"
+                  : sale.saleType === "WHOLESALE" ? "Wholesale"
+                  : sale.saleType === "SHOPKEEPER" ? "Shopkeeper"
+                  : sale.saleType}
+              </span>
+            </div>
+          )}
+
+          {/* ─── Customer Name — shows if shop card used OR manually entered ─── */}
           {sale.customerName && (
             <div className="row" style={{ fontSize: tableFontSize }}>
               <span>Customer:</span>
               <span>{sale.customerName}</span>
+            </div>
+          )}
+          {sale.customerPhone && (
+            <div className="row" style={{ fontSize: tableFontSize }}>
+              <span>Phone:</span>
+              <span>{sale.customerPhone}</span>
             </div>
           )}
           {sale.card?.name && (

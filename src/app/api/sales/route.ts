@@ -234,7 +234,7 @@ async function processSale(userId: string, body: any, items: any[]) {
       note: body.note || null,
       items: { create: saleItemsData },
     },
-    include: { items: true },
+    include: { items: true, card: true },
   });
 
   // Attach the user name manually (no Prisma relation lookup)
