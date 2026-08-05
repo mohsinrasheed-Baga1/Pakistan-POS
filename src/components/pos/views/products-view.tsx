@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   RefreshCw,
   Calendar,
+  Warehouse,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -965,6 +966,22 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   // Unit field — allows selling by piece, kg, gram, litre, etc.
   const [pieceUnit, setPieceUnit] = React.useState("piece");
 
+  // ─── Inventory Source (v2.9.8) ──────────────────────────────────────────
+  // SHOP: regular shop product (default, stock in shop)
+  // MAIN_STORE: loose product whose stock is deducted from a linked Main Store product
+  const [inventorySource, setInventorySource] = React.useState<"SHOP" | "MAIN_STORE">("SHOP");
+  const [linkedStoreProductId, setLinkedStoreProductId] = React.useState("");
+  const [storeProducts, setStoreProducts] = React.useState<any[]>([]);
+
+  // Fetch Main Store products for the dropdown (when MAIN_STORE is selected)
+  React.useEffect(() => {
+    if (inventorySource !== "MAIN_STORE") return;
+    fetch("/api/store", { cache: "no-store" })
+      .then(r => r.json())
+      .then(d => setStoreProducts(d.products || []))
+      .catch(() => {});
+  }, [inventorySource]);
+
   // Box info
   const [boxBarcode, setBoxBarcode] = React.useState("");
   const [boxBarcodeAuto, setBoxBarcodeAuto] = React.useState(false);
@@ -1074,6 +1091,8 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
         setPieceStock(editProduct.stock.toString());
         setPieceMinStock(editProduct.minStock.toString());
         setPieceUnit(editProduct.unit || "piece");
+        setInventorySource((editProduct as any).inventorySource || "SHOP");
+        setLinkedStoreProductId((editProduct as any).linkedStoreProductId || "");
 
         fetch("/api/products", { cache: "no-store" })
           .then(r => r.json())
@@ -1164,6 +1183,9 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
         expiryDate: expiryDate || null,
         manufacturingDate: manufacturingDate || null,
         hasBarcode: true, active: true, image,
+        // Loose product support
+        inventorySource,
+        linkedStoreProductId: inventorySource === "MAIN_STORE" ? linkedStoreProductId : null,
       };
 
       // ─── Build BOX product body (only if box) ──────────────────────────────
@@ -1292,6 +1314,63 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
                 {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* ─── 2.5. Inventory Source (Shop vs Main Store) ─── */}
+          <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Warehouse className="w-4 h-4 text-blue-600" />
+              <Label className="font-bold text-blue-800">Inventory Source — اسٹاک کہاں سے</Label>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setInventorySource("SHOP")}
+                className={`px-3 py-2 rounded-md text-sm font-medium border-2 transition-colors ${
+                  inventorySource === "SHOP"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                    : "border-muted hover:border-emerald-300"
+                }`}
+              >
+                ● Shop Inventory (ڈیفالٹ)
+                <div className="text-[10px] text-muted-foreground font-normal mt-0.5">
+                  Stock managed in shop
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setInventorySource("MAIN_STORE")}
+                className={`px-3 py-2 rounded-md text-sm font-medium border-2 transition-colors ${
+                  inventorySource === "MAIN_STORE"
+                    ? "border-blue-500 bg-blue-100 text-blue-700"
+                    : "border-muted hover:border-blue-300"
+                }`}
+              >
+                ● Main Store Inventory (لوز پروڈکٹ)
+                <div className="text-[10px] text-muted-foreground font-normal mt-0.5">
+                  Loose — cuts from Main Store
+                </div>
+              </button>
+            </div>
+            {inventorySource === "MAIN_STORE" && (
+              <div className="space-y-2">
+                <Label>Linked Main Store Product *</Label>
+                <Select value={linkedStoreProductId} onValueChange={setLinkedStoreProductId}>
+                  <SelectTrigger><SelectValue placeholder="Select Main Store product (e.g. Sugar, Rice)" /></SelectTrigger>
+                  <SelectContent>
+                    {storeProducts.map((sp) => (
+                      <SelectItem key={sp.id} value={sp.id}>
+                        {sp.name} — Stock: {sp.storeStock} {sp.unit || "pcs"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  When this loose product is sold in POS, quantity is automatically deducted
+                  from the selected Main Store product instead of shop inventory.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* ─── 3. Box Details (optional — leave empty if not sold by box) ─── */}

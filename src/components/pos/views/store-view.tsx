@@ -199,6 +199,14 @@ export function StoreView() {
 
   // Box Purchase dialog state
   const [boxPurchaseOpen, setBoxPurchaseOpen] = React.useState(false);
+  // ─── Pack/Convert Stock dialog state (v2.9.8) ──────────────────────────
+  // Convert bulk Main Store stock into packed shop products.
+  // e.g. Sugar 200 KG → 30 packs of 1 KG + 10 packs of 5 KG
+  const [packOpen, setPackOpen] = React.useState(false);
+  const [packSourceProduct, setPackSourceProduct] = React.useState<any>(null);
+  const [packLinkedProducts, setPackLinkedProducts] = React.useState<any[]>([]);
+  const [packQuantities, setPackQuantities] = React.useState<Record<string, string>>({});
+  const [packSaving, setPackSaving] = React.useState(false);
   const [boxPurchaseBarcode, setBoxPurchaseBarcode] = React.useState("");
   const [boxPurchaseCount, setBoxPurchaseCount] = React.useState("");
   const [boxPurchasePrice, setBoxPurchasePrice] = React.useState("");
@@ -538,6 +546,112 @@ export function StoreView() {
     setBoxPurchaseOpen(true);
   }
 
+  // ─── Pack/Convert Stock ─────────────────────────────────────────────────
+  // Opens the pack dialog for a specific Main Store product.
+  // Finds all shop products that are linked to this Main Store product
+  // (inventorySource = "MAIN_STORE", linkedStoreProductId = product.id)
+  // AND all packed products that share the same base name (e.g. "Sugar 1KG").
+  async function openPackDialog(storeProduct: any) {
+    setPackSourceProduct(storeProduct);
+    setPackQuantities({});
+    setPackLinkedProducts([]);
+    setPackOpen(true);
+
+    // Fetch all shop products to find linked ones
+    try {
+      const res = await fetch("/api/products?limit=500", { cache: "no-store" });
+      const data = await res.json();
+      const allProducts = data.products || [];
+      // Find products linked to this store product (loose items)
+      // OR packed products with similar names (e.g. "Sugar 1KG" matches "Sugar")
+      const baseName = storeProduct.name.toLowerCase().trim();
+      const linked = allProducts.filter((p: any) => {
+        // Direct link via linkedStoreProductId
+        if (p.linkedStoreProductId === storeProduct.id) return true;
+        // Name-based match: "Sugar 1KG" matches base "Sugar"
+        const pName = p.name.toLowerCase().trim();
+        return pName.startsWith(baseName) && pName !== baseName && !pName.includes("(box)");
+      });
+      setPackLinkedProducts(linked);
+    } catch {
+      toast.error("Failed to load linked products");
+    }
+  }
+
+  // Calculate total quantity required from Main Store based on pack quantities
+  function calculatePackTotal(): number {
+    if (!packSourceProduct) return 0;
+    let total = 0;
+    for (const p of packLinkedProducts) {
+      const qty = parseFloat(packQuantities[p.id] || "0") || 0;
+      if (qty > 0) {
+        // Each pack represents a certain quantity (from product name or unit)
+        // For simplicity, we assume 1 pack = 1 unit of the packed product
+        // The user enters how many packs to create
+        total += qty;
+      }
+    }
+    return total;
+  }
+
+  async function handlePackSave() {
+    if (!packSourceProduct) return;
+    const packsToCreate = packLinkedProducts
+      .filter(p => (parseFloat(packQuantities[p.id] || "0") || 0) > 0)
+      .map(p => ({ product: p, qty: parseFloat(packQuantities[p.id] || "0") || 0 }));
+
+    if (packsToCreate.length === 0) {
+      toast.error("Enter quantity for at least one pack");
+      return;
+    }
+
+    const totalRequired = packsToCreate.reduce((sum, p) => sum + p.qty, 0);
+    if (totalRequired > packSourceProduct.storeStock) {
+      toast.error(`Insufficient stock! Only ${packSourceProduct.storeStock} ${packSourceProduct.unit || "pcs"} available`);
+      return;
+    }
+
+    setPackSaving(true);
+    try {
+      // Deduct from Main Store
+      await db_product_update_store_stock(packSourceProduct.id, -totalRequired, `Packed into shop products`);
+      // Increment each packed product's shop stock
+      for (const pack of packsToCreate) {
+        await fetch(`/api/products/${pack.product.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...pack.product,
+            stock: (pack.product.stock || 0) + pack.qty,
+            stockNote: `Packed from Main Store (${pack.qty} units)`,
+          }),
+        });
+      }
+      toast.success(`Packed ${packsToCreate.length} product(s). Total: ${totalRequired} ${packSourceProduct.unit || "pcs"} deducted from Main Store.`);
+      setPackOpen(false);
+      load(true);
+    } catch (e: any) {
+      toast.error(e.message || "Pack failed");
+    } finally {
+      setPackSaving(false);
+    }
+  }
+
+  // Helper: update store stock via API
+  async function db_product_update_store_stock(productId: string, delta: number, note: string) {
+    const res = await fetch("/api/store", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productId,
+        type: "TRANSFER",
+        quantity: delta,
+        note,
+      }),
+    });
+    if (!res.ok) throw new Error("Failed to update store stock");
+  }
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
       {/* Header */}
@@ -562,6 +676,21 @@ export function StoreView() {
           >
             <BarcodeIcon className="h-4 w-4 mr-1.5" />
             Receive Stock
+          </Button>
+          <Button
+            className="bg-blue-600 text-white hover:bg-blue-700"
+            size="sm"
+            onClick={() => {
+              // Open pack dialog with first store product or prompt to select
+              if (storeProducts.length === 0) {
+                toast.info("No store products available to pack");
+                return;
+              }
+              openPackDialog(storeProducts[0]);
+            }}
+          >
+            <Package className="h-4 w-4 mr-1.5" />
+            Pack / Convert
           </Button>
           <Button
             variant="outline"
@@ -1115,6 +1244,121 @@ export function StoreView() {
               {boxPurchaseSaving ? "Saving..." : "Record Purchase"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Pack / Convert Stock Dialog ─── */}
+      <Dialog open={packOpen} onOpenChange={setPackOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5 text-blue-600" />
+              Pack / Convert Stock — پیک کریں
+            </DialogTitle>
+            <DialogDescription>
+              Convert bulk Main Store stock into packed shop products.
+            </DialogDescription>
+          </DialogHeader>
+          {packSourceProduct && (
+            <div className="space-y-3">
+              {/* Source product info */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-1">
+                <div className="text-xs text-muted-foreground">Source Main Store Product</div>
+                <div className="font-bold text-blue-800">{packSourceProduct.name}</div>
+                <div className="text-sm">
+                  Available: <span className="font-bold">{packSourceProduct.storeStock} {packSourceProduct.unit || "pcs"}</span>
+                </div>
+              </div>
+
+              {/* Select different source product */}
+              <div className="space-y-1">
+                <Label className="text-xs">Change Source Product</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  value={packSourceProduct.id}
+                  onChange={(e) => {
+                    const sp = storeProducts.find(p => p.id === e.target.value);
+                    if (sp) openPackDialog(sp);
+                  }}
+                >
+                  {storeProducts.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} — {p.storeStock} {p.unit || "pcs"}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Linked/packed products list */}
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">
+                  Packed Products — Enter number of packs to create
+                </Label>
+                {packLinkedProducts.length === 0 ? (
+                  <div className="text-center text-sm text-muted-foreground py-4 border rounded-lg">
+                    No linked packed products found.
+                    <br />
+                    Create packed products (e.g. "Sugar 1KG") in Products menu first,
+                    or set Inventory Source = Main Store on a loose product.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {packLinkedProducts.map(p => (
+                      <div key={p.id} className="flex items-center gap-2 rounded-md border p-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{p.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Current stock: {p.stock || 0} {p.unit || "pcs"} • Sale: Rs {p.salePrice || 0}
+                          </div>
+                        </div>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          placeholder="0"
+                          value={packQuantities[p.id] || ""}
+                          onChange={(e) => setPackQuantities(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          className="w-24 text-right"
+                        />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">packs</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Total calculation */}
+              {calculatePackTotal() > 0 && (
+                <div className="rounded-lg bg-blue-50 border border-blue-300 p-3 space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Total Required:</span>
+                    <span className="font-bold">{calculatePackTotal()} {packSourceProduct.unit || "pcs"}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Available:</span>
+                    <span>{packSourceProduct.storeStock} {packSourceProduct.unit || "pcs"}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">After Pack:</span>
+                    <span className={packSourceProduct.storeStock - calculatePackTotal() < 0 ? "text-red-600 font-bold" : "text-emerald-700 font-bold"}>
+                      {packSourceProduct.storeStock - calculatePackTotal()} {packSourceProduct.unit || "pcs"}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => setPackOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  onClick={handlePackSave}
+                  disabled={packSaving || packLinkedProducts.length === 0 || calculatePackTotal() === 0 || calculatePackTotal() > packSourceProduct.storeStock}
+                >
+                  {packSaving ? "Packing..." : `Pack ${calculatePackTotal()} ${packSourceProduct.unit || "pcs"}`}
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

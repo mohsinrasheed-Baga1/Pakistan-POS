@@ -55,6 +55,11 @@ export async function PUT(
       packBarcode: body.packBarcode !== undefined ? (body.packBarcode || null) : existing.packBarcode,
       packQuantity: body.packQuantity !== undefined ? Number(body.packQuantity) || 0 : existing.packQuantity,
       packPrice: body.packPrice !== undefined ? Number(body.packPrice) || 0 : existing.packPrice,
+      // Loose Product Support
+      inventorySource: body.inventorySource || existing.inventorySource || "SHOP",
+      linkedStoreProductId: body.linkedStoreProductId !== undefined
+        ? (body.linkedStoreProductId || null)
+        : existing.linkedStoreProductId,
     },
     include: { category: true, vendor: true },
   });

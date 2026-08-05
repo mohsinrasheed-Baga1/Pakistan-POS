@@ -110,6 +110,16 @@ model Product {
   barcodeVerified Boolean  @default(false)
   stickerSize     String   @default("50x30")
   packingDate     DateTime?
+  // ─── Loose Product Support (v2.9.8) ──────────────────────────────────
+  // inventorySource: "SHOP" (default, regular shop product) or "MAIN_STORE"
+  //   (loose product whose stock is deducted from a linked Main Store product).
+  // linkedStoreProductId: When inventorySource = "MAIN_STORE", this points to
+  //   the StoreProduct ID in Main Store that holds the bulk stock.
+  //   e.g. "Sugar (Loose)" links to StoreProduct "Sugar" (200 KG).
+  // When sold in POS, the quantity is deducted from the linked StoreProduct
+  // instead of the product's own stock field.
+  inventorySource       String  @default("SHOP") // SHOP | MAIN_STORE
+  linkedStoreProductId  String?                   // FK to StoreProduct (loose items)
 }
 
 model Sale {

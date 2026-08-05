@@ -400,26 +400,15 @@ export function PosView({ settings }: PosViewProps) {
           setHighlightedIndex((p) => p < 0 ? 0 : Math.max(p - 4, 0));
           return;
         } else if (e.key === "Enter" && isSearchFocused) {
-          // ─── DIRECT BARCODE LOOKUP ON ENTER ───────────────────────────
-          // When Enter is pressed in search, we do a DIRECT barcode lookup
-          // via /api/barcode instead of relying on the (potentially stale)
-          // products list. This fixes the bug where scanning a barcode
-          // would add the FIRST product (from the old unfiltered list)
-          // instead of the scanned product.
-          //
-          // Why this is needed: The products list updates via a 200ms
-          // debounce + async fetch. When the scanner types fast and sends
-          // Enter, the products state hasn't updated yet, so
-          // products[highlightedIndex] points to the WRONG product.
-          //
-          // Solution: /api/barcode does an exact-match lookup, which is
-          // instant and reliable. If the search text is a valid barcode,
-          // we get the correct product. If not (e.g. user typed a name),
-          // we fall back to the highlighted product in the filtered list.
+          // ─── ENTER IN SEARCH: barcode lookup OR highlighted product ───
+          // 1. First try /api/barcode for exact barcode match (scanner)
+          // 2. If not found as barcode, use the highlighted product in the
+          //    filtered list (user typed a name and pressed Enter)
+          // 3. If nothing highlighted, show warning
           e.preventDefault();
           const searchText = q.trim();
           if (searchText) {
-            // Try barcode lookup first — exact match only
+            // Step 1: Try barcode lookup first (for scanner input)
             try {
               const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
               const data = await res.json();
@@ -430,21 +419,26 @@ export function PosView({ settings }: PosViewProps) {
                 promptQuantity(data.product as Product);
                 return;
               }
-              // Barcode NOT found — DO NOT fall back to highlighted product.
-              // This prevents adding the wrong product (financial loss risk).
-              // Only show warning.
-              if (data.found === false) {
-                toast.warning(`Unknown barcode: ${searchText}`);
-                setQ("");
-                setHighlightedIndex(-1);
-                return;
-              }
             } catch {
-              toast.error("Scan lookup failed");
+              // Barcode lookup failed (network) — fall through to highlighted product
+            }
+            // Step 2: Use highlighted product from filtered list
+            // (user typed a name, pressed Enter to select the highlighted match)
+            if (highlightedIndex >= 0 && highlightedIndex < products.length) {
+              setQ("");
+              setHighlightedIndex(-1);
+              promptQuantity(products[highlightedIndex]);
               return;
             }
-            // If barcode lookup didn't return found=true, treat as unknown
-            toast.warning(`Unknown barcode: ${searchText}`);
+            // Step 3: If only one product matches, use it
+            if (products.length === 1) {
+              setQ("");
+              setHighlightedIndex(-1);
+              promptQuantity(products[0]);
+              return;
+            }
+            // No match found
+            toast.warning(`No product found for: ${searchText}`);
             setQ("");
             setHighlightedIndex(-1);
           }

@@ -137,6 +137,9 @@ export async function POST(req: NextRequest) {
       barcodeVerified,
       stickerSize: body.stickerSize || "50x30",
       packingDate: body.packingDate ? new Date(body.packingDate) : null,
+      // Loose Product Support
+      inventorySource: body.inventorySource || "SHOP",
+      linkedStoreProductId: body.linkedStoreProductId || null,
     },
     include: { category: true, vendor: true },
   });

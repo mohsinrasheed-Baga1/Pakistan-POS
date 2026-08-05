@@ -365,6 +365,38 @@ async function processSale(userId: string, body: any, items: any[]) {
           });
         }
       }
+
+      // ─── MAIN_STORE INVENTORY (Loose Product) ──────────────────────────
+      // If this product is a loose product linked to a Main Store product,
+      // deduct the sold quantity from the Main Store product's storeStock
+      // instead of (or in addition to) the shop stock.
+      if (product.inventorySource === "MAIN_STORE" && product.linkedStoreProductId) {
+        const storeProduct = await db.product.findUnique({
+          where: { id: product.linkedStoreProductId },
+        });
+        if (storeProduct) {
+          await db.product.update({
+            where: { id: storeProduct.id },
+            data: { storeStock: { decrement: it.quantity } },
+          });
+          await db.storeTransaction.create({
+            data: {
+              productId: storeProduct.id,
+              type: "TRANSFER",
+              quantity: -it.quantity,
+              note: `Loose sale ${invoiceNo} — ${product.name} (${it.quantity} ${product.unit})`,
+            },
+          });
+          await db.stockLog.create({
+            data: {
+              productId: storeProduct.id,
+              type: "SALE",
+              quantity: -it.quantity,
+              note: `Loose sale ${invoiceNo} via ${product.name}`,
+            },
+          });
+        }
+      }
     }
   }
 

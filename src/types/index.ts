@@ -42,6 +42,9 @@ export interface Product {
   barcodeVerified: boolean;
   stickerSize: string;
   packingDate: string | null;
+  // Loose Product Support (v2.9.8)
+  inventorySource: "SHOP" | "MAIN_STORE";
+  linkedStoreProductId: string | null;
 }
 
 export interface Category {

@@ -458,6 +458,9 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["barcodeVerified", "BOOLEAN NOT NULL DEFAULT 0"],
     ["stickerSize", "TEXT NOT NULL DEFAULT '50x30'"],
     ["packingDate", "DATETIME"],
+    // ─── Loose Product Support (v2.9.8) ──────────────────────────────────
+    ["inventorySource", "TEXT NOT NULL DEFAULT 'SHOP'"],
+    ["linkedStoreProductId", "TEXT"],
   ],
   Sale: [
     ["cardId", "TEXT"],
