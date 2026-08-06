@@ -972,6 +972,8 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const [inventorySource, setInventorySource] = React.useState<"SHOP" | "MAIN_STORE">("SHOP");
   const [linkedStoreProductId, setLinkedStoreProductId] = React.useState("");
   const [storeProducts, setStoreProducts] = React.useState<any[]>([]);
+  // Search filter for Main Store product dropdown
+  const [storeProductSearch, setStoreProductSearch] = React.useState("");
 
   // Fetch Main Store products for the dropdown (when MAIN_STORE is selected)
   React.useEffect(() => {
@@ -1355,16 +1357,55 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
             {inventorySource === "MAIN_STORE" && (
               <div className="space-y-2">
                 <Label>Linked Main Store Product *</Label>
-                <Select value={linkedStoreProductId} onValueChange={setLinkedStoreProductId}>
-                  <SelectTrigger><SelectValue placeholder="Select Main Store product (e.g. Sugar, Rice)" /></SelectTrigger>
-                  <SelectContent>
-                    {storeProducts.map((sp) => (
-                      <SelectItem key={sp.id} value={sp.id}>
-                        {sp.name} — Stock: {sp.storeStock} {sp.unit || "pcs"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {/* Searchable dropdown for Main Store products */}
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Search Main Store product (e.g. Sugar, Rice)..."
+                    value={storeProductSearch}
+                    onChange={(e) => setStoreProductSearch(e.target.value)}
+                    className="text-sm"
+                  />
+                  <div className="max-h-48 overflow-y-auto rounded-md border border-blue-200 bg-white">
+                    {storeProducts
+                      .filter(sp => {
+                        const q = storeProductSearch.toLowerCase().trim();
+                        if (!q) return true;
+                        return sp.name.toLowerCase().includes(q) || (sp.barcode || "").includes(q);
+                      })
+                      .slice(0, 50)
+                      .map((sp) => (
+                        <button
+                          key={sp.id}
+                          type="button"
+                          onClick={() => { setLinkedStoreProductId(sp.id); setStoreProductSearch(sp.name); }}
+                          className={`w-full text-left px-3 py-2 text-sm border-b last:border-b-0 transition-colors ${
+                            linkedStoreProductId === sp.id
+                              ? "bg-blue-100 text-blue-700 font-bold"
+                              : "hover:bg-blue-50"
+                          }`}
+                        >
+                          <div className="font-medium">{sp.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Stock: {sp.storeStock} {sp.unit || "pcs"} • Rs {sp.salePrice || 0}
+                          </div>
+                        </button>
+                      ))}
+                    {storeProducts.filter(sp => {
+                      const q = storeProductSearch.toLowerCase().trim();
+                      if (!q) return true;
+                      return sp.name.toLowerCase().includes(q) || (sp.barcode || "").includes(q);
+                    }).length === 0 && (
+                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                        No products found. Add products to Main Store first.
+                      </div>
+                    )}
+                  </div>
+                  {linkedStoreProductId && (
+                    <div className="text-xs text-emerald-700 font-medium">
+                      ✓ Linked: {storeProducts.find(sp => sp.id === linkedStoreProductId)?.name || "Selected"}
+                    </div>
+                  )}
+                </div>
                 <p className="text-[10px] text-muted-foreground">
                   When this loose product is sold in POS, quantity is automatically deducted
                   from the selected Main Store product instead of shop inventory.

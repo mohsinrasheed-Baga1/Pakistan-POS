@@ -207,6 +207,8 @@ export function StoreView() {
   const [packLinkedProducts, setPackLinkedProducts] = React.useState<any[]>([]);
   const [packQuantities, setPackQuantities] = React.useState<Record<string, string>>({});
   const [packSaving, setPackSaving] = React.useState(false);
+  // Search filter for Pack dialog source product + linked products
+  const [packSourceSearch, setPackSourceSearch] = React.useState("");
   const [boxPurchaseBarcode, setBoxPurchaseBarcode] = React.useState("");
   const [boxPurchaseCount, setBoxPurchaseCount] = React.useState("");
   const [boxPurchasePrice, setBoxPurchasePrice] = React.useState("");
@@ -553,6 +555,7 @@ export function StoreView() {
   // AND all packed products that share the same base name (e.g. "Sugar 1KG").
   async function openPackDialog(storeProduct: any) {
     setPackSourceProduct(storeProduct);
+    setPackSourceSearch(storeProduct.name);
     setPackQuantities({});
     setPackLinkedProducts([]);
     setPackOpen(true);
@@ -1270,21 +1273,41 @@ export function StoreView() {
                 </div>
               </div>
 
-              {/* Select different source product */}
+              {/* Select different source product — searchable */}
               <div className="space-y-1">
-                <Label className="text-xs">Change Source Product</Label>
-                <select
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                  value={packSourceProduct.id}
-                  onChange={(e) => {
-                    const sp = storeProducts.find(p => p.id === e.target.value);
-                    if (sp) openPackDialog(sp);
-                  }}
-                >
-                  {storeProducts.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} — {p.storeStock} {p.unit || "pcs"}</option>
-                  ))}
-                </select>
+                <Label className="text-xs">Change Source Product — تلاش کریں</Label>
+                <Input
+                  placeholder="Search source product (e.g. Sugar, Rice)..."
+                  value={packSourceSearch}
+                  onChange={(e) => setPackSourceSearch(e.target.value)}
+                  className="text-sm"
+                />
+                <div className="max-h-40 overflow-y-auto rounded-md border border-blue-200 bg-white">
+                  {storeProducts
+                    .filter(p => {
+                      const q = packSourceSearch.toLowerCase().trim();
+                      if (!q) return true;
+                      return p.name.toLowerCase().includes(q) || (p.barcode || "").includes(q);
+                    })
+                    .slice(0, 30)
+                    .map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => { openPackDialog(p); setPackSourceSearch(p.name); }}
+                        className={`w-full text-left px-3 py-2 text-sm border-b last:border-b-0 transition-colors ${
+                          packSourceProduct?.id === p.id
+                            ? "bg-blue-100 text-blue-700 font-bold"
+                            : "hover:bg-blue-50"
+                        }`}
+                      >
+                        <div className="font-medium">{p.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          Stock: {p.storeStock} {p.unit || "pcs"}
+                        </div>
+                      </button>
+                    ))}
+                </div>
               </div>
 
               {/* Linked/packed products list */}

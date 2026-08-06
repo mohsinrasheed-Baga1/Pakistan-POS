@@ -400,47 +400,61 @@ export function PosView({ settings }: PosViewProps) {
           setHighlightedIndex((p) => p < 0 ? 0 : Math.max(p - 4, 0));
           return;
         } else if (e.key === "Enter" && isSearchFocused) {
-          // ─── ENTER IN SEARCH: barcode lookup OR highlighted product ───
-          // 1. First try /api/barcode for exact barcode match (scanner)
-          // 2. If not found as barcode, use the highlighted product in the
-          //    filtered list (user typed a name and pressed Enter)
-          // 3. If nothing highlighted, show warning
+          // ─── ENTER IN SEARCH ─────────────────────────────────────────────
+          // Two modes based on input type:
+          //
+          // A) SCANNER INPUT (all digits, length >= 8):
+          //    Do barcode lookup via /api/barcode. If not found, show
+          //    "Unknown barcode" warning. DO NOT fall back to highlighted
+          //    product (prevents adding wrong product = financial loss).
+          //
+          // B) MANUAL TYPING (contains letters or short):
+          //    Use the highlighted product from the filtered list.
+          //    Highlight is maintained (user navigated with arrows or
+          //    default first match). If no highlight, use first match.
+          //    If no products match, show "No product found".
           e.preventDefault();
           const searchText = q.trim();
           if (searchText) {
-            // Step 1: Try barcode lookup first (for scanner input)
-            try {
-              const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
-              const data = await res.json();
-              if (data.found && data.kind === "product" && data.product) {
-                // Barcode found — add the correct product
+            // Detect if this is scanner input (digits only, 8+ chars)
+            const isBarcodeInput = /^\d{8,}$/.test(searchText);
+
+            if (isBarcodeInput) {
+              // ─── SCANNER MODE: exact barcode lookup ───
+              try {
+                const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
+                const data = await res.json();
+                if (data.found && data.kind === "product" && data.product) {
+                  setQ("");
+                  setHighlightedIndex(-1);
+                  promptQuantity(data.product as Product);
+                  return;
+                }
+                // Barcode not found — DO NOT fall back to highlighted product
+                toast.warning(`Unknown barcode: ${searchText}`);
                 setQ("");
                 setHighlightedIndex(-1);
-                promptQuantity(data.product as Product);
+                return;
+              } catch {
+                toast.error("Scan lookup failed");
                 return;
               }
-            } catch {
-              // Barcode lookup failed (network) — fall through to highlighted product
-            }
-            // Step 2: Use highlighted product from filtered list
-            // (user typed a name, pressed Enter to select the highlighted match)
-            if (highlightedIndex >= 0 && highlightedIndex < products.length) {
+            } else {
+              // ─── MANUAL MODE: use highlighted product ───
+              // Highlight is maintained — user sees which product is selected
+              const idx = highlightedIndex >= 0 ? highlightedIndex : 0;
+              if (products.length > 0 && idx < products.length) {
+                setQ("");
+                // Keep highlight at 0 for next search (don't reset to -1)
+                setHighlightedIndex(0);
+                promptQuantity(products[idx]);
+                return;
+              }
+              // No products match
+              toast.warning(`No product found for: ${searchText}`);
               setQ("");
               setHighlightedIndex(-1);
-              promptQuantity(products[highlightedIndex]);
-              return;
             }
-            // Step 3: If only one product matches, use it
-            if (products.length === 1) {
-              setQ("");
-              setHighlightedIndex(-1);
-              promptQuantity(products[0]);
-              return;
-            }
-            // No match found
-            toast.warning(`No product found for: ${searchText}`);
-            setQ("");
-            setHighlightedIndex(-1);
           }
           return;
         }
@@ -798,16 +812,16 @@ export function PosView({ settings }: PosViewProps) {
           )}
         </div>
 
-        {/* Cart section — darker background for visual contrast with products panel */}
+        {/* Cart section — DARK background + thick dark border for clear separation */}
         <div className="lg:sticky lg:top-4 h-fit">
-          <Card className="border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/30 shadow-md">
+          <Card className="border-2 border-emerald-700 bg-emerald-100 dark:bg-emerald-900/40 shadow-lg">
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="font-bold flex items-center gap-2">
-                  <ShoppingCart className="w-5 h-5 text-emerald-600" />
+                <h2 className="font-bold flex items-center gap-2 text-emerald-900 dark:text-emerald-100">
+                  <ShoppingCart className="w-5 h-5 text-emerald-700" />
                   Cart
                   {totals.itemCount > 0 && (
-                    <Badge className="bg-emerald-600">{totals.itemCount}</Badge>
+                    <Badge className="bg-emerald-700 text-white">{totals.itemCount}</Badge>
                   )}
                 </h2>
                 {cart.items.length > 0 && (
