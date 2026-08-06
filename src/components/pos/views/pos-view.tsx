@@ -401,60 +401,62 @@ export function PosView({ settings }: PosViewProps) {
           return;
         } else if (e.key === "Enter" && isSearchFocused) {
           // ─── ENTER IN SEARCH ─────────────────────────────────────────────
-          // Two modes based on input type:
+          // Behaviour:
+          // 1. Always try /api/barcode first (scanner or typed barcode)
+          //    - If found → add that product, done
+          //    - If NOT found as barcode → continue to step 2
           //
-          // A) SCANNER INPUT (all digits, length >= 8):
-          //    Do barcode lookup via /api/barcode. If not found, show
-          //    "Unknown barcode" warning. DO NOT fall back to highlighted
-          //    product (prevents adding wrong product = financial loss).
-          //
-          // B) MANUAL TYPING (contains letters or short):
-          //    Use the highlighted product from the filtered list.
-          //    Highlight is maintained (user navigated with arrows or
-          //    default first match). If no highlight, use first match.
-          //    If no products match, show "No product found".
+          // 2. Check the filtered products list:
+          //    - If products.length > 0 (user typed a NAME that matches):
+          //      Use the highlighted product (or first if none highlighted).
+          //      Highlight is maintained so user sees what's selected.
+          //    - If products.length === 0 (no name matches AND barcode
+          //      lookup failed → truly unknown):
+          //      Show "Unknown barcode / No product found" warning.
+          //      DO NOT add any product (prevents financial loss).
           e.preventDefault();
           const searchText = q.trim();
           if (searchText) {
-            // Detect if this is scanner input (digits only, 8+ chars)
-            const isBarcodeInput = /^\d{8,}$/.test(searchText);
-
-            if (isBarcodeInput) {
-              // ─── SCANNER MODE: exact barcode lookup ───
-              try {
-                const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
-                const data = await res.json();
-                if (data.found && data.kind === "product" && data.product) {
-                  setQ("");
-                  setHighlightedIndex(-1);
-                  promptQuantity(data.product as Product);
-                  return;
-                }
-                // Barcode not found — DO NOT fall back to highlighted product
-                toast.warning(`Unknown barcode: ${searchText}`);
+            // Step 1: Try barcode lookup first
+            let barcodeFound = false;
+            try {
+              const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
+              const data = await res.json();
+              if (data.found && data.kind === "product" && data.product) {
+                // Barcode found — add the correct product
                 setQ("");
                 setHighlightedIndex(-1);
-                return;
-              } catch {
-                toast.error("Scan lookup failed");
+                promptQuantity(data.product as Product);
                 return;
               }
-            } else {
-              // ─── MANUAL MODE: use highlighted product ───
-              // Highlight is maintained — user sees which product is selected
-              const idx = highlightedIndex >= 0 ? highlightedIndex : 0;
-              if (products.length > 0 && idx < products.length) {
-                setQ("");
-                // Keep highlight at 0 for next search (don't reset to -1)
-                setHighlightedIndex(0);
-                promptQuantity(products[idx]);
+              if (data.found && data.kind === "card" && data.card) {
+                // Shop card scanned — handled by handleScannedCode, do nothing here
                 return;
               }
-              // No products match
-              toast.warning(`No product found for: ${searchText}`);
-              setQ("");
-              setHighlightedIndex(-1);
+              // data.found === false: not a barcode in our system
+              barcodeFound = false;
+            } catch {
+              // Network error — continue to check filtered list
             }
+
+            // Step 2: Use highlighted product from filtered list
+            // This handles the case where user typed a product NAME (not a barcode)
+            if (products.length > 0) {
+              const idx = highlightedIndex >= 0 && highlightedIndex < products.length
+                ? highlightedIndex
+                : 0;
+              setQ("");
+              // Keep highlight at 0 for next search (don't reset to -1)
+              setHighlightedIndex(0);
+              promptQuantity(products[idx]);
+              return;
+            }
+
+            // Step 3: No barcode match AND no name match → truly unknown
+            // DO NOT add any product (prevents adding wrong product = financial loss)
+            toast.warning(`No product found: ${searchText}`);
+            setQ("");
+            setHighlightedIndex(-1);
           }
           return;
         }

@@ -370,10 +370,29 @@ async function processSale(userId: string, body: any, items: any[]) {
       // If this product is a loose product linked to a Main Store product,
       // deduct the sold quantity from the Main Store product's storeStock
       // instead of (or in addition to) the shop stock.
-      if (product.inventorySource === "MAIN_STORE" && product.linkedStoreProductId) {
-        const storeProduct = await db.product.findUnique({
-          where: { id: product.linkedStoreProductId },
-        });
+      if (product.inventorySource === "MAIN_STORE") {
+        // Try to find the linked store product — by ID first, then by name
+        let storeProduct = product.linkedStoreProductId
+          ? await db.product.findUnique({ where: { id: product.linkedStoreProductId } })
+          : null;
+
+        // Auto-link by name if not linked yet (fallback)
+        if (!storeProduct) {
+          storeProduct = await db.product.findFirst({
+            where: {
+              name: { contains: product.name, mode: "insensitive" },
+              storeStock: { gt: 0 },
+            },
+          });
+          // If found, save the link for next time
+          if (storeProduct) {
+            await db.product.update({
+              where: { id: product.id },
+              data: { linkedStoreProductId: storeProduct.id },
+            });
+          }
+        }
+
         if (storeProduct) {
           await db.product.update({
             where: { id: storeProduct.id },

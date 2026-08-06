@@ -974,6 +974,8 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const [storeProducts, setStoreProducts] = React.useState<any[]>([]);
   // Search filter for Main Store product dropdown
   const [storeProductSearch, setStoreProductSearch] = React.useState("");
+  // Auto-link status message
+  const [autoLinkStatus, setAutoLinkStatus] = React.useState<string>("");
 
   // Fetch Main Store products for the dropdown (when MAIN_STORE is selected)
   React.useEffect(() => {
@@ -983,6 +985,35 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
       .then(d => setStoreProducts(d.products || []))
       .catch(() => {});
   }, [inventorySource]);
+
+  // ─── AUTO-LINK: when name changes and MAIN_STORE is selected, try to
+  // automatically find a matching Main Store product by name.
+  // If found → auto-link (no manual selection needed).
+  // If not found → show message that stock will be added in Main Store later.
+  React.useEffect(() => {
+    if (inventorySource !== "MAIN_STORE" || !name.trim()) {
+      setAutoLinkStatus("");
+      return;
+    }
+    const trimmedName = name.trim().toLowerCase();
+    // Try exact match first
+    let match = storeProducts.find(sp => sp.name.trim().toLowerCase() === trimmedName);
+    // Then starts-with match
+    if (!match) {
+      match = storeProducts.find(sp => sp.name.trim().toLowerCase().startsWith(trimmedName));
+    }
+    // Then contains match
+    if (!match) {
+      match = storeProducts.find(sp => sp.name.trim().toLowerCase().includes(trimmedName));
+    }
+    if (match) {
+      setLinkedStoreProductId(match.id);
+      setAutoLinkStatus(`✓ Auto-linked to Main Store: ${match.name} (Stock: ${match.storeStock} ${match.unit || "pcs"})`);
+    } else {
+      setLinkedStoreProductId("");
+      setAutoLinkStatus(`ⓘ No matching Main Store product yet. After saving, add "${name.trim()}" in Main Store with same name to auto-link.`);
+    }
+  }, [name, inventorySource, storeProducts]);
 
   // Box info
   const [boxBarcode, setBoxBarcode] = React.useState("");
@@ -1356,59 +1387,62 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
             </div>
             {inventorySource === "MAIN_STORE" && (
               <div className="space-y-2">
-                <Label>Linked Main Store Product *</Label>
-                {/* Searchable dropdown for Main Store products */}
-                <div className="space-y-2">
-                  <Input
-                    placeholder="Search Main Store product (e.g. Sugar, Rice)..."
-                    value={storeProductSearch}
-                    onChange={(e) => setStoreProductSearch(e.target.value)}
-                    className="text-sm"
-                  />
-                  <div className="max-h-48 overflow-y-auto rounded-md border border-blue-200 bg-white">
-                    {storeProducts
-                      .filter(sp => {
-                        const q = storeProductSearch.toLowerCase().trim();
-                        if (!q) return true;
-                        return sp.name.toLowerCase().includes(q) || (sp.barcode || "").includes(q);
-                      })
-                      .slice(0, 50)
-                      .map((sp) => (
-                        <button
-                          key={sp.id}
-                          type="button"
-                          onClick={() => { setLinkedStoreProductId(sp.id); setStoreProductSearch(sp.name); }}
-                          className={`w-full text-left px-3 py-2 text-sm border-b last:border-b-0 transition-colors ${
-                            linkedStoreProductId === sp.id
-                              ? "bg-blue-100 text-blue-700 font-bold"
-                              : "hover:bg-blue-50"
-                          }`}
-                        >
-                          <div className="font-medium">{sp.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            Stock: {sp.storeStock} {sp.unit || "pcs"} • Rs {sp.salePrice || 0}
-                          </div>
-                        </button>
-                      ))}
-                    {storeProducts.filter(sp => {
-                      const q = storeProductSearch.toLowerCase().trim();
-                      if (!q) return true;
-                      return sp.name.toLowerCase().includes(q) || (sp.barcode || "").includes(q);
-                    }).length === 0 && (
-                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                        No products found. Add products to Main Store first.
-                      </div>
-                    )}
+                {/* Auto-link status — shows if product is auto-linked or needs Main Store entry */}
+                {autoLinkStatus && (
+                  <div className={`rounded-md p-2 text-xs ${
+                    autoLinkStatus.startsWith("✓")
+                      ? "bg-emerald-50 border border-emerald-300 text-emerald-800"
+                      : "bg-amber-50 border border-amber-300 text-amber-800"
+                  }`}>
+                    {autoLinkStatus}
                   </div>
-                  {linkedStoreProductId && (
-                    <div className="text-xs text-emerald-700 font-medium">
-                      ✓ Linked: {storeProducts.find(sp => sp.id === linkedStoreProductId)?.name || "Selected"}
+                )}
+
+                {/* Optional: manual search to override auto-link */}
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-blue-600 hover:underline">
+                    Manual link (optional — change auto-linked product)
+                  </summary>
+                  <div className="space-y-2 mt-2">
+                    <Input
+                      placeholder="Search Main Store product..."
+                      value={storeProductSearch}
+                      onChange={(e) => setStoreProductSearch(e.target.value)}
+                      className="text-sm"
+                    />
+                    <div className="max-h-40 overflow-y-auto rounded-md border border-blue-200 bg-white">
+                      {storeProducts
+                        .filter(sp => {
+                          const q = storeProductSearch.toLowerCase().trim();
+                          if (!q) return true;
+                          return sp.name.toLowerCase().includes(q) || (sp.barcode || "").includes(q);
+                        })
+                        .slice(0, 30)
+                        .map((sp) => (
+                          <button
+                            key={sp.id}
+                            type="button"
+                            onClick={() => { setLinkedStoreProductId(sp.id); setStoreProductSearch(sp.name); }}
+                            className={`w-full text-left px-3 py-2 text-sm border-b last:border-b-0 transition-colors ${
+                              linkedStoreProductId === sp.id
+                                ? "bg-blue-100 text-blue-700 font-bold"
+                                : "hover:bg-blue-50"
+                            }`}
+                          >
+                            <div className="font-medium">{sp.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              Stock: {sp.storeStock} {sp.unit || "pcs"}
+                            </div>
+                          </button>
+                        ))}
                     </div>
-                  )}
-                </div>
+                  </div>
+                </details>
+
                 <p className="text-[10px] text-muted-foreground">
-                  When this loose product is sold in POS, quantity is automatically deducted
-                  from the selected Main Store product instead of shop inventory.
+                  💡 System auto-links by product name. If no Main Store product exists yet,
+                  save this product first, then add the same-named product in Main Store to link.
+                  When sold in POS, stock is deducted from Main Store automatically.
                 </p>
               </div>
             )}
