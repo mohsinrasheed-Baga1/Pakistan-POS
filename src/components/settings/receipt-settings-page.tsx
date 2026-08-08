@@ -106,7 +106,12 @@ export function ReceiptSettingsPage() {
   }
 
   const previewWidth = getReceiptWidth(draft);
-  const previewScale = Math.min(220 / previewWidth, 3);
+  // Calculate preview width in PIXELS (1mm ≈ 3.78px at 96dpi)
+  // Cap at 220px so it fits in the sidebar
+  const maxPreviewPx = 220;
+  const naturalWidthPx = previewWidth * 3.78;
+  const scale = Math.min(maxPreviewPx / naturalWidthPx, 1);
+  const previewWidthPx = naturalWidthPx * scale;
 
   return (
     <div className="space-y-3">
@@ -272,48 +277,47 @@ export function ReceiptSettingsPage() {
               </CardHeader>
               <CardContent className="space-y-2 pt-0">
                 <div className="text-[10px] text-muted-foreground text-center">
-                  {previewWidth}mm wide • {draft.receiptSize}
+                  {previewWidth}mm • Scale {Math.round(scale * 100)}%
                 </div>
-                <div className="flex justify-center bg-muted/30 rounded-lg p-3" style={{ minHeight: "300px" }}>
+                <div className="flex justify-center bg-muted/30 rounded-lg p-3 overflow-hidden" style={{ minHeight: "200px", maxHeight: "400px" }}>
                   <div
                     style={{
-                      transform: `scale(${previewScale})`,
-                      transformOrigin: "top center",
-                      width: `${previewWidth}mm`,
+                      width: `${previewWidthPx}px`,
                       fontFamily: draft.fontFamily,
-                      fontSize: `${draft.fontSize}px`,
+                      fontSize: `${draft.fontSize * scale}px`,
                       fontWeight: draft.fontBold ? "bold" : "normal",
                       color: draft.textColor,
                       lineHeight: draft.lineSpacing,
                       textAlign: draft.layout as any,
-                      padding: `${draft.marginTop}mm ${draft.marginRight}mm ${draft.marginBottom}mm ${draft.marginLeft}mm`,
+                      padding: `${draft.marginTop * scale * 3.78}px ${draft.marginRight * scale * 3.78}px ${draft.marginBottom * scale * 3.78}px ${draft.marginLeft * scale * 3.78}px`,
                       background: "#fff",
                       boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                      overflow: "hidden",
                     }}
                   >
                     {draft.showShopName && (
-                      <div style={{ fontSize: `${draft.headerFontSize}px`, fontWeight: "bold", color: draft.headerColor, marginBottom: "2px" }}>
+                      <div style={{ fontSize: `${draft.headerFontSize * scale}px`, fontWeight: "bold", color: draft.headerColor, marginBottom: "2px" }}>
                         My Shop
                       </div>
                     )}
-                    {draft.showSubName && <div style={{ fontSize: `${draft.titleFontSize}px` }}>Sub Name</div>}
-                    {draft.showShopAddress && <div style={{ fontSize: "8px" }}>Main Bazaar, City</div>}
-                    {draft.showShopPhone && <div style={{ fontSize: "8px" }}>Ph: 03001234567</div>}
+                    {draft.showSubName && <div style={{ fontSize: `${draft.titleFontSize * scale}px` }}>Sub Name</div>}
+                    {draft.showShopAddress && <div style={{ fontSize: `${8 * scale}px` }}>Main Bazaar, City</div>}
+                    {draft.showShopPhone && <div style={{ fontSize: `${8 * scale}px` }}>Ph: 03001234567</div>}
                     <div style={{ borderTop: "1px solid #000", margin: "4px 0" }} />
-                    {draft.showInvoiceNo && <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px" }}><span>Inv:</span><span>INV-001</span></div>}
-                    {draft.showDateTime && <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px" }}><span>Date:</span><span>2026-08-08</span></div>}
-                    {draft.showSaleType && <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px" }}><span>Type:</span><span>Regular</span></div>}
-                    {draft.showCustomerName && <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px" }}><span>Customer:</span><span>Ahmed</span></div>}
+                    {draft.showInvoiceNo && <div style={{ display: "flex", justifyContent: "space-between", fontSize: `${8 * scale}px` }}><span>Inv:</span><span>INV-001</span></div>}
+                    {draft.showDateTime && <div style={{ display: "flex", justifyContent: "space-between", fontSize: `${8 * scale}px` }}><span>Date:</span><span>2026-08-08</span></div>}
+                    {draft.showSaleType && <div style={{ display: "flex", justifyContent: "space-between", fontSize: `${8 * scale}px` }}><span>Type:</span><span>Regular</span></div>}
+                    {draft.showCustomerName && <div style={{ display: "flex", justifyContent: "space-between", fontSize: `${8 * scale}px` }}><span>Customer:</span><span>Ahmed</span></div>}
                     <div style={{ borderTop: "1px solid #000", margin: "4px 0" }} />
-                    <div style={{ fontSize: "8px" }}>Sugar 1kg × 2 = Rs 500</div>
-                    <div style={{ fontSize: "8px" }}>Rice 5kg × 1 = Rs 1200</div>
+                    <div style={{ fontSize: `${8 * scale}px` }}>Sugar 1kg × 2 = Rs 500</div>
+                    <div style={{ fontSize: `${8 * scale}px` }}>Rice 5kg × 1 = Rs 1200</div>
                     <div style={{ borderTop: "1px solid #000", margin: "4px 0" }} />
-                    {draft.showSubtotal && <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px" }}><span>Subtotal:</span><span>Rs 1700</span></div>}
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: `${draft.titleFontSize}px`, fontWeight: "bold" }}><span>TOTAL:</span><span>Rs 1700</span></div>
-                    {draft.showPaymentMethod && <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px" }}><span>Payment:</span><span>Cash</span></div>}
-                    {draft.showChange && <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px" }}><span>Change:</span><span>Rs 300</span></div>}
+                    {draft.showSubtotal && <div style={{ display: "flex", justifyContent: "space-between", fontSize: `${8 * scale}px` }}><span>Subtotal:</span><span>Rs 1700</span></div>}
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: `${draft.titleFontSize * scale}px`, fontWeight: "bold" }}><span>TOTAL:</span><span>Rs 1700</span></div>
+                    {draft.showPaymentMethod && <div style={{ display: "flex", justifyContent: "space-between", fontSize: `${8 * scale}px` }}><span>Payment:</span><span>Cash</span></div>}
+                    {draft.showChange && <div style={{ display: "flex", justifyContent: "space-between", fontSize: `${8 * scale}px` }}><span>Change:</span><span>Rs 300</span></div>}
                     {draft.showFooter && (
-                      <div style={{ textAlign: "center", fontSize: "8px", marginTop: "4px" }}>
+                      <div style={{ textAlign: "center", fontSize: `${8 * scale}px`, marginTop: "4px" }}>
                         {draft.receiptFooter || "Thank you! Please come again."}
                       </div>
                     )}

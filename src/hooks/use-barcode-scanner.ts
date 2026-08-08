@@ -10,58 +10,50 @@ interface ScanOptions {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DEDICATED BARCODE SCANNER HOOK (v2.9.11)
+// DEDICATED BARCODE SCANNER HOOK (v2.9.12)
 // ─────────────────────────────────────────────────────────────────────────────
-// This hook captures barcode scanner input SEPARATELY from normal keyboard
-// input. It works by detecting rapid character input (< 100ms gap between
-// keys) followed by Enter — this pattern is unique to barcode scanners.
+// Captures barcode scanner input SEPARATELY from normal keyboard input.
 //
-// KEY DESIGN DECISIONS:
-// 1. The hook ALWAYS fires, even when a text input is focused.
-//    This means the scanner is captured regardless of focus.
-// 2. When a scan fires, the hook CLEARS the focused input's value
-//    so scanner characters don't pollute the search bar.
-// 3. The hook does NOT interfere with manual typing — if a human types
-//    slowly (> 100ms between keys), the buffer resets and no scan fires.
-// 4. The scan callback receives the EXACT barcode string (trimmed,
-//    preserving leading zeros, treated as STRING not NUMBER).
+// HOW IT WORKS:
+// The hook detects barcode scanner input by measuring the time between
+// keystrokes. Barcode scanners type very fast (< 50ms between keys),
+// while humans type slowly (> 100ms). When we detect fast input followed
+// by Enter, we treat it as a scan.
 //
-// This makes barcode scanning a DEDICATED system — the visible search bar
-// is never used as the primary barcode scanning mechanism.
+// THREE SCENARIOS:
+// 1. NO input focused (body):
+//    - Capture all keys into buffer
+//    - On Enter → fire scan
+//
+// 2. REGULAR input focused (search bar, NOT data-barcode-input):
+//    - Detect if input is fast (scanner) or slow (human)
+//    - If slow (human typing) → let input handle normally, don't capture
+//    - If fast (scanner) → capture into buffer, prevent chars from
+//      reaching input, clear input on Enter, fire scan
+//
+// 3. DEDICATED barcode input focused (data-barcode-input="true"):
+//    - Always capture, always prevent chars from reaching input
+//    - On Enter → fire scan
+//
+// This makes barcode scanning work in ALL cases without breaking
+// manual typing in the search bar.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const subscribers = new Set<ScanCallback>();
 let listenerAttached = false;
 let buffer = "";
 let lastKeyTime = 0;
+// Track whether we're in "scanner mode" (fast input detected)
+let scannerMode = false;
 
 // Fire lock: prevent rapid duplicate scans
 let scanLock = false;
-const SCAN_LOCK_MS = 500;
+const SCAN_LOCK_MS = 300;
 
 function fireScan(code: string) {
   if (scanLock) return;
   scanLock = true;
   setTimeout(() => { scanLock = false; }, SCAN_LOCK_MS);
-
-  // ─── CLEAR the focused input so scanner chars don't stay in search bar ───
-  // This is critical: the scanner types characters into whatever input is
-  // focused. We must clear that input so the user doesn't see garbage text.
-  const active = document.activeElement;
-  if (active && active.tagName === "INPUT") {
-    const input = active as HTMLInputElement;
-    // Only clear if the current value looks like scanner input (not user's
-    // manually typed search). We check if the buffer matches the end of
-    // the input value, indicating scanner appended to it.
-    if (input.value && input.value.endsWith(code)) {
-      input.value = "";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    } else if (input.value === code) {
-      // Scanner replaced the entire input
-      input.value = "";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-  }
 
   subscribers.forEach((cb) => {
     try {
@@ -74,25 +66,65 @@ function handleKeyDown(e: KeyboardEvent) {
   // Ignore modifier combos (Ctrl+C, Ctrl+Z, etc.)
   if (e.ctrlKey || e.altKey || e.metaKey) return;
 
+  const active = document.activeElement;
+  const isInputFocused = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+  const isBarcodeInput = isInputFocused && (active as HTMLInputElement).getAttribute("data-barcode-input") === "true";
+
   const now = Date.now();
-  // If more than 100ms since last key, this is a NEW input sequence
-  // (human typing or new scan). Reset buffer.
-  if (now - lastKeyTime > 100) {
+  const gap = now - lastKeyTime;
+
+  // If more than 100ms since last key, this is a NEW input sequence.
+  // Reset buffer and scanner mode.
+  if (gap > 100) {
     buffer = "";
+    scannerMode = false;
   }
+
+  // Detect scanner mode: if gap between keys is < 35ms, it's a scanner
+  // (humans can't type that fast). Once detected, stay in scanner mode
+  // until Enter or long gap.
+  if (lastKeyTime > 0 && gap < 35 && buffer.length > 0) {
+    scannerMode = true;
+  }
+
   lastKeyTime = now;
+
+  // For dedicated barcode inputs: always capture, always prevent
+  if (isBarcodeInput) {
+    e.preventDefault();
+  } else if (isInputFocused) {
+    // Regular input (search bar) is focused.
+    // Only capture if we're in scanner mode (fast input detected).
+    // If human is typing slowly, let the input handle normally.
+    if (scannerMode) {
+      // Scanner is typing into the search bar — prevent chars from
+      // reaching it so it doesn't show garbage text.
+      e.preventDefault();
+    } else {
+      // Human typing — let input handle normally, reset buffer
+      buffer = "";
+      return;
+    }
+  }
 
   // Enter triggers a scan if buffer has enough characters
   if (e.key === "Enter") {
     if (buffer.length >= 4) {
-      // Normalize: trim whitespace, preserve leading zeros
       const code = buffer.trim();
       if (code.length >= 4) {
         fireScan(code);
       }
-      e.preventDefault();
     }
     buffer = "";
+    scannerMode = false;
+    // If scanner was typing into an input, clear it
+    if (isInputFocused && scannerMode) {
+      const input = active as HTMLInputElement;
+      if (input.value) {
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
     return;
   }
 

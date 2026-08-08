@@ -220,6 +220,10 @@ export function PosView({ settings }: PosViewProps) {
     const normalizedCode = String(code).trim();
     if (!normalizedCode) return; // Empty input — ignore safely
 
+    // Clear search bar so scanner text doesn't linger
+    setQ("");
+    setHighlightedIndex(-1);
+
     try {
       const res = await fetch(`/api/barcode?code=${encodeURIComponent(normalizedCode)}`, {
         cache: "no-store",
