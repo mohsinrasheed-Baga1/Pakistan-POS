@@ -204,23 +204,36 @@ export function PosView({ settings }: PosViewProps) {
   const lastScanResultRef = React.useRef<string | null>(null);
 
   async function handleScannedCode(code: string) {
-    // No scanning lock — the old lock caused "Unknown barcode" errors
-    // when it got stuck in true state. Each scan is independent.
+    // ─── DEDICATED BARCODE SCANNING (v2.9.11) ────────────────────────────
+    // This function is called by the useBarcodeScanner hook whenever a
+    // barcode scanner fires. It does an EXACT barcode lookup against the
+    // database via /api/barcode.
+    //
+    // IMPORTANT: This is the ONLY way barcodes are processed. The visible
+    // search bar is NOT used for barcode scanning. If the barcode is not
+    // found, we show "Unknown Barcode" and DO NOT add any product.
+    //
+    // The code is treated as a STRING (preserving leading zeros).
+    // EAN-13 barcodes remain exactly 13 digits.
+
+    // Normalize: trim whitespace (scanner suffix Enter/CR already removed by hook)
+    const normalizedCode = String(code).trim();
+    if (!normalizedCode) return; // Empty input — ignore safely
 
     try {
-      const res = await fetch(`/api/barcode?code=${encodeURIComponent(code)}`, {
+      const res = await fetch(`/api/barcode?code=${encodeURIComponent(normalizedCode)}`, {
         cache: "no-store",
       });
       const data = await res.json();
+
       if (data.found && data.kind === "product" && data.product) {
+        // ─── EXACT MATCH FOUND ───
+        // Immediately identify and add the correct product
         const product = data.product as Product;
         promptQuantity(product);
       } else if (data.found && data.kind === "card" && data.card) {
+        // ─── SHOP CARD SCANNED ───
         toast.success(`Shop Card: ${data.card.name} — ${data.card.type === "SHOP_KEEPER" ? "Shopkeeper" : data.card.type === "WHOLESALE" ? "Wholesale" : "Regular"} mode`);
-        // ─── AUTO-SELECT SALE MODE BASED ON CARD TYPE ─────────────────────
-        // When a shop card is scanned, the sale mode automatically switches
-        // to match the card type: REGULAR → RETAIL, WHOLESALE → WHOLESALE,
-        // SHOP_KEEPER → SHOPKEEPER. No manual mode change needed.
         const cardType = data.card.type;
         if (cardType === "SHOP_KEEPER") {
           cart.setSaleType("SHOPKEEPER");
@@ -230,15 +243,9 @@ export function PosView({ settings }: PosViewProps) {
           cart.setSaleType("RETAIL");
         }
         setScannedCard(data.card);
-        // ─── AUTO-FILL CUSTOMER NAME + PHONE FROM CARD ────────────────────
-        // When a shop card is scanned, the customer's name and phone are
-        // automatically filled in the checkout form so they appear on the receipt.
         if (data.card.name) {
           cart.setCustomer(data.card.name, data.card.phone || cart.customerPhone);
         }
-        // ─── FETCH LAST TRANSACTION FOR THIS CARD ─────────────────────────
-        // The POS page displays the card's last transaction so the cashier
-        // can see the customer's recent activity at a glance.
         try {
           const txnRes = await fetch(`/api/cards/${data.card.id}/transactions?limit=1`, { cache: "no-store" });
           if (txnRes.ok) {
@@ -252,10 +259,17 @@ export function PosView({ settings }: PosViewProps) {
           setCardLastTxn(null);
         }
       } else {
-        toast.warning(`Unknown barcode: ${code}`);
+        // ─── UNKNOWN BARCODE ───
+        // Exact barcode does NOT exist in database.
+        // DO NOT add any product. DO NOT select first product.
+        // DO NOT select similar product. Show clear error.
+        toast.error(`Unknown Barcode`, {
+          description: `No product found for barcode: ${normalizedCode}`,
+          duration: 4000,
+        });
       }
     } catch {
-      toast.error("Scan lookup failed");
+      toast.error("Scan lookup failed — check network connection");
     }
   }
 
@@ -400,61 +414,29 @@ export function PosView({ settings }: PosViewProps) {
           setHighlightedIndex((p) => p < 0 ? 0 : Math.max(p - 4, 0));
           return;
         } else if (e.key === "Enter" && isSearchFocused) {
-          // ─── ENTER IN SEARCH ─────────────────────────────────────────────
-          // Behaviour:
-          // 1. Always try /api/barcode first (scanner or typed barcode)
-          //    - If found → add that product, done
-          //    - If NOT found as barcode → continue to step 2
+          // ─── ENTER IN SEARCH: manual name search only ───
+          // Barcode scanning is handled by the dedicated useBarcodeScanner hook
+          // which fires regardless of focus. This Enter handler is ONLY for
+          // manual name typing — user types a name, presses Enter to select
+          // the highlighted product from the filtered list.
           //
-          // 2. Check the filtered products list:
-          //    - If products.length > 0 (user typed a NAME that matches):
-          //      Use the highlighted product (or first if none highlighted).
-          //      Highlight is maintained so user sees what's selected.
-          //    - If products.length === 0 (no name matches AND barcode
-          //      lookup failed → truly unknown):
-          //      Show "Unknown barcode / No product found" warning.
-          //      DO NOT add any product (prevents financial loss).
+          // If no products match, show warning. DO NOT do barcode lookup here
+          // (that's the scanner hook's job).
           e.preventDefault();
           const searchText = q.trim();
           if (searchText) {
-            // Step 1: Try barcode lookup first
-            let barcodeFound = false;
-            try {
-              const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
-              const data = await res.json();
-              if (data.found && data.kind === "product" && data.product) {
-                // Barcode found — add the correct product
-                setQ("");
-                setHighlightedIndex(-1);
-                promptQuantity(data.product as Product);
-                return;
-              }
-              if (data.found && data.kind === "card" && data.card) {
-                // Shop card scanned — handled by handleScannedCode, do nothing here
-                return;
-              }
-              // data.found === false: not a barcode in our system
-              barcodeFound = false;
-            } catch {
-              // Network error — continue to check filtered list
-            }
-
-            // Step 2: Use highlighted product from filtered list
-            // This handles the case where user typed a product NAME (not a barcode)
+            // Use highlighted product from filtered list
             if (products.length > 0) {
               const idx = highlightedIndex >= 0 && highlightedIndex < products.length
                 ? highlightedIndex
                 : 0;
               setQ("");
-              // Keep highlight at 0 for next search (don't reset to -1)
               setHighlightedIndex(0);
               promptQuantity(products[idx]);
               return;
             }
-
-            // Step 3: No barcode match AND no name match → truly unknown
-            // DO NOT add any product (prevents adding wrong product = financial loss)
-            toast.warning(`No product found: ${searchText}`);
+            // No products match the typed name
+            toast.warning(`No product found for: ${searchText}`);
             setQ("");
             setHighlightedIndex(-1);
           }
@@ -690,8 +672,7 @@ export function PosView({ settings }: PosViewProps) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               ref={searchRef}
-              data-barcode-input="true"
-              placeholder="Search by name or barcode... (↑↓ navigate, Enter add, Alt checkout)"
+              placeholder="Search by name... (↑↓ navigate, Enter add, Alt checkout) — Barcode scanning is automatic"
               value={q}
               onChange={(e) => {
                 const v = e.target.value;

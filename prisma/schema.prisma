@@ -423,3 +423,61 @@ model BarcodeSettings {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+// ─── Receipt Settings (v2.9.11) ─────────────────────────────────────────────
+// Stores all receipt configuration. Similar to BarcodeSettings but for
+// sale receipts (invoices). Loaded automatically and used by Receipt component.
+model ReceiptSettings {
+  id              String   @id @default("default")
+
+  // SECTION 1: Receipt Size
+  receiptSize       String  @default("58mm") // 58mm | 80mm | A4 | custom
+  customWidth       Float   @default(58)  // mm (for custom)
+  customHeight      Float   @default(0)   // mm (0 = auto/continuous)
+
+  // SECTION 2: Layout
+  layout            String  @default("left") // left | center | right
+  showLogo          Boolean @default(true)
+  showShopName      Boolean @default(true)
+  showSubName       Boolean @default(true)
+  showShopAddress   Boolean @default(true)
+  showShopPhone     Boolean @default(true)
+  showInvoiceNo     Boolean @default(true)
+  showDateTime      Boolean @default(true)
+  showCustomerName  Boolean @default(true)
+  showCustomerPhone Boolean @default(false)
+  showSaleType      Boolean @default(true)
+  showPaymentMethod Boolean @default(true)
+  showCardDetails   Boolean @default(true)
+  showBarcode       Boolean @default(true)
+  showFooter        Boolean @default(true)
+
+  // SECTION 3: Font Settings
+  fontFamily        String  @default("Consolas")
+  fontSize          Int     @default(9)    // px
+  fontBold          Boolean @default(true)
+  headerFontSize    Int     @default(13)   // px (shop name)
+  titleFontSize     Int     @default(11)   // px (section titles)
+
+  // SECTION 4: Colors
+  textColor         String  @default("#000000")
+  headerColor       String  @default("#000000")
+
+  // SECTION 5: Margins & Spacing
+  marginTop         Float   @default(2)   // mm
+  marginBottom      Float   @default(2)   // mm
+  marginLeft        Float   @default(3)   // mm
+  marginRight       Float   @default(1)   // mm
+  lineSpacing       Float   @default(1.2)
+
+  // SECTION 6: Content
+  receiptFooter     String?               // Custom footer text
+  showItemDetails   Boolean @default(true) // Show price × qty breakdown
+  showSubtotal      Boolean @default(true)
+  showTax           Boolean @default(true)
+  showDiscount      Boolean @default(true)
+  showChange        Boolean @default(true)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
