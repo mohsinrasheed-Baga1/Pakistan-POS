@@ -418,17 +418,58 @@ export function PosView({ settings }: PosViewProps) {
           setHighlightedIndex((p) => p < 0 ? 0 : Math.max(p - 4, 0));
           return;
         } else if (e.key === "Enter" && isSearchFocused) {
-          // ─── ENTER IN SEARCH: manual name search only ───
-          // Barcode scanning is handled by the dedicated useBarcodeScanner hook
-          // which fires regardless of focus. This Enter handler is ONLY for
-          // manual name typing — user types a name, presses Enter to select
-          // the highlighted product from the filtered list.
+          // ─── ENTER IN SEARCH ─────────────────────────────────────────────
+          // This handler fires for BOTH manual typing AND scanner input that
+          // wasn't caught by the scanner hook (e.g. slower scanners).
           //
-          // If no products match, show warning. DO NOT do barcode lookup here
-          // (that's the scanner hook's job).
+          // Detection logic:
+          // - If the search text looks like a barcode (8+ digits, or matches
+          //   barcode patterns) → do EXACT barcode lookup via /api/barcode
+          //   If found → add correct product
+          //   If NOT found → "Unknown Barcode" error, DO NOT add highlighted
+          // - If the search text is a NAME (contains letters) → use
+          //   highlighted product from filtered list (manual name search)
+          //
+          // This ensures:
+          // 1. Scanner barcodes are always looked up exactly
+          // 2. Unknown barcodes never add the highlighted product
+          // 3. Manual name search still works with highlighted product
           e.preventDefault();
           const searchText = q.trim();
           if (searchText) {
+            // Check if this looks like a barcode:
+            // - 8+ characters
+            // - Mostly digits (allows leading zeros, EAN-13, UPC, CODE128 with digits)
+            const isLikelyBarcode = searchText.length >= 8 && /^\d+$/.test(searchText);
+
+            if (isLikelyBarcode) {
+              // ─── BARCODE LOOKUP (exact match) ───
+              try {
+                const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
+                const data = await res.json();
+                if (data.found && data.kind === "product" && data.product) {
+                  setQ("");
+                  setHighlightedIndex(-1);
+                  promptQuantity(data.product as Product);
+                  return;
+                }
+                // Barcode not found — DO NOT add highlighted product
+                toast.error(`Unknown Barcode`, {
+                  description: `No product found for barcode: ${searchText}`,
+                  duration: 4000,
+                });
+                setQ("");
+                setHighlightedIndex(-1);
+                return;
+              } catch {
+                toast.error("Barcode lookup failed");
+                setQ("");
+                setHighlightedIndex(-1);
+                return;
+              }
+            }
+
+            // ─── MANUAL NAME SEARCH ───
             // Use highlighted product from filtered list
             if (products.length > 0) {
               const idx = highlightedIndex >= 0 && highlightedIndex < products.length
