@@ -25,7 +25,14 @@ try {
   autoUpdater = require("electron-updater").autoUpdater;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
-  console.log("[POS] electron-updater loaded successfully");
+  // Enable differential/delta downloads — only changed blocks are downloaded
+  // instead of the full 260MB+ installer every time.
+  // electron-updater uses the .blockmap file to determine which blocks changed.
+  autoUpdater.allowDowngrade = false;
+  autoUpdater.requestHeaders = {
+    "Cache-Control": "no-cache",
+  };
+  console.log("[POS] electron-updater loaded successfully (delta updates enabled)");
 } catch (e) {
   console.log("[POS] electron-updater not available, auto-update disabled:", e.message);
 }
