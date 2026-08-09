@@ -11,6 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { formatMoney, unitLabel } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
+import { useReceiptSettings } from "@/hooks/use-receipt-settings";
+import { getReceiptWidth } from "@/lib/receipt-settings";
 
 interface ReceiptProps {
   sale: any;
@@ -21,6 +23,7 @@ interface ReceiptProps {
 
 export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
   const printRef = React.useRef<HTMLDivElement>(null);
+  const { settings: receiptSettings, loading: receiptLoading } = useReceiptSettings();
 
   if (!sale) return null;
 
@@ -28,42 +31,52 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
   const taxEnabled = !!settings?.taxEnabled;
   const subName = settings?.subName?.trim() || "";
   const logo = settings?.logo || "";
-  const printerWidth = settings?.printerWidth === 80 ? 80 : 58;
 
-  // Width in mm, font sizes based on printer width
-  const widthMm = printerWidth === 80 ? 76 : 52;
-  const fontSize = printerWidth === 80 ? "12px" : "9px";
-  const tableFontSize = printerWidth === 80 ? "11px" : "8px";
-  const maxWidth = printerWidth === 80 ? "300px" : "200px";
+  // Use receipt settings (with fallback to old hardcoded values while loading)
+  const rs = receiptSettings;
+  const widthMm = receiptLoading ? (settings?.printerWidth === 80 ? 76 : 52) : getReceiptWidth(rs);
+  const fontSize = `${rs.fontSize}px`;
+  const tableFontSize = `${rs.fontSize - 1}px`;
+  const headerFontSize = `${rs.headerFontSize}px`;
+  const titleFontSize = `${rs.titleFontSize}px`;
+  const maxWidth = `${widthMm * 3.78}px`;
+  const fontFamily = rs.fontFamily;
+  const fontBold = rs.fontBold ? "bold" : "normal";
+  const textColor = rs.textColor;
+  const headerColor = rs.headerColor;
+  const textAlign = rs.layout;
   const barcodeHeight = 24;
-  const barcodeWidth = printerWidth === 80 ? 1.5 : 1;
+  const barcodeWidth = widthMm > 60 ? 1.5 : 1;
 
   function handlePrint() {
     const content = printRef.current;
     if (!content) return;
-    const win = window.open("", "_blank", `width=${printerWidth === 80 ? 320 : 240},height=600`);
+    const win = window.open("", "_blank", `width=${widthMm > 60 ? 320 : 240},height=600`);
     if (!win) return;
     win.document.write(`
       <html dir="ltr"><head><title>Receipt ${sale.invoiceNo}</title>
       <style>
-        @page { size: ${widthMm}mm auto; margin: 0 1mm 1mm 5mm; }
-        * { font-family: 'Consolas', 'Courier New', monospace; box-sizing: border-box; margin: 0; padding: 0; font-weight: bold; }
-        body { width: ${widthMm}mm; font-size: ${fontSize}; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        @page { size: ${widthMm}mm auto; margin: ${rs.marginTop}mm ${rs.marginRight}mm ${rs.marginBottom}mm ${rs.marginLeft}mm; }
+        * { font-family: '${fontFamily}', 'Courier New', monospace; box-sizing: border-box; margin: 0; padding: 0; font-weight: ${fontBold}; }
+        body { width: ${widthMm}mm; font-size: ${fontSize}; color: ${textColor}; -webkit-print-color-adjust: exact; print-color-adjust: exact; line-height: ${rs.lineSpacing}; }
         .center { text-align: center; }
+        .left { text-align: left; }
+        .right { text-align: right; }
         .row { display: flex; justify-content: space-between; }
         .border { border-top: 2px solid #000; margin: 4px 0; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th, td { text-align: left; padding: 1px 0; font-size: ${tableFontSize}; word-wrap: break-word; overflow: hidden; font-weight: bold; }
+        th, td { text-align: left; padding: 1px 0; font-size: ${tableFontSize}; word-wrap: break-word; overflow: hidden; font-weight: ${fontBold}; }
         th { border-bottom: 1px solid #000; font-weight: bold; }
         .bold { font-weight: bold; }
-        .big { font-size: ${printerWidth === 80 ? "16px" : "13px"}; font-weight: bold; }
-        .sub-name { font-size: ${printerWidth === 80 ? "14px" : "11px"}; font-weight: bold; margin-top: 2px; }
+        .big { font-size: ${headerFontSize}; font-weight: bold; color: ${headerColor}; }
+        .sub-name { font-size: ${titleFontSize}; font-weight: bold; margin-top: 2px; }
         .logo { max-height: 50px; height: 50px; max-width: 100%; margin: 0 auto 2px auto; display: block; }
         .barcode-container { text-align: center; margin: 4px 0; }
         .barcode-container svg { max-width: 100%; height: auto; display: inline-block; }
         .item-name { font-size: ${tableFontSize}; font-weight: bold; }
-        .item-detail { font-size: ${printerWidth === 80 ? "10px" : "9px"}; color: #000; font-weight: bold; }
+        .item-detail { font-size: ${rs.fontSize - 2}px; color: ${textColor}; font-weight: ${fontBold}; }
         .payment-label { font-weight: bold; }
+        .text-${textAlign} { text-align: ${textAlign}; }
       </style></head><body>${content.innerHTML}</body></html>
     `);
     win.document.close();
@@ -83,18 +96,24 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
             Sale Successful
           </DialogTitle>
         </DialogHeader>
-        {/* Scrollable receipt area — page itself never moves, only the
-            receipt content scrolls inside this container. This fixes the
-            bug where long receipts pushed the Print/Close buttons off-screen. */}
+        {/* Scrollable receipt area */}
         <div className="flex-1 overflow-y-auto min-h-0">
         <div
           ref={printRef}
           className="bg-white text-black p-3 rounded-lg space-y-1"
-          style={{ maxWidth, margin: "0 auto", fontFamily: "'Courier New', monospace", color: "#000" }}
+          style={{
+            maxWidth,
+            margin: "0 auto",
+            fontFamily: `'${fontFamily}', 'Courier New', monospace`,
+            color: textColor,
+            fontSize,
+            lineHeight: rs.lineSpacing,
+            textAlign: textAlign as any,
+          }}
         >
-          {/* Header */}
-          <div className="center">
-            {logo && (
+          {/* Header — respects receipt settings show flags */}
+          <div className={rs.layout === "center" ? "center" : rs.layout === "right" ? "right" : "left"}>
+            {rs.showLogo && logo && (
               <img
                 src={logo}
                 alt="Shop logo"
@@ -108,32 +127,38 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
                 }}
               />
             )}
-            <div className="big">{settings?.shopName || "POS"}</div>
-            {settings?.shopAddress && (
+            {rs.showShopName && (
+              <div className="big">{settings?.shopName || "POS"}</div>
+            )}
+            {rs.showShopAddress && settings?.shopAddress && (
               <div style={{ fontSize: tableFontSize }}>{settings.shopAddress}</div>
             )}
-            {settings?.shopPhone && (
+            {rs.showShopPhone && settings?.shopPhone && (
               <div style={{ fontSize: tableFontSize }}>Ph: {settings.shopPhone}</div>
             )}
-            {subName && (
+            {rs.showSubName && subName && (
               <div className="sub-name" style={{ marginTop: "2px" }}>{subName}</div>
             )}
           </div>
 
           <div className="border" />
 
-          {/* Invoice info */}
-          <div className="row" style={{ fontSize: tableFontSize }}>
-            <span>Inv:</span>
-            <span>{sale.invoiceNo}</span>
-          </div>
-          <div className="row" style={{ fontSize: tableFontSize }}>
-            <span>Date:</span>
-            <span>{new Date(sale.createdAt).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })}</span>
-          </div>
+          {/* Invoice info — respects show flags */}
+          {rs.showInvoiceNo && (
+            <div className="row" style={{ fontSize: tableFontSize }}>
+              <span>Inv:</span>
+              <span>{sale.invoiceNo}</span>
+            </div>
+          )}
+          {rs.showDateTime && (
+            <div className="row" style={{ fontSize: tableFontSize }}>
+              <span>Date:</span>
+              <span>{new Date(sale.createdAt).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })}</span>
+            </div>
+          )}
 
           {/* ─── Customer Type (Regular / Wholesale / Shopkeeper) ─── */}
-          {sale.saleType && (
+          {rs.showSaleType && sale.saleType && (
             <div className="row" style={{ fontSize: tableFontSize }}>
               <span>Type:</span>
               <span>
@@ -146,19 +171,19 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
           )}
 
           {/* ─── Customer Name — shows if shop card used OR manually entered ─── */}
-          {sale.customerName && (
+          {rs.showCustomerName && sale.customerName && (
             <div className="row" style={{ fontSize: tableFontSize }}>
               <span>Customer:</span>
               <span>{sale.customerName}</span>
             </div>
           )}
-          {sale.customerPhone && (
+          {rs.showCustomerPhone && sale.customerPhone && (
             <div className="row" style={{ fontSize: tableFontSize }}>
               <span>Phone:</span>
               <span>{sale.customerPhone}</span>
             </div>
           )}
-          {sale.card?.name && (
+          {rs.showCardDetails && sale.card?.name && (
             <div className="row" style={{ fontSize: tableFontSize }}>
               <span>Card:</span>
               <span>{sale.card.name} ({sale.card.cardNumber})</span>
@@ -215,20 +240,22 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
           </div>
 
           {/* Payment */}
-          <div className="row" style={{ fontSize: tableFontSize }}>
-            <span className="payment-label">Payment:</span>
-            <span>
-              {sale.paymentMethod === "CASH"
-                ? "Cash"
-                : sale.paymentMethod === "CARD"
-                ? "Card"
-                : sale.paymentMethod === "SHOP_CARD"
-                ? "Shop Card"
-                : "Mobile"}
-              {" "}({formatMoney(sale.paidAmount, currency)})
-            </span>
-          </div>
-          {sale.change > 0 && (
+          {rs.showPaymentMethod && (
+            <div className="row" style={{ fontSize: tableFontSize }}>
+              <span className="payment-label">Payment:</span>
+              <span>
+                {sale.paymentMethod === "CASH"
+                  ? "Cash"
+                  : sale.paymentMethod === "CARD"
+                  ? "Card"
+                  : sale.paymentMethod === "SHOP_CARD"
+                  ? "Shop Card"
+                  : "Mobile"}
+                {" "}({formatMoney(sale.paidAmount, currency)})
+              </span>
+            </div>
+          )}
+          {rs.showChange && sale.change > 0 && (
             <div className="row" style={{ fontSize: tableFontSize }}>
               <span>Change:</span>
               <span>{formatMoney(sale.change, currency)}</span>
@@ -237,21 +264,24 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
 
           <div className="border" />
 
-          {/* Barcode — inline, compact, dark black */}
-          <div className="barcode-container" style={{ textAlign: "center", margin: "2px 0" }}>
-            <BarcodeDisplay
-              value={sale.invoiceNo}
-              format="CODE128"
-              height={barcodeHeight}
-              width={barcodeWidth}
-              displayValue={true}
-            />
-          </div>
+          {rs.showBarcode && (
+            <div className="barcode-container" style={{ textAlign: "center", margin: "2px 0" }}>
+              <BarcodeDisplay
+                value={sale.invoiceNo}
+                format="CODE128"
+                height={barcodeHeight}
+                width={barcodeWidth}
+                displayValue={true}
+              />
+            </div>
+          )}
 
-          {/* Footer */}
-          <div className="center" style={{ fontSize: tableFontSize, marginTop: "4px" }}>
-            {settings?.receiptFooter || "Thank you! Please come again."}
-          </div>
+          {/* Footer — uses receipt settings footer text */}
+          {rs.showFooter && (
+            <div className={rs.layout === "center" ? "center" : rs.layout === "right" ? "right" : "left"} style={{ fontSize: tableFontSize, marginTop: "4px" }}>
+              {rs.receiptFooter || settings?.receiptFooter || "Thank you! Please come again."}
+            </div>
+          )}
         </div>
         </div>
         {/* Sticky footer — always visible regardless of receipt length */}

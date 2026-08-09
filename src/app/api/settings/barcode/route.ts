@@ -45,6 +45,7 @@ const DEFAULTS = {
   barcodeBottomMargin: 0,
   centerBarcode: true,
   highResSvg: true,
+  posScanBehavior: "ASK_QUANTITY",
 };
 
 // GET /api/settings/barcode
@@ -112,6 +113,7 @@ export async function PUT(req: NextRequest) {
       barcodeBottomMargin: Number(body.barcodeBottomMargin) || 0,
       centerBarcode: body.centerBarcode !== false,
       highResSvg: body.highResSvg !== false,
+      posScanBehavior: body.posScanBehavior === "DIRECT_ADD" ? "DIRECT_ADD" : "ASK_QUANTITY",
     };
 
     const settings = await db.barcodeSettings.upsert({

@@ -46,6 +46,8 @@ export interface BarcodeSettings {
   barcodeBottomMargin: number;
   centerBarcode: boolean;
   highResSvg: boolean;
+  // POS scan behavior
+  posScanBehavior: "ASK_QUANTITY" | "DIRECT_ADD";
 }
 
 export const ALL_STICKER_FIELDS = [
@@ -97,6 +99,7 @@ export const DEFAULT_BARCODE_SETTINGS: BarcodeSettings = {
   barcodeBottomMargin: 0,
   centerBarcode: true,
   highResSvg: true,
+  posScanBehavior: "ASK_QUANTITY",
 };
 
 export const STICKER_SIZES = [

@@ -419,6 +419,10 @@ model BarcodeSettings {
   barcodeBottomMargin Int   @default(0)     // mm
   centerBarcode     Boolean @default(true)
   highResSvg        Boolean @default(true)
+  // POS scan behavior: "ASK_QUANTITY" (default) or "DIRECT_ADD"
+  // ASK_QUANTITY: scan → prompt for quantity → add to cart
+  // DIRECT_ADD: scan → add 1 to cart immediately (no prompt)
+  posScanBehavior   String  @default("ASK_QUANTITY")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

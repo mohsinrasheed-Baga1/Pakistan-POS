@@ -151,6 +151,14 @@ export async function GET(req: NextRequest) {
     totalPaid: c.totalPaid,
   })).sort((a, b) => a.balance - b.balance); // most due first
 
+  // ─── PAYMENT METHOD BREAKDOWN (v2.9.14) ──────────────────────────────
+  const cashTotal = sales.filter(s => s.paymentMethod === "CASH").reduce((s, x) => s + x.paidAmount, 0);
+  const cardTotal = sales.filter(s => s.paymentMethod === "CARD").reduce((s, x) => s + x.paidAmount, 0);
+  const shopCardTotal = sales.filter(s => s.paymentMethod === "SHOP_CARD").reduce((s, x) => s + x.paidAmount, 0);
+  const mobileTotal = sales.filter(s => s.paymentMethod === "MOBILE").reduce((s, x) => s + x.paidAmount, 0);
+  // Pending = total - paidAmount (unpaid/due amount)
+  const pendingTotal = sales.reduce((s, x) => s + (x.total - x.paidAmount), 0);
+
   return NextResponse.json({
     range,
     totalSales,
@@ -167,6 +175,12 @@ export async function GET(req: NextRequest) {
     totalRetailValue,
     totalShopStock,
     totalStoreStock,
+    // Payment method breakdown
+    cashTotal,
+    cardTotal,
+    shopCardTotal,
+    mobileTotal,
+    pendingTotal,
     profitByProduct: profitByProduct.slice(0, 20),
     // ─── New: vendor and customer balances ───
     vendorBalances: {

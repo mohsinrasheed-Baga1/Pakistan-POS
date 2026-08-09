@@ -46,6 +46,8 @@ export function SalesView() {
   const [loading, setLoading] = React.useState(true);
   const [q, setQ] = React.useState("");
   const [todayOnly, setTodayOnly] = React.useState(true);
+  // Custom date filter — allows selecting any specific date
+  const [customDate, setCustomDate] = React.useState<string>("");
   const [selected, setSelected] = React.useState<Sale | null>(null);
   const [receiptOpen, setReceiptOpen] = React.useState(false);
   const [returnTarget, setReturnTarget] = React.useState<Sale | null>(null);
@@ -56,7 +58,11 @@ export function SalesView() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (todayOnly) params.set("today", "true");
+      if (customDate) {
+        params.set("date", customDate);
+      } else if (todayOnly) {
+        params.set("today", "true");
+      }
       params.set("limit", "200");
       const res = await fetch(`/api/sales?${params.toString()}`, {
         cache: "no-store",
@@ -76,7 +82,7 @@ export function SalesView() {
     } finally {
       setLoading(false);
     }
-  }, [todayOnly, q]);
+  }, [todayOnly, customDate, q]);
 
   React.useEffect(() => {
     fetch("/api/settings", { cache: "no-store" })
@@ -205,21 +211,39 @@ export function SalesView() {
             className="pl-10"
           />
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 items-center">
           <Button
-            variant={todayOnly ? "default" : "outline"}
-            className={todayOnly ? "bg-emerald-600 hover:bg-emerald-700" : ""}
-            onClick={() => setTodayOnly(true)}
+            variant={todayOnly && !customDate ? "default" : "outline"}
+            className={todayOnly && !customDate ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+            onClick={() => { setTodayOnly(true); setCustomDate(""); }}
           >
             <Calendar className="w-4 h-4 mr-2" /> Today
           </Button>
           <Button
-            variant={!todayOnly ? "default" : "outline"}
-            className={!todayOnly ? "bg-emerald-600 hover:bg-emerald-700" : ""}
-            onClick={() => setTodayOnly(false)}
+            variant={!todayOnly && !customDate ? "default" : "outline"}
+            className={!todayOnly && !customDate ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+            onClick={() => { setTodayOnly(false); setCustomDate(""); }}
           >
             All
           </Button>
+          {/* Custom date picker — select any specific date */}
+          <input
+            type="date"
+            value={customDate}
+            onChange={(e) => { setCustomDate(e.target.value); setTodayOnly(false); }}
+            className="h-9 rounded-md border px-2 text-sm"
+            title="Select custom date"
+          />
+          {customDate && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCustomDate("")}
+              title="Clear date filter"
+            >
+              Clear
+            </Button>
+          )}
         </div>
       </div>
 

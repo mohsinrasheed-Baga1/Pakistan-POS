@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
+import { useBarcodeSettings } from "@/hooks/use-barcode-settings";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -76,6 +77,7 @@ export function PosView({ settings }: PosViewProps) {
 
   const cart = useCartStore();
   const { setView } = useAppStore();
+  const { settings: barcodeSettings } = useBarcodeSettings();
   const currency = settings?.currency || "Rs";
   const taxEnabled = !!settings?.taxEnabled;
   const totals = cart.totals(taxEnabled);
@@ -175,8 +177,15 @@ export function PosView({ settings }: PosViewProps) {
     setTimeout(() => searchRef.current?.focus(), 50);
   }
 
-  // Open quantity prompt dialog before adding product to cart
+  // Open quantity prompt dialog before adding product to cart.
+  // If barcode settings have posScanBehavior = "DIRECT_ADD", skip the
+  // prompt and add 1 to cart immediately.
   function promptQuantity(product: Product) {
+    if (barcodeSettings.posScanBehavior === "DIRECT_ADD") {
+      // Direct add — skip quantity prompt, add 1 immediately
+      addToCart(product, 1);
+      return;
+    }
     setQtyProduct(product);
     setQtyValue("1");
     setQtyOpen(true);
@@ -418,32 +427,22 @@ export function PosView({ settings }: PosViewProps) {
           setHighlightedIndex((p) => p < 0 ? 0 : Math.max(p - 4, 0));
           return;
         } else if (e.key === "Enter" && isSearchFocused) {
-          // ─── ENTER IN SEARCH ─────────────────────────────────────────────
-          // This handler fires for BOTH manual typing AND scanner input that
-          // wasn't caught by the scanner hook (e.g. slower scanners).
+          // ─── ENTER IN SEARCH: manual name search ONLY ───
+          // The scanner hook (useBarcodeScanner) handles ALL barcode scans
+          // and prevents them from reaching this handler. So if we get here,
+          // it's because the user typed a product NAME manually and pressed
+          // Enter to select the highlighted product.
           //
-          // Detection logic:
-          // - If the search text looks like a barcode (8+ digits, or matches
-          //   barcode patterns) → do EXACT barcode lookup via /api/barcode
-          //   If found → add correct product
-          //   If NOT found → "Unknown Barcode" error, DO NOT add highlighted
-          // - If the search text is a NAME (contains letters) → use
-          //   highlighted product from filtered list (manual name search)
-          //
-          // This ensures:
-          // 1. Scanner barcodes are always looked up exactly
-          // 2. Unknown barcodes never add the highlighted product
-          // 3. Manual name search still works with highlighted product
+          // If the user typed something that looks like a barcode (digits),
+          // we still do an exact barcode lookup as a safety net. If it's not
+          // found, we show "Unknown Barcode" and DO NOT add the highlighted
+          // product (prevents wrong product = financial loss).
           e.preventDefault();
           const searchText = q.trim();
           if (searchText) {
-            // Check if this looks like a barcode:
-            // - 8+ characters
-            // - Mostly digits (allows leading zeros, EAN-13, UPC, CODE128 with digits)
+            // If it looks like a barcode (8+ digits), do exact lookup
             const isLikelyBarcode = searchText.length >= 8 && /^\d+$/.test(searchText);
-
             if (isLikelyBarcode) {
-              // ─── BARCODE LOOKUP (exact match) ───
               try {
                 const res = await fetch(`/api/barcode?code=${encodeURIComponent(searchText)}`, { cache: "no-store" });
                 const data = await res.json();
@@ -463,14 +462,10 @@ export function PosView({ settings }: PosViewProps) {
                 return;
               } catch {
                 toast.error("Barcode lookup failed");
-                setQ("");
-                setHighlightedIndex(-1);
                 return;
               }
             }
-
-            // ─── MANUAL NAME SEARCH ───
-            // Use highlighted product from filtered list
+            // Manual name search — use highlighted product
             if (products.length > 0) {
               const idx = highlightedIndex >= 0 && highlightedIndex < products.length
                 ? highlightedIndex
@@ -480,7 +475,6 @@ export function PosView({ settings }: PosViewProps) {
               promptQuantity(products[idx]);
               return;
             }
-            // No products match the typed name
             toast.warning(`No product found for: ${searchText}`);
             setQ("");
             setHighlightedIndex(-1);
@@ -911,12 +905,11 @@ export function PosView({ settings }: PosViewProps) {
                                   size="icon"
                                   variant="outline"
                                   className="h-6 w-6"
-                                  onClick={() =>
-                                    cart.setQty(
-                                      item.product.id,
-                                      item.quantity - (isLooseUnit(item.product.unit) ? 0.5 : 1)
-                                    )
-                                  }
+                                  onClick={() => {
+                                    const newQty = item.quantity - (isLooseUnit(item.product.unit) ? 0.5 : 1);
+                                    if (newQty <= 0) return; // prevent negative
+                                    cart.setQty(item.product.id, newQty);
+                                  }}
                                 >
                                   <Minus className="w-3 h-3" />
                                 </Button>
@@ -926,7 +919,7 @@ export function PosView({ settings }: PosViewProps) {
                                   onFocus={(e) => e.target.select()}
                                   onChange={(e) => {
                                     const v = Number(e.target.value);
-                                    if (!isNaN(v))
+                                    if (!isNaN(v) && v >= 0)
                                       cart.setQty(item.product.id, v);
                                   }}
                                   onKeyDown={(e) => {
@@ -943,12 +936,17 @@ export function PosView({ settings }: PosViewProps) {
                                   size="icon"
                                   variant="outline"
                                   className="h-6 w-6"
-                                  onClick={() =>
-                                    cart.setQty(
-                                      item.product.id,
-                                      item.quantity + (isLooseUnit(item.product.unit) ? 0.5 : 1)
-                                    )
-                                  }
+                                  onClick={() => {
+                                    const step = isLooseUnit(item.product.unit) ? 0.5 : 1;
+                                    const newQty = item.quantity + step;
+                                    // Stock check: prevent selling more than available
+                                    const stock = item.product.stock || 0;
+                                    if (!isLooseUnit(item.product.unit) && newQty > stock) {
+                                      toast.error(`Stock limit: only ${stock} available`);
+                                      return;
+                                    }
+                                    cart.setQty(item.product.id, newQty);
+                                  }}
                                 >
                                   <Plus className="w-3 h-3" />
                                 </Button>

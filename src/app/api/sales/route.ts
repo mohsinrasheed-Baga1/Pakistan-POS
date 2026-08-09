@@ -8,10 +8,16 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const today = searchParams.get("today") === "true";
+  const date = searchParams.get("date"); // YYYY-MM-DD format for custom date filter
   const limit = Number(searchParams.get("limit") || 50);
 
   const where: any = {};
-  if (today) {
+  if (date) {
+    // Custom date filter — sales on the selected date
+    const start = new Date(date + "T00:00:00");
+    const end = new Date(date + "T23:59:59");
+    where.createdAt = { gte: start, lte: end };
+  } else if (today) {
     const { start, end } = todayRange();
     where.createdAt = { gte: start, lte: end };
   }

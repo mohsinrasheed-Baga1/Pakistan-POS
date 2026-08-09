@@ -241,6 +241,24 @@ export function BarcodeSettingsPage() {
                 <ToggleRow label="Save PNG" checked={draft.saveBarcodeImage} onChange={v => update("saveBarcodeImage", v)} />
                 <ToggleRow label="Save SVG" checked={draft.saveBarcodeSvg} onChange={v => update("saveBarcodeSvg", v)} />
               </div>
+              {/* POS Scan Behavior — direct add or ask quantity */}
+              <div className="space-y-1">
+                <Label className="text-[10px] font-medium">POS Scan Behavior — سکین پر کیا ہو</Label>
+                <div className="flex gap-1.5">
+                  <button onClick={() => update("posScanBehavior", "ASK_QUANTITY")}
+                    className={`flex-1 px-2 py-1.5 rounded text-xs font-medium border ${draft.posScanBehavior === "ASK_QUANTITY" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-muted hover:border-emerald-300"}`}>
+                    Ask Quantity (پوچھے)
+                  </button>
+                  <button onClick={() => update("posScanBehavior", "DIRECT_ADD")}
+                    className={`flex-1 px-2 py-1.5 rounded text-xs font-medium border ${draft.posScanBehavior === "DIRECT_ADD" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-muted hover:border-emerald-300"}`}>
+                    Direct Add to Cart (سیدھا کارٹ میں)
+                  </button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Ask Quantity: scan → prompt for quantity → add to cart.
+                  Direct Add: scan → add 1 immediately (no prompt).
+                </p>
+              </div>
             </CardContent>
           </Card>
 
