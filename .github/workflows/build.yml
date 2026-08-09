@@ -64,6 +64,24 @@ jobs:
         env:
           DATABASE_URL: "file:./pos.db"
 
+      - name: Delete existing release for this tag (prevent duplicates)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          echo "=== Checking for existing release for $TAG ==="
+          # List all releases and find any with this tag
+          EXISTING_IDS=$(gh api repos/${{ github.repository }}/releases --paginate --jq ".[] | select(.tag_name == \"$TAG\") | .id" 2>/dev/null || echo "")
+          if [ -n "$EXISTING_IDS" ]; then
+            for id in $EXISTING_IDS; do
+              echo "Deleting existing release id=$id for tag $TAG"
+              gh api -X DELETE "repos/${{ github.repository }}/releases/$id" 2>/dev/null || echo "Failed to delete $id (may not exist)"
+            done
+          else
+            echo "No existing release found for $TAG"
+          fi
+
       - name: Build Windows Installer and Publish to GitHub (delta updates)
         run: bunx electron-builder --win nsis --x64 --publish always
         env:
