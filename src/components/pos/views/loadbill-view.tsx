@@ -329,8 +329,25 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
         {/* Search bar */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search company..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
+          <Input placeholder="Search company... (e.g. Jazz, Zong, Easypaisa)" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
         </div>
+
+        {/* If no companies exist yet — show add prompt */}
+        {companies.length === 0 && (
+          <div className="rounded-lg border-2 border-dashed border-blue-300 bg-blue-50 p-6 text-center">
+            <Smartphone className="w-10 h-10 text-blue-400 mx-auto mb-2" />
+            <p className="text-sm font-medium text-blue-800 mb-1">No load companies yet</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Click "Receive Load" to add your first company (e.g. Jazz, Zong) and receive stock balance.
+            </p>
+            {isAdmin && (
+              <Button size="sm" className="bg-blue-600 hover:bg-blue-700"
+                onClick={() => { setSelCompany(""); setAmount(""); setRecvOpen(true); }}>
+                <Plus className="w-4 h-4 mr-1" /> Add Company & Receive Load
+              </Button>
+            )}
+          </div>
+        )}
 
         {/* Company balance cards — each shows balance + quick receive/send buttons */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

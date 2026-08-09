@@ -10,10 +10,10 @@
  */
 
 import * as React from "react";
+import { Calculator as CalculatorIcon } from "lucide-react";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 
 interface GlobalCalculatorProps {
   open: boolean;
@@ -139,46 +139,49 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xs">
-        <DialogHeader>
-          <DialogTitle className="text-center">Calculator — کنٹرول + سی</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2">
+      <DialogContent className="max-w-xs p-0 overflow-hidden border-2 border-emerald-600 shadow-2xl" style={{ zIndex: 99999 }}>
+        {/* Header bar — emerald gradient */}
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-white">
+            <CalculatorIcon className="w-4 h-4" />
+            <span className="text-sm font-bold">Calculator</span>
+          </div>
+          <span className="text-[10px] text-emerald-100">Ctrl+C / Esc to close</span>
+        </div>
+
+        <div className="p-3 space-y-2">
           {/* History line */}
-          <div className="text-right text-xs text-muted-foreground min-h-[16px] font-mono truncate">
+          <div className="text-right text-xs text-muted-foreground min-h-[16px] font-mono truncate px-1">
             {history || "\u00A0"}
           </div>
-          {/* Display */}
-          <div className="text-right text-3xl font-mono font-bold bg-muted rounded-lg p-3 min-h-[56px] flex items-center justify-end overflow-hidden">
+          {/* Display — large, prominent */}
+          <div className="text-right text-3xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 min-h-[56px] flex items-center justify-end overflow-hidden border border-emerald-200">
             {display}
           </div>
-          {/* Buttons */}
+          {/* Buttons — professional grid */}
           <div className="grid grid-cols-4 gap-1.5">
-            <Button className={`${btnClass} ${clearClass}`} onClick={reset}>C</Button>
-            <Button className={`${btnClass} ${opClass}`} onClick={() => backspace()}>⌫</Button>
-            <Button className={`${btnClass} ${opClass}`} onClick={() => performOperation("÷")}>÷</Button>
-            <Button className={`${btnClass} ${opClass}`} onClick={() => performOperation("×")}>×</Button>
+            <button className={`${btnClass} ${clearClass}`} onClick={reset}>C</button>
+            <button className={`${btnClass} ${opClass}`} onClick={() => backspace()}>⌫</button>
+            <button className={`${btnClass} ${opClass}`} onClick={() => performOperation("÷")}>÷</button>
+            <button className={`${btnClass} ${opClass}`} onClick={() => performOperation("×")}>×</button>
 
-            <Button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("7")}>7</Button>
-            <Button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("8")}>8</Button>
-            <Button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("9")}>9</Button>
-            <Button className={`${btnClass} ${opClass}`} onClick={() => performOperation("-")}>−</Button>
+            <button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("7")}>7</button>
+            <button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("8")}>8</button>
+            <button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("9")}>9</button>
+            <button className={`${btnClass} ${opClass}`} onClick={() => performOperation("-")}>−</button>
 
-            <Button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("4")}>4</Button>
-            <Button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("5")}>5</Button>
-            <Button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("6")}>6</Button>
-            <Button className={`${btnClass} ${opClass}`} onClick={() => performOperation("+")}>+</Button>
+            <button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("4")}>4</button>
+            <button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("5")}>5</button>
+            <button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("6")}>6</button>
+            <button className={`${btnClass} ${opClass}`} onClick={() => performOperation("+")}>+</button>
 
-            <Button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("1")}>1</Button>
-            <Button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("2")}>2</Button>
-            <Button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("3")}>3</Button>
-            <Button className={`${btnClass} ${eqClass} row-span-2`} onClick={calculate}>=</Button>
+            <button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("1")}>1</button>
+            <button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("2")}>2</button>
+            <button className={`${btnClass} ${numClass}`} onClick={() => inputDigit("3")}>3</button>
+            <button className={`${btnClass} ${eqClass} row-span-2`} onClick={calculate}>=</button>
 
-            <Button className={`${btnClass} ${numClass} col-span-2`} onClick={() => inputDigit("0")}>0</Button>
-            <Button className={`${btnClass} ${numClass}`} onClick={inputDecimal}>.</Button>
-          </div>
-          <div className="text-[10px] text-center text-muted-foreground">
-            Ctrl+C again or Esc to close • Enter = calculate
+            <button className={`${btnClass} ${numClass} col-span-2`} onClick={() => inputDigit("0")}>0</button>
+            <button className={`${btnClass} ${numClass}`} onClick={inputDecimal}>.</button>
           </div>
         </div>
       </DialogContent>

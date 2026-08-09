@@ -132,6 +132,9 @@ export function ProductsView({ userRole }: ProductsViewProps) {
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
   const [printProduct, setPrintProduct] = React.useState<Product | null>(null);
   const [wizardOpen, setWizardOpen] = React.useState(false);
+  // Bulk select for multi-delete
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
   const [editProduct, setEditProduct] = React.useState<Product | null>(null);
 
   const loadProducts = React.useCallback(async () => {
@@ -276,6 +279,41 @@ export function ProductsView({ userRole }: ProductsViewProps) {
     }
   }
 
+  // ─── Bulk delete: delete multiple selected products at once ───
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === products.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(products.map(p => p.id)));
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    let success = 0;
+    let failed = 0;
+    for (const id of selectedIds) {
+      try {
+        const res = await fetch(`/api/products/${id}`, { method: "DELETE" });
+        if (res.ok) success++;
+        else failed++;
+      } catch { failed++; }
+    }
+    toast.success(`${success} product(s) deleted` + (failed > 0 ? `, ${failed} failed` : ""));
+    setSelectedIds(new Set());
+    setBulkDeleteOpen(false);
+    loadProducts();
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -325,6 +363,11 @@ export function ProductsView({ userRole }: ProductsViewProps) {
           {canManage && (
             <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setWizardOpen(true)}>
               <Plus className="w-4 h-4 mr-2" /> Add Product
+            </Button>
+          )}
+          {canManage && selectedIds.size > 0 && (
+            <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+              <Trash2 className="w-4 h-4 mr-2" /> Delete Selected ({selectedIds.size})
             </Button>
           )}
         </div>
@@ -401,6 +444,15 @@ export function ProductsView({ userRole }: ProductsViewProps) {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.size === products.length && products.length > 0}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 accent-emerald-600"
+                          title="Select all"
+                        />
+                      </TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Barcode</TableHead>
                       <TableHead>Category</TableHead>
@@ -413,7 +465,15 @@ export function ProductsView({ userRole }: ProductsViewProps) {
                   </TableHeader>
                   <TableBody>
                     {filteredProducts.map((p) => (
-                      <TableRow key={p.id}>
+                      <TableRow key={p.id} className={selectedIds.has(p.id) ? "bg-rose-50" : ""}>
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(p.id)}
+                            onChange={() => toggleSelect(p.id)}
+                            className="w-4 h-4 accent-rose-600"
+                          />
+                        </TableCell>
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
@@ -822,6 +882,28 @@ export function ProductsView({ userRole }: ProductsViewProps) {
         onDone={loadProducts}
         editProduct={editProduct}
       />
+
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.size} product(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {selectedIds.size} selected product(s).
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={handleBulkDelete}
+            >
+              Delete All ({selectedIds.size})
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
