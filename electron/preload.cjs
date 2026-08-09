@@ -22,14 +22,14 @@ contextBridge.exposeInMainWorld("posElectron", {
 
   // Software Updater API (electron-updater with delta/differential support)
   updater: {
-    // Check for updates — returns { version, releaseNotes, releaseDate, downloadSize } or null
+    // Check for updates — returns { version, releaseNotes, releaseDate, downloadSize, downloadUrl? } or null
     check: () => ipcRenderer.invoke("updater:check"),
-    // Download the available update (delta download if possible)
-    download: () => ipcRenderer.invoke("updater:download"),
+    // Download the available update
+    // If downloadUrl is provided (from GitHub API fallback), downloads directly
+    download: (downloadUrl) => ipcRenderer.invoke("updater:download", downloadUrl),
     // Quit and install the downloaded update
     install: () => ipcRenderer.invoke("updater:install"),
     // Listen for download progress events — callback receives percent (0-100)
-    // Returns a cleanup function to remove the listener
     onProgress: (callback) => {
       const handler = (_event, percent) => callback(percent);
       ipcRenderer.on("updater:progress", handler);

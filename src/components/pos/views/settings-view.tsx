@@ -2960,9 +2960,10 @@ function SoftwareUpdatesCard() {
 
     try {
       if (isElectronUpdater) {
-        // electron-updater downloads INSIDE the app (delta if possible)
-        // and shows progress via the onProgress callback.
-        await window.posElectron.updater.download();
+        // Pass downloadUrl if available (from GitHub API fallback)
+        // If no downloadUrl, electron-updater uses its built-in download
+        const downloadUrl = (updateInfo as any)?.downloadUrl || undefined;
+        await window.posElectron.updater.download(downloadUrl);
         setStatus("downloaded");
         toast.success("Update downloaded! Click Install to apply.");
       } else {

@@ -25,18 +25,39 @@ try {
   autoUpdater = require("electron-updater").autoUpdater;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
-  // Enable differential/delta downloads — only changed blocks are downloaded
-  // instead of the full 260MB+ installer every time.
-  // electron-updater uses the .blockmap file to determine which blocks changed.
   autoUpdater.allowDowngrade = false;
   autoUpdater.requestHeaders = {
     "Cache-Control": "no-cache",
   };
-  console.log("[POS] electron-updater loaded successfully (delta updates enabled)");
+  // Explicitly set the GitHub repository as the update provider.
+  // This ensures electron-updater knows exactly where to look for releases
+  // even if app-update.yml is missing or incorrect.
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: "mohsinrasheed-Baga1",
+    repo: "shop-pos-system",
+    releaseType: "release",
+  });
+  console.log("[POS] electron-updater loaded successfully (delta updates enabled, GitHub feed set)");
 } catch (e) {
   console.log("[POS] electron-updater not available, auto-update disabled:", e.message);
 }
 const { spawn } = require("child_process");
+
+// ─── Version comparison helper ─────────────────────────────────────────────
+// Returns true if 'latest' is newer than 'current'
+// Both are strings like "2.9.15"
+function isNewerVersion(latest, current) {
+  const l = latest.split(".").map(Number);
+  const c = current.split(".").map(Number);
+  for (let i = 0; i < Math.max(l.length, c.length); i++) {
+    const lv = l[i] || 0;
+    const cv = c[i] || 0;
+    if (lv > cv) return true;
+    if (lv < cv) return false;
+  }
+  return false;
+}
 
 // Old Hardware Fix: disable GPU acceleration for Pentium/Old PCs (black screen fix)
 app.disableHardwareAcceleration();
@@ -517,10 +538,11 @@ if (!gotLock) {
     // Check for updates
     ipcMain.handle("updater:check", async () => {
       try {
+        // ─── Method 1: Try electron-updater first ────────────────────
+        console.log("[POS] Checking for updates via electron-updater...");
         const result = await autoUpdater.checkForUpdates();
         if (result && result.updateInfo && result.updateInfo.version) {
           const info = result.updateInfo;
-          // Format release notes
           let notes = "";
           if (info.releaseNotes) {
             if (typeof info.releaseNotes === "string") {
@@ -531,13 +553,66 @@ if (!gotLock) {
               notes = info.releaseNotes.note;
             }
           }
+          console.log("[POS] Update found via electron-updater:", info.version);
           return {
             version: info.version,
             releaseDate: info.releaseDate,
             releaseNotes: notes || null,
             downloadSize: info.files?.[0]?.size || null,
+            source: "electron-updater",
           };
         }
+        console.log("[POS] electron-updater returned no update, trying GitHub API fallback...");
+
+        // ─── Method 2: Fallback — fetch directly from GitHub Releases API ───
+        // This ensures we ALWAYS find the latest release even if
+        // electron-updater's internal logic fails.
+        const https = require("https");
+        const githubData = await new Promise((resolve, reject) => {
+          const options = {
+            hostname: "api.github.com",
+            path: "/repos/mohsinrasheed-Baga1/shop-pos-system/releases/latest",
+            headers: {
+              "User-Agent": "Shop-POS-System-Updater",
+              "Accept": "application/vnd.github.v3+json",
+            },
+          };
+          https.get(options, (res) => {
+            let body = "";
+            res.on("data", (chunk) => (body += chunk));
+            res.on("end", () => {
+              try { resolve(JSON.parse(body)); }
+              catch (e) { reject(new Error("Failed to parse GitHub response")); }
+            });
+          }).on("error", reject);
+        });
+
+        if (githubData && githubData.tag_name) {
+          const latestVersion = githubData.tag_name.replace(/^v/, "");
+          // Get current app version
+          const currentVersion = app.getVersion();
+          console.log("[POS] GitHub latest:", latestVersion, "Current:", currentVersion);
+
+          // Compare versions
+          if (latestVersion && isNewerVersion(latestVersion, currentVersion)) {
+            // Find the .exe download URL
+            const exeAsset = (githubData.assets || []).find(a => a.name.endsWith(".exe"));
+            const downloadUrl = exeAsset ? exeAsset.browser_download_url : null;
+            const downloadSize = exeAsset ? exeAsset.size : null;
+
+            console.log("[POS] Update found via GitHub API:", latestVersion, "URL:", downloadUrl);
+            return {
+              version: latestVersion,
+              releaseDate: githubData.published_at,
+              releaseNotes: githubData.body || null,
+              downloadSize: downloadSize,
+              downloadUrl: downloadUrl,
+              source: "github-api",
+            };
+          }
+        }
+
+        console.log("[POS] No update available (both methods checked)");
         return null; // No update available
       } catch (e) {
         console.error("[POS] Update check failed:", e.message);
@@ -546,8 +621,65 @@ if (!gotLock) {
     });
 
     // Download update
-    ipcMain.handle("updater:download", async () => {
+    ipcMain.handle("updater:download", async (event, downloadUrl) => {
       try {
+        // If a downloadUrl is provided (from GitHub API fallback),
+        // download the .exe directly and save it to temp directory.
+        if (downloadUrl) {
+          console.log("[POS] Downloading update from GitHub URL:", downloadUrl);
+          const https = require("https");
+          const fs = require("fs");
+          const path = require("path");
+          const os = require("os");
+
+          const tempDir = os.tmpdir();
+          const fileName = "Shop-POS-System-Update.exe";
+          const filePath = path.join(tempDir, fileName);
+          const fileStream = fs.createWriteStream(filePath);
+
+          await new Promise((resolve, reject) => {
+            const download = (url) => {
+              https.get(url, (res) => {
+                // Handle redirects (GitHub uses 302 redirects)
+                if (res.statusCode === 302 || res.statusCode === 301) {
+                  download(res.headers.location);
+                  return;
+                }
+                if (res.statusCode !== 200) {
+                  reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+                  return;
+                }
+
+                const totalBytes = parseInt(res.headers["content-length"] || "0", 10);
+                let downloadedBytes = 0;
+
+                res.on("data", (chunk) => {
+                  downloadedBytes += chunk.length;
+                  if (totalBytes > 0) {
+                    const percent = Math.round((downloadedBytes / totalBytes) * 100);
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                      mainWindow.webContents.send("updater:progress", percent);
+                    }
+                  }
+                });
+
+                res.pipe(fileStream);
+                fileStream.on("finish", () => {
+                  fileStream.close();
+                  console.log("[POS] Download complete:", filePath);
+                  resolve(filePath);
+                });
+              }).on("error", reject);
+            };
+            download(downloadUrl);
+          });
+
+          // Save the file path for installation
+          global.downloadedUpdatePath = filePath;
+          return { ok: true, filePath };
+        }
+
+        // Default: use electron-updater's built-in download (delta if possible)
         await autoUpdater.downloadUpdate();
         return { ok: true };
       } catch (e) {
@@ -559,6 +691,21 @@ if (!gotLock) {
     // Install update (quit and install)
     ipcMain.handle("updater:install", async () => {
       try {
+        // If we downloaded via GitHub API fallback, run the installer directly
+        if (global.downloadedUpdatePath) {
+          console.log("[POS] Installing from:", global.downloadedUpdatePath);
+          const { exec } = require("child_process");
+          // Run the installer silently (NSIS supports /S for silent install)
+          exec(`"${global.downloadedUpdatePath}" /S`, (err) => {
+            if (err) {
+              // If silent fails, try normal launch
+              exec(`start "" "${global.downloadedUpdatePath}"`);
+            }
+            app.quit();
+          });
+          return;
+        }
+        // Default: electron-updater's quit and install
         autoUpdater.quitAndInstall();
       } catch (e) {
         console.error("[POS] Install failed:", e.message);
