@@ -224,6 +224,32 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
   const [phone, setPhone] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [search, setSearch] = React.useState("");
+  // Add new company dialog
+  const [addCompanyOpen, setAddCompanyOpen] = React.useState(false);
+  const [newCompanyName, setNewCompanyName] = React.useState("");
+  const [addCompanySaving, setAddCompanySaving] = React.useState(false);
+
+  // Handle creating a new company, then immediately select it
+  async function handleAddCompany() {
+    const name = newCompanyName.trim();
+    if (!name) { toast.error("Company name required"); return; }
+    setAddCompanySaving(true);
+    try {
+      const res = await fetch("/api/load-bill/companies", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "Failed"); setAddCompanySaving(false); return; }
+      toast.success(`Company "${name}" added`);
+      setAddCompanyOpen(false);
+      setNewCompanyName("");
+      await load();
+      setSelCompany(d.company.id);
+      onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setAddCompanySaving(false); }
+  }
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -313,6 +339,12 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
           <CardTitle className="flex items-center gap-2"><Smartphone className="w-5 h-5 text-emerald-600" /> Mobile Load</CardTitle>
           <div className="flex gap-2">
             {isAdmin && (
+              <Button size="sm" variant="outline" className="border-blue-600 text-blue-700 bg-blue-50"
+                onClick={() => { setNewCompanyName(""); setAddCompanyOpen(true); }}>
+                <Plus className="w-4 h-4 mr-1" /> Add Company
+              </Button>
+            )}
+            {isAdmin && (
               <Button size="sm" variant="outline" className="border-blue-300 text-blue-700"
                 onClick={() => { setSelCompany(""); setAmount(""); setRecvOpen(true); }}>
                 <ArrowDownLeft className="w-4 h-4 mr-1" /> Receive Load
@@ -336,14 +368,15 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
         {companies.length === 0 && (
           <div className="rounded-lg border-2 border-dashed border-blue-300 bg-blue-50 p-6 text-center">
             <Smartphone className="w-10 h-10 text-blue-400 mx-auto mb-2" />
-            <p className="text-sm font-medium text-blue-800 mb-1">No load companies yet</p>
+            <p className="text-sm font-medium text-blue-800 mb-1">No load companies yet — کوئی کمپنی موجود نہیں</p>
             <p className="text-xs text-muted-foreground mb-3">
-              Click "Receive Load" to add your first company (e.g. Jazz, Zong) and receive stock balance.
+              Click "Add Company" to create your first company (e.g. Jazz, Zong, Telenor).
+              Then click "Receive Load" to add balance.
             </p>
             {isAdmin && (
               <Button size="sm" className="bg-blue-600 hover:bg-blue-700"
-                onClick={() => { setSelCompany(""); setAmount(""); setRecvOpen(true); }}>
-                <Plus className="w-4 h-4 mr-1" /> Add Company & Receive Load
+                onClick={() => { setNewCompanyName(""); setAddCompanyOpen(true); }}>
+                <Plus className="w-4 h-4 mr-1" /> Add Company
               </Button>
             )}
           </div>
@@ -431,6 +464,34 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
           ...(selectedCompany ? [{ label: "After Sale (بقایا)", value: remainingAfter }] : []),
         ]}
       />
+
+      {/* Add Company Dialog — create a new company before receiving load */}
+      <Dialog open={addCompanyOpen} onOpenChange={setAddCompanyOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Add New Company — نئی کمپنی</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Company Name *</Label>
+              <Input
+                value={newCompanyName}
+                onChange={(e) => setNewCompanyName(e.target.value)}
+                placeholder="e.g. Jazz, Zong, Telenor, Ufone"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddCompany(); } }}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Enter the company name. After creating, you can receive load balance for this company.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddCompanyOpen(false)}>Cancel</Button>
+            <Button className="bg-blue-600 hover:bg-blue-700" disabled={addCompanySaving} onClick={handleAddCompany}>
+              {addCompanySaving ? "..." : "Create Company"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Receive Load — adds balance to SIM */}
       <CheckoutDialog
