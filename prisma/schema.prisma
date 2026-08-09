@@ -337,6 +337,15 @@ model SimStock {
   // Linked SIM (for replacement SIMs) — points to the original SIM's id
   // whose phone number is being replaced.
   linkedSimId     String?
+  // ─── Deduction settings (v2.9.16) ──────────────────────────────────
+  // How much to deduct from the linked load company when this SIM is sold.
+  // deductionType: "FIXED" (fixed amount) or "PERCENTAGE" (% of costPrice)
+  // deductionAmount: the fixed amount OR percentage value (e.g. 50 = Rs 50 fixed, or 10 = 10%)
+  deductionType   String   @default("FIXED")   // FIXED | PERCENTAGE
+  deductionAmount Float    @default(0)          // amount (Rs) or percentage (%)
+  // Stock quantity — how many SIMs of this type are in stock
+  // (allows bulk-adding multiple identical SIMs at once)
+  stockQuantity   Int      @default(1)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

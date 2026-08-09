@@ -332,22 +332,36 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
           <Input placeholder="Search company..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
         </div>
 
-        {/* Company balance cards — each SIM's current balance always visible */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {/* Company balance cards — each shows balance + quick receive/send buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {filteredCompanies.map(c => (
-            <div key={c.id} className={`rounded-lg border-2 p-3 cursor-pointer transition-all ${c.balance > 0 ? "border-emerald-300 bg-emerald-50" : "border-muted bg-muted/30"}`}
-              onClick={() => { setSelCompany(c.id); setSellOpen(true); setAmount(""); setExtra(""); setDue(""); setPhone(""); }}>
-              <div className="text-sm font-bold">{c.name}</div>
-              <div className={`text-lg font-bold ${c.balance > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
-                Rs {c.balance.toLocaleString()}
+            <div key={c.id} className={`rounded-lg border-2 p-3 transition-all ${c.balance > 0 ? "border-emerald-300 bg-emerald-50" : "border-muted bg-muted/30"}`}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-sm font-bold">{c.name}</div>
+                <div className={`text-lg font-bold ${c.balance > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                  Rs {c.balance.toLocaleString()}
+                </div>
               </div>
-              <div className="text-[10px] text-muted-foreground">
+              <div className="text-[10px] text-muted-foreground mb-2">
                 Sold: Rs {c.totalSold.toLocaleString()} • Profit: Rs {c.totalProfit.toLocaleString()}
+              </div>
+              {/* Quick action buttons — POS-like instant access */}
+              <div className="flex gap-1">
+                {isAdmin && (
+                  <Button size="sm" variant="outline" className="h-7 text-xs flex-1 border-blue-300 text-blue-700"
+                    onClick={() => { setSelCompany(c.id); setAmount(""); setRecvOpen(true); }}>
+                    <ArrowDownLeft className="w-3 h-3 mr-1" /> Receive
+                  </Button>
+                )}
+                <Button size="sm" className="h-7 text-xs flex-1 bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => { setSelCompany(c.id); setAmount(""); setExtra(""); setDue(""); setPhone(""); setSellOpen(true); }}>
+                  <Plus className="w-3 h-3 mr-1" /> Sell
+                </Button>
               </div>
             </div>
           ))}
           {filteredCompanies.length === 0 && (
-            <div className="col-span-4 text-center text-muted-foreground py-4">
+            <div className="col-span-full text-center text-muted-foreground py-4">
               {companies.length === 0 ? "No companies added yet. Click Receive Load to add." : "No companies found"}
             </div>
           )}
@@ -668,25 +682,35 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Account cards — each shows current balance */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {/* Account cards — each shows balance + quick receive/send buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {accounts.map(a => (
-            <div key={a.id} className={`rounded-lg border-2 p-3 cursor-pointer transition-all ${a.balance > 0 ? "border-emerald-300 bg-emerald-50" : "border-muted"}`}
-              onClick={() => { setSelAccount(a.id); setTxnType("RECEIVE"); setAmount(""); setCharge(""); setDue(""); setTxnOpen(true); }}>
-              <div className="flex items-center justify-between">
+            <div key={a.id} className={`rounded-lg border-2 p-3 transition-all ${a.balance > 0 ? "border-emerald-300 bg-emerald-50" : "border-muted"}`}>
+              <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-bold">{a.name}</span>
                 <Badge variant="outline">{a.provider}</Badge>
               </div>
-              <div className={`text-xl font-bold mt-1 ${a.balance > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+              <div className={`text-xl font-bold ${a.balance > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                 Rs {a.balance.toLocaleString()}
               </div>
-              <div className="text-[10px] text-muted-foreground">
+              <div className="text-[10px] text-muted-foreground mb-2">
                 {a.phoneNumber || a.accountNumber || ""} • Recv: Rs {a.totalReceived.toLocaleString()} • Sent: Rs {a.totalSent.toLocaleString()}
+              </div>
+              {/* Quick receive/send buttons — POS-like instant access */}
+              <div className="flex gap-1">
+                <Button size="sm" variant="outline" className="h-7 text-xs flex-1 border-emerald-300 text-emerald-700"
+                  onClick={() => { setSelAccount(a.id); setTxnType("RECEIVE"); setAmount(""); setCharge(""); setDue(""); setTxnOpen(true); }}>
+                  <ArrowDownLeft className="w-3 h-3 mr-1" /> Receive
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs flex-1 border-rose-300 text-rose-700"
+                  onClick={() => { setSelAccount(a.id); setTxnType("SEND"); setAmount(""); setCharge(""); setDue(""); setTxnOpen(true); }}>
+                  <ArrowUpRight className="w-3 h-3 mr-1" /> Send
+                </Button>
               </div>
             </div>
           ))}
           {accounts.length === 0 && (
-            <div className="col-span-3 text-center text-muted-foreground py-4">
+            <div className="col-span-full text-center text-muted-foreground py-4">
               No accounts added yet. Click "Add Account" to create JazzCash, Easypaisa, or Bank accounts.
             </div>
           )}
@@ -781,6 +805,10 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
   const [simSale, setSimSale] = React.useState("");
   const [linkedCompanyId, setLinkedCompanyId] = React.useState("");
   const [linkedSimId, setLinkedSimId] = React.useState("");
+  // v2.9.16: stock quantity + deduction settings
+  const [simStockQty, setSimStockQty] = React.useState("1");
+  const [deductionType, setDeductionType] = React.useState("FIXED");
+  const [deductionAmount, setDeductionAmount] = React.useState("");
   const [sellSimId, setSellSimId] = React.useState("");
   const [sellCust, setSellCust] = React.useState("");
   const [sellPhone, setSellPhone] = React.useState("");
@@ -842,12 +870,16 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
           costPrice: simCost, salePrice: simSale,
           linkedCompanyId: linkedCompanyId || undefined,
           linkedSimId: linkedSimId || undefined,
+          deductionType, deductionAmount: deductionAmount || 0,
+          stockQuantity: simStockQty || 1,
         }),
       });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error); setSaving(false); return; }
-      toast.success("SIM added to stock" + (linkedCompanyId ? " (linked to load company)" : ""));
+      const qtyMsg = d.count > 1 ? ` (${d.count} SIMs added)` : "";
+      toast.success("SIM added to stock" + (linkedCompanyId ? " (linked to load company)" : "") + qtyMsg);
       setAddOpen(false); setSimPhone(""); setSimCost(""); setSimSale(""); setLinkedCompanyId(""); setLinkedSimId("");
+      setSimStockQty("1"); setDeductionType("FIXED"); setDeductionAmount("");
       load(); onRefresh();
     } catch { toast.error("Network error"); }
     finally { setSaving(false); }
@@ -991,23 +1023,63 @@ function SimTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshK
               </div>
             </div>
             <div className="space-y-1"><Label className="text-xs">Phone Number (optional)</Label><Input value={simPhone} onChange={(e) => setSimPhone(e.target.value)} placeholder="03001234567" /></div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <div className="space-y-1"><Label className="text-xs">Cost Price</Label><Input type="number" value={simCost} onChange={(e) => setSimCost(e.target.value)} placeholder="0" /></div>
               <div className="space-y-1"><Label className="text-xs">Sale Price</Label><Input type="number" value={simSale} onChange={(e) => setSimSale(e.target.value)} placeholder="0" /></div>
+              <div className="space-y-1"><Label className="text-xs">Stock Qty</Label><Input type="number" value={simStockQty} onChange={(e) => setSimStockQty(e.target.value)} placeholder="1" min="1" /></div>
             </div>
-            {/* Linked Load Company — selling this SIM will deduct costPrice from this company's balance */}
+            {/* Linked Load Company — selling this SIM will deduct from this company's balance */}
             <div className="space-y-1">
-              <Label className="text-xs">Linked Load Company (optional)</Label>
+              <Label className="text-xs">Linked Load Company — لنک لوڈ کمپنی</Label>
               <select className="w-full rounded-md border px-3 py-2 text-sm" value={linkedCompanyId} onChange={(e) => setLinkedCompanyId(e.target.value)}>
                 <option value="">— None —</option>
                 {companies.filter(c => c.active).map(c => (
                   <option key={c.id} value={c.id}>{c.name} — Balance: Rs {c.balance.toLocaleString()}</option>
                 ))}
               </select>
-              <p className="text-[10px] text-muted-foreground">
-                Selling this SIM will deduct Rs {parseFloat(simCost) || 0} from the linked load company's balance
-              </p>
             </div>
+            {/* Deduction settings — how much to deduct from linked company when SIM is sold */}
+            {linkedCompanyId && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2">
+                <Label className="text-xs font-bold text-blue-800">Deduction Settings — کٹوتی</Label>
+                <p className="text-[10px] text-muted-foreground">
+                  How much to deduct from the linked load company's balance when this SIM is sold.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Deduction Type</Label>
+                    <select className="w-full rounded-md border px-2 py-1.5 text-sm" value={deductionType} onChange={(e) => setDeductionType(e.target.value)}>
+                      <option value="FIXED">Fixed Amount (Rs)</option>
+                      <option value="PERCENTAGE">Percentage (%)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">
+                      {deductionType === "PERCENTAGE" ? "Percentage (%)" : "Amount (Rs)"}
+                    </Label>
+                    <Input
+                      type="number"
+                      value={deductionAmount}
+                      onChange={(e) => setDeductionAmount(e.target.value)}
+                      placeholder={deductionType === "PERCENTAGE" ? "e.g. 10" : "e.g. 50"}
+                    />
+                  </div>
+                </div>
+                {deductionAmount && parseFloat(deductionAmount) > 0 && (
+                  <div className="text-[10px] text-blue-700 font-medium">
+                    {deductionType === "PERCENTAGE"
+                      ? `→ ${deductionAmount}% of Rs ${parseFloat(simCost) || 0} = Rs ${((parseFloat(simCost) || 0) * parseFloat(deductionAmount)) / 100}`
+                      : `→ Rs ${deductionAmount} will be deducted per SIM sale`
+                    }
+                  </div>
+                )}
+                {!deductionAmount && (
+                  <div className="text-[10px] text-muted-foreground">
+                    → Full cost price (Rs {parseFloat(simCost) || 0}) will be deducted per SIM sale
+                  </div>
+                )}
+              </div>
+            )}
             {/* For Replacement SIM — link to a sold SIM's phone number */}
             {simType === "REPLACEMENT" && (
               <div className="space-y-1">

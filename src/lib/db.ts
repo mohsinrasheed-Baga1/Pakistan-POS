@@ -370,6 +370,9 @@ CREATE TABLE IF NOT EXISTS SimStock (
   customerName TEXT,
   customerPhone TEXT,
   note TEXT,
+  deductionType TEXT NOT NULL DEFAULT 'FIXED',
+  deductionAmount REAL NOT NULL DEFAULT 0,
+  stockQuantity INTEGER NOT NULL DEFAULT 1,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL
 );
@@ -564,6 +567,10 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
   SimStock: [
     ["linkedCompanyId", "TEXT"],
     ["linkedSimId", "TEXT"],
+    // v2.9.16: deduction settings + stock quantity
+    ["deductionType", "TEXT NOT NULL DEFAULT 'FIXED'"],
+    ["deductionAmount", "REAL NOT NULL DEFAULT 0"],
+    ["stockQuantity", "INTEGER NOT NULL DEFAULT 1"],
   ],
 }
 
