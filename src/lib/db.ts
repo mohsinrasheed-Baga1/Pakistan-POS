@@ -572,6 +572,15 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["deductionAmount", "REAL NOT NULL DEFAULT 0"],
     ["stockQuantity", "INTEGER NOT NULL DEFAULT 1"],
   ],
+  // BarcodeSettings: posScanBehavior added in v2.9.14
+  BarcodeSettings: [
+    ["posScanBehavior", "TEXT NOT NULL DEFAULT 'ASK_QUANTITY'"],
+  ],
+  // Product: inventorySource + linkedStoreProductId added in v2.9.8
+  Product: [
+    ["inventorySource", "TEXT NOT NULL DEFAULT 'SHOP'"],
+    ["linkedStoreProductId", "TEXT"],
+  ],
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
