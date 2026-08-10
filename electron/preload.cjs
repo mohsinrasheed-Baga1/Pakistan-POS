@@ -1,8 +1,26 @@
 // Preload script - exposes a small, safe surface to the renderer.
 const { contextBridge, ipcRenderer } = require("electron");
 
+// Get version from package.json (read by Electron at build time)
+// electron-builder embeds the version in the app, so app.getVersion() works
+// in main process. In preload, we read it from the app's package.json.
+let appVersion = "2.9.22";
+try {
+  // In packaged app, __dirname is inside app.asar
+  const pkg = require("./package.json");
+  if (pkg && pkg.version) appVersion = pkg.version;
+} catch (e) {
+  // Fallback: try reading from parent directory
+  try {
+    const pkg = require("../package.json");
+    if (pkg && pkg.version) appVersion = pkg.version;
+  } catch (e2) {
+    // Use default
+  }
+}
+
 contextBridge.exposeInMainWorld("posElectron", {
-  version: "2.7.60",
+  version: appVersion,
   platform: process.platform,
   // Open a folder in the OS file explorer (used by Multi-Computer Sharing)
   openPath: (p) => ipcRenderer.invoke("pos:open-path", p),

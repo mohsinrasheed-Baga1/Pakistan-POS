@@ -53,6 +53,9 @@ export function BarcodeSettingsPage() {
   });
 
   // Render barcode using JsBarcode (client-side — proven working)
+  // barcodeReady forces re-render of preview after JsBarcode completes
+  const [barcodeReady, setBarcodeReady] = React.useState(false);
+
   React.useEffect(() => {
     if (!previewBarcodeRef.current) return;
     const value = previewProduct.productCode;
@@ -63,6 +66,8 @@ export function BarcodeSettingsPage() {
     const renderBarcode = () => {
       if (!(window as any).JsBarcode || !previewBarcodeRef.current) return;
       try {
+        // Clear any previous content
+        previewBarcodeRef.current.innerHTML = "";
         (window as any).JsBarcode(previewBarcodeRef.current, value, {
           format,
           width: draft.barcodeWidth || 2,
@@ -79,6 +84,7 @@ export function BarcodeSettingsPage() {
         // Get the SVG outer HTML and store it in previewProduct for sticker builder
         const svgHtml = previewBarcodeRef.current.outerHTML;
         setPreviewProduct(prev => ({ ...prev, barcodeSvg: svgHtml }));
+        setBarcodeReady(prev => !prev); // toggle to force re-render
       } catch (e) {
         console.error("JsBarcode error:", e);
       }
@@ -93,7 +99,7 @@ export function BarcodeSettingsPage() {
       document.head.appendChild(script);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.defaultBarcodeType, draft.barcodeWidth, draft.barcodeHeight, draft.humanReadable, draft.quietZone, previewProduct.productCode]);
+  }, [draft.defaultBarcodeType, draft.barcodeWidth, draft.barcodeHeight, draft.humanReadable, draft.quietZone, draft.barcodePosition, previewProduct.productCode]);
 
   const update = <K extends keyof BarcodeSettings>(key: K, value: BarcodeSettings[K]) => {
     setDraft(prev => ({ ...prev, [key]: value }));
@@ -185,8 +191,8 @@ export function BarcodeSettingsPage() {
   }
 
   const { widthMm, heightMm } = getStickerDimensions(draft);
-  // Smaller preview scale — fits in sidebar without taking half the screen
-  const previewScale = Math.min(150 / widthMm, 4);
+  // Smaller preview scale — fits in sidebar without covering settings
+  const previewScale = Math.min(120 / widthMm, 3);
 
   return (
     <div className="space-y-3">
@@ -420,14 +426,14 @@ export function BarcodeSettingsPage() {
                 <div className="text-[10px] text-muted-foreground text-center">
                   {widthMm} × {heightMm} mm
                 </div>
-                {/* Compact preview box — fixed height, sticker centered */}
-                <div className="flex justify-center bg-muted/30 rounded-lg p-3" style={{ minHeight: "120px", maxHeight: "160px" }}>
+                {/* Compact preview box — small, doesn't cover settings */}
+                <div className="flex justify-center bg-muted/30 rounded-lg p-2 overflow-hidden" style={{ minHeight: "100px", maxHeight: "130px" }}>
                   <div
+                    key={barcodeReady ? "ready" : "pending"}
                     style={{
                       transform: `scale(${previewScale})`,
-                      transformOrigin: "center center",
+                      transformOrigin: "top center",
                       width: `${widthMm}mm`,
-                      height: `${heightMm}mm`,
                       flexShrink: 0,
                     }}
                     dangerouslySetInnerHTML={{

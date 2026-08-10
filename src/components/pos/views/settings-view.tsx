@@ -2911,44 +2911,47 @@ function SoftwareUpdatesCard() {
     setErrorMsg("");
 
     try {
-      if (isElectronUpdater) {
-        // ─── Use electron-updater ───────────────────────────────────────
-        // electron-updater reads the publish config from package.json
-        // (provider: github, owner: mohsinrasheed-Baga1, repo: shop-pos-system)
-        // and queries GitHub Releases directly. It downloads the .exe
-        // inside the app (delta/differential if possible) and installs it.
-        const result = await window.posElectron.updater.check();
-        if (result && result.version) {
-          setUpdateInfo(result);
-          setStatus("available");
-          toast.success(`Version v${result.version} is available! Click Download to update.`);
-        } else {
-          setStatus("up-to-date");
-          toast.success(`You're on the latest version (v${currentVersion})`);
-        }
+      // ─── ALWAYS try GitHub API directly first (most reliable) ───────
+      // This bypasses electron-updater's internal logic which has been
+      // unreliable. We fetch the latest release from GitHub API directly.
+      const curVer = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
+      console.log("[Update Check] Current version:", curVer);
+
+      const githubRes = await fetch(
+        "https://api.github.com/repos/mohsinrasheed-Baga1/shop-pos-system/releases/latest",
+        { cache: "no-store", headers: { Accept: "application/vnd.github.v3+json" } }
+      );
+
+      if (!githubRes.ok) {
+        throw new Error(`GitHub API returned ${githubRes.status}`);
+      }
+
+      const releaseData = await githubRes.json();
+      const latestTag = releaseData?.tag_name || "";
+      const latestVersion = latestTag.replace(/^v/, "");
+      console.log("[Update Check] Latest version on GitHub:", latestVersion);
+
+      // Find the .exe asset
+      const exeAsset = (releaseData?.assets || []).find((a: any) => a.name.endsWith(".exe"));
+      const downloadUrl = exeAsset?.browser_download_url || null;
+      const downloadSize = exeAsset?.size || null;
+
+      if (latestVersion && isNewerVersion(latestVersion, curVer)) {
+        setUpdateInfo({
+          version: latestVersion,
+          releaseNotes: releaseData?.body || "",
+          downloadUrl,
+          downloadSize,
+        });
+        setStatus("available");
+        toast.success(`Version v${latestVersion} is available! Click Download to update.`);
       } else {
-        // ─── Fallback: fetch from GitHub Releases API ───────────────────
-        // For browser/dev mode where electron-updater is not available.
-        const curVer = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
-        const githubRes = await fetch(
-          "https://api.github.com/repos/mohsinrasheed-Baga1/shop-pos-system/releases/latest",
-          { cache: "no-store", headers: { Accept: "application/vnd.github.v3+json" } }
-        );
-        if (!githubRes.ok) throw new Error("Failed to check GitHub for updates");
-        const releaseData = await githubRes.json();
-        const latestTag = releaseData?.tag_name || "";
-        const latestVersion = latestTag.replace(/^v/, "");
-        if (latestVersion && isNewerVersion(latestVersion, curVer)) {
-          setUpdateInfo({ version: latestVersion, releaseNotes: releaseData?.body || "" });
-          setStatus("available");
-          toast.success(`Version v${latestVersion} is available!`);
-        } else {
-          setStatus("up-to-date");
-          toast.success(`You're on the latest version (v${curVer})`);
-        }
+        setStatus("up-to-date");
+        toast.success(`You're on the latest version (v${curVer})`);
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || "Failed to check for updates");
+      console.error("[Update Check] Error:", err);
+      setErrorMsg(err?.message || "Failed to check for updates. Make sure you're connected to the internet.");
       setStatus("error");
     }
   }
@@ -2959,15 +2962,25 @@ function SoftwareUpdatesCard() {
     setErrorMsg("");
 
     try {
-      if (isElectronUpdater) {
-        // Pass downloadUrl if available (from GitHub API fallback)
-        // If no downloadUrl, electron-updater uses its built-in download
-        const downloadUrl = (updateInfo as any)?.downloadUrl || undefined;
+      const downloadUrl = (updateInfo as any)?.downloadUrl;
+
+      if (isElectronUpdater && downloadUrl) {
+        // Use Electron's main process to download (handles HTTPS, redirects)
         await window.posElectron.updater.download(downloadUrl);
         setStatus("downloaded");
         toast.success("Update downloaded! Click Install to apply.");
+      } else if (isElectronUpdater) {
+        // No downloadUrl — use electron-updater's built-in download
+        await window.posElectron.updater.download();
+        setStatus("downloaded");
+        toast.success("Update downloaded! Click Install to apply.");
+      } else if (downloadUrl) {
+        // Browser — open download URL directly
+        window.open(downloadUrl, "_blank");
+        setStatus("idle");
+        toast.info("Downloading update in your browser...");
       } else {
-        // Browser fallback — open GitHub releases page
+        // Fallback — open GitHub releases page
         window.open("https://github.com/mohsinrasheed-Baga1/shop-pos-system/releases/latest", "_blank");
         setStatus("idle");
         toast.info("Opening GitHub releases page in your browser...");
