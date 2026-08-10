@@ -358,10 +358,10 @@ export function BarcodeSettingsPage() {
             <CardHeader className="pb-2"><CardTitle className="text-sm">6. Barcode</CardTitle></CardHeader>
             <CardContent className="space-y-2 pt-0">
               <div className="grid grid-cols-2 gap-1.5">
-                <div><Label className="text-[10px]">Width (px)</Label>
-                  <Input type="number" value={draft.barcodeWidth} onChange={e => update("barcodeWidth", Number(e.target.value))} className="h-8 text-xs" min="1" max="5" /></div>
-                <div><Label className="text-[10px]">Height (px)</Label>
-                  <Input type="number" value={draft.barcodeHeight} onChange={e => update("barcodeHeight", Number(e.target.value))} className="h-8 text-xs" min="20" max="100" /></div>
+                <div><Label className="text-[10px]">Width (px) — چوڑائی</Label>
+                  <Input type="number" step="0.5" value={draft.barcodeWidth} onChange={e => update("barcodeWidth", Number(e.target.value))} className="h-8 text-xs" min="1" max="5" /></div>
+                <div><Label className="text-[10px]">Height (px) — اونچائی</Label>
+                  <Input type="number" value={draft.barcodeHeight} onChange={e => update("barcodeHeight", Number(e.target.value))} className="h-8 text-xs" min="15" max="100" /></div>
               </div>
               <div className="grid grid-cols-3 gap-1.5">
                 <div><Label className="text-[10px]">Quiet Zone</Label>
@@ -371,8 +371,19 @@ export function BarcodeSettingsPage() {
                 <div><Label className="text-[10px]">Bottom (mm)</Label>
                   <Input type="number" value={draft.barcodeBottomMargin} onChange={e => update("barcodeBottomMargin", Number(e.target.value))} className="h-8 text-xs" min="0" max="10" /></div>
               </div>
+              {/* Barcode Position — left / center / right */}
+              <div className="space-y-1">
+                <Label className="text-[10px] font-medium">Barcode Position — بارکوڈ کی پوزیشن</Label>
+                <div className="flex gap-1">
+                  {(["left", "center", "right"] as const).map(p => (
+                    <button key={p} onClick={() => update("barcodePosition", p)}
+                      className={`px-2 py-1 rounded text-xs border flex-1 ${draft.barcodePosition === p ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-muted"}`}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-1.5">
-                <ToggleRow label="Center" checked={draft.centerBarcode} onChange={v => update("centerBarcode", v)} />
                 <ToggleRow label="High Res SVG" checked={draft.highResSvg} onChange={v => update("highResSvg", v)} />
               </div>
             </CardContent>

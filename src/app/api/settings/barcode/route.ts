@@ -45,6 +45,7 @@ const DEFAULTS = {
   barcodeBottomMargin: 0,
   centerBarcode: true,
   highResSvg: true,
+  barcodePosition: "center",
   posScanBehavior: "ASK_QUANTITY",
 };
 
@@ -113,6 +114,7 @@ export async function PUT(req: NextRequest) {
       barcodeBottomMargin: Number(body.barcodeBottomMargin) || 0,
       centerBarcode: body.centerBarcode !== false,
       highResSvg: body.highResSvg !== false,
+      barcodePosition: body.barcodePosition === "left" || body.barcodePosition === "right" ? body.barcodePosition : "center",
       posScanBehavior: body.posScanBehavior === "DIRECT_ADD" ? "DIRECT_ADD" : "ASK_QUANTITY",
     };
 

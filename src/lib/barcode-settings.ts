@@ -46,6 +46,8 @@ export interface BarcodeSettings {
   barcodeBottomMargin: number;
   centerBarcode: boolean;
   highResSvg: boolean;
+  // Barcode position: left, center, right (within sticker)
+  barcodePosition: "left" | "center" | "right";
   // POS scan behavior
   posScanBehavior: "ASK_QUANTITY" | "DIRECT_ADD";
 }
@@ -99,6 +101,7 @@ export const DEFAULT_BARCODE_SETTINGS: BarcodeSettings = {
   barcodeBottomMargin: 0,
   centerBarcode: true,
   highResSvg: true,
+  barcodePosition: "center",
   posScanBehavior: "ASK_QUANTITY",
 };
 

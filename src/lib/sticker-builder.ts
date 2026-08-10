@@ -46,6 +46,10 @@ export function buildStickerHtml(data: StickerData, settings: BarcodeSettings): 
     }
   }
 
+  // Barcode position: left, center, or right
+  const barcodePos = settings.barcodePosition || "center";
+  const barcodeJustify = barcodePos === "left" ? "flex-start" : barcodePos === "right" ? "flex-end" : "center";
+
   // Build each field's HTML
   const fieldHtml: Record<string, string> = {
     storeLogo: data.shopLogo
@@ -54,7 +58,7 @@ export function buildStickerHtml(data: StickerData, settings: BarcodeSettings): 
     storeName: `<div style="font-size: ${settings.fontSize + 1}px; font-weight: ${settings.fontBold ? "bold" : "normal"}; color: ${settings.textColor};">${escapeHtml(data.shopName)}</div>`,
     productName: `<div style="font-size: ${settings.fontSize}px; font-weight: ${settings.fontBold ? "bold" : "normal"}; color: ${settings.textColor}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">${escapeHtml(data.productName)}</div>`,
     productCode: `<div style="font-size: ${settings.fontSize - 1}px; font-family: monospace; color: ${settings.textColor}; opacity: 0.8;">${escapeHtml(data.productCode)}</div>`,
-    barcode: `<div style="display: flex; align-items: center; justify-content: center; overflow: hidden; width: 100%; max-width: 100%;">${barcodeSvg}</div>`,
+    barcode: `<div style="display: flex; align-items: center; justify-content: ${barcodeJustify}; overflow: hidden; width: 100%; max-width: 100%;">${barcodeSvg}</div>`,
     barcodeNumber: settings.humanReadable
       ? `<div style="font-size: ${settings.fontSize - 1}px; font-family: monospace; font-weight: bold; color: ${settings.textColor};">${escapeHtml(data.productCode)}</div>`
       : "",

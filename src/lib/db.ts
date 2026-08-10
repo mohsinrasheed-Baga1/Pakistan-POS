@@ -411,6 +411,7 @@ CREATE TABLE IF NOT EXISTS BarcodeSettings (
   centerBarcode BOOLEAN NOT NULL DEFAULT 1,
   highResSvg BOOLEAN NOT NULL DEFAULT 1,
   posScanBehavior TEXT NOT NULL DEFAULT 'ASK_QUANTITY',
+  barcodePosition TEXT NOT NULL DEFAULT 'center',
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL
 );
@@ -575,6 +576,7 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
   // BarcodeSettings: posScanBehavior added in v2.9.14
   BarcodeSettings: [
     ["posScanBehavior", "TEXT NOT NULL DEFAULT 'ASK_QUANTITY'"],
+    ["barcodePosition", "TEXT NOT NULL DEFAULT 'center'"],
   ],
   // Product: inventorySource + linkedStoreProductId added in v2.9.8
   Product: [

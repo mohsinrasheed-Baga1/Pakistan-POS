@@ -52,6 +52,7 @@ export function useBarcodeSettings() {
             barcodeBottomMargin: s.barcodeBottomMargin || 0,
             centerBarcode: s.centerBarcode !== false,
             highResSvg: s.highResSvg !== false,
+            barcodePosition: (s.barcodePosition as any) || "center",
             posScanBehavior: s.posScanBehavior === "DIRECT_ADD" ? "DIRECT_ADD" : "ASK_QUANTITY",
           });
         }

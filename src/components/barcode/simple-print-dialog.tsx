@@ -118,7 +118,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     if (!barcodeSvgRef.current) return "";
     const svg = barcodeSvgRef.current;
     const clone = svg.cloneNode(true) as SVGElement;
-    clone.setAttribute("style", "display:block;width:100%;height:auto;max-height:15mm;");
+    clone.setAttribute("style", "display:block;max-width:100%;height:auto;max-height:15mm;");
     clone.setAttribute("preserveAspectRatio", "xMidYMid meet");
     return clone.outerHTML;
   }
@@ -133,12 +133,15 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     const isBold = settings.fontBold ? "bold" : "normal";
     const align = settings.textAlign || "center";
     const alignItems = align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center";
+    // Barcode position within sticker
+    const barcodePos = (settings as any).barcodePosition || "center";
+    const barcodeJustify = barcodePos === "left" ? "flex-start" : barcodePos === "right" ? "flex-end" : "center";
 
     const fieldHtml: Record<string, string> = {
       storeName: `<div style="font-size:${fontSize + 1}px;font-weight:bold;color:${textColor};">${esc(fetchedShopName)}</div>`,
       productName: `<div style="font-size:${fontSize}px;font-weight:${isBold};color:${textColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">${esc(product!.name)}</div>`,
       productCode: `<div style="font-size:${fontSize - 1}px;font-family:monospace;color:${textColor};opacity:0.8;">${esc(barcodeValue)}</div>`,
-      barcode: `<div style="display:flex;align-items:center;justify-content:center;width:100%;max-width:100%;">${getBarcodeSvgHtml()}</div>`,
+      barcode: `<div style="display:flex;align-items:center;justify-content:${barcodeJustify};width:100%;max-width:100%;">${getBarcodeSvgHtml()}</div>`,
       barcodeNumber: settings.humanReadable ? `<div style="font-size:${fontSize - 1}px;font-family:monospace;font-weight:bold;color:${textColor};">${esc(barcodeValue)}</div>` : "",
       sellingPrice: `<div style="font-size:${fontSize + 3}px;font-weight:bold;color:${textColor};">Rs ${product!.salePrice.toLocaleString("en-PK")}</div>`,
       expiryDate: product!.expiryDate ? `<div style="font-size:${fontSize - 2}px;color:${textColor};opacity:0.7;">Exp: ${new Date(product!.expiryDate).toLocaleDateString("en-PK")}</div>` : "",
