@@ -143,6 +143,17 @@ export function PosView({ settings }: PosViewProps) {
     const existingItem = cart.items.find((i) => i.product.id === product.id);
     const currentInCart = existingItem ? existingItem.quantity : 0;
 
+    // ─── If product already in cart, just increment quantity ──────────
+    // This allows scanning the same barcode multiple times to add more.
+    if (existingItem) {
+      cart.setQty(product.id, currentInCart + qty);
+      toast.success(`${product.name}: ${currentInCart + qty} in cart`);
+      setQ("");
+      setHighlightedIndex(-1);
+      setTimeout(() => searchRef.current?.focus(), 50);
+      return;
+    }
+
     // ─── Stock check ──────────────────────────────────────────────────────
     // A BOX product (has packBarcode set) has its stock counted in BOXES,
     // not pieces. So if box stock = 2, we can sell up to 2 boxes — even
@@ -178,11 +189,9 @@ export function PosView({ settings }: PosViewProps) {
   }
 
   // Open quantity prompt dialog before adding product to cart.
-  // If barcode settings have posScanBehavior = "DIRECT_ADD", skip the
-  // prompt and add 1 to cart immediately.
+  // Allows decimal quantities like 0.25, 0.50, 1.5, etc.
   function promptQuantity(product: Product) {
     if (barcodeSettings.posScanBehavior === "DIRECT_ADD") {
-      // Direct add — skip quantity prompt, add 1 immediately
       addToCart(product, 1);
       return;
     }
@@ -192,7 +201,7 @@ export function PosView({ settings }: PosViewProps) {
     setTimeout(() => qtyInputRef.current?.select(), 100);
   }
 
-  // Confirm quantity and add to cart
+  // Confirm quantity and add to cart — allows decimals (0.25, 0.5, 1.75, etc.)
   function confirmQuantity() {
     if (!qtyProduct) return;
     const qty = parseFloat(qtyValue);
@@ -396,6 +405,35 @@ export function PosView({ settings }: PosViewProps) {
       if (qtyOpen) return;
       const active = document.activeElement;
       const isSearchFocused = active === searchRef.current;
+
+      // ─── + / - keys: increment/decrement last scanned product ────────
+      // Works on the FIRST item in cart (latest scan, shown at top)
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (e.key === "+" || e.key === "=") {
+          if (cart.items.length > 0) {
+            e.preventDefault();
+            const lastItem = cart.items[cart.items.length - 1];
+            const newQty = lastItem.quantity + 1;
+            cart.setQty(lastItem.product.id, newQty);
+            toast.success(`${lastItem.product.name}: ${newQty}`);
+            return;
+          }
+        } else if (e.key === "-" || e.key === "_") {
+          if (cart.items.length > 0) {
+            e.preventDefault();
+            const lastItem = cart.items[cart.items.length - 1];
+            const newQty = lastItem.quantity - 1;
+            if (newQty <= 0) {
+              cart.removeItem(lastItem.product.id);
+              toast.info(`${lastItem.product.name} removed`);
+            } else {
+              cart.setQty(lastItem.product.id, newQty);
+              toast.success(`${lastItem.product.name}: ${newQty}`);
+            }
+            return;
+          }
+        }
+      }
 
       // ─── Alt = Checkout shortcut ─────────────────────────────────────
       if (e.altKey && !e.ctrlKey && !e.shiftKey) {
@@ -1140,7 +1178,7 @@ export function PosView({ settings }: PosViewProps) {
               ref={qtyInputRef}
               type="number"
               min="0"
-              step={qtyProduct && isLooseUnit(qtyProduct.unit) ? "0.5" : "1"}
+              step="0.01"
               value={qtyValue}
               onChange={(e) => setQtyValue(e.target.value)}
               onKeyDown={(e) => {
