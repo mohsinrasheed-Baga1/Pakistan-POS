@@ -17,6 +17,7 @@ import {
   Smartphone,
   RotateCcw,
   Calculator,
+  Pause,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -879,22 +880,67 @@ export function PosView({ settings }: PosViewProps) {
               <div className="flex items-center justify-between">
                 <h2 className="font-bold flex items-center gap-2 text-emerald-900 dark:text-emerald-100">
                   <ShoppingCart className="w-5 h-5 text-emerald-700" />
-                  Cart
+                  {cart.activeCartLabel || "Cart"}
                   {totals.itemCount > 0 && (
                     <Badge className="bg-emerald-700 text-white">{totals.itemCount}</Badge>
                   )}
                 </h2>
-                {cart.items.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 hover:bg-red-50"
-                    onClick={() => cart.clear()}
-                  >
-                    <Trash2 className="w-4 h-4 mr-1" /> Clear
-                  </Button>
-                )}
+                <div className="flex gap-1">
+                  {/* Hold Cart button — parks current sale, opens fresh cart */}
+                  {cart.items.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-blue-600 hover:bg-blue-50"
+                      onClick={() => {
+                        cart.holdCart();
+                        setScannedCard(null);
+                        toast.success("Cart held — new cart opened");
+                        setTimeout(() => searchRef.current?.focus(), 50);
+                      }}
+                      title="Hold this cart and start a new one"
+                    >
+                      <Pause className="w-4 h-4 mr-1" /> Hold
+                    </Button>
+                  )}
+                  {cart.items.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:bg-red-50"
+                      onClick={() => cart.clear()}
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" /> Clear
+                    </Button>
+                  )}
+                </div>
               </div>
+
+              {/* Held carts bar — shows parked carts that can be restored */}
+              {cart.heldCarts.length > 0 && (
+                <div className="flex gap-1 flex-wrap bg-blue-50 dark:bg-blue-950/30 rounded-md p-1.5 border border-blue-200">
+                  {cart.heldCarts.map((held, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        cart.restoreCart(idx);
+                        toast.success(`Restored ${held.label}`);
+                        setTimeout(() => searchRef.current?.focus(), 50);
+                      }}
+                      className="px-2 py-1 rounded text-xs bg-white border border-blue-300 hover:bg-blue-100 flex items-center gap-1"
+                    >
+                      <Pause className="w-3 h-3 text-blue-600" />
+                      {held.label} ({held.items.length})
+                      <span
+                        className="ml-1 text-red-500 hover:text-red-700"
+                        onClick={(e) => { e.stopPropagation(); cart.deleteHeldCart(idx); }}
+                      >
+                        ✕
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {cart.items.length === 0 ? (
                 <div className="py-10 text-center text-muted-foreground text-sm">

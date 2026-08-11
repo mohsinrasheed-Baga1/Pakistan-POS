@@ -152,10 +152,14 @@ export async function GET(req: NextRequest) {
   })).sort((a, b) => a.balance - b.balance); // most due first
 
   // ─── PAYMENT METHOD BREAKDOWN (v2.9.14) ──────────────────────────────
-  const cashTotal = sales.filter(s => s.paymentMethod === "CASH").reduce((s, x) => s + x.paidAmount, 0);
-  const cardTotal = sales.filter(s => s.paymentMethod === "CARD").reduce((s, x) => s + x.paidAmount, 0);
-  const shopCardTotal = sales.filter(s => s.paymentMethod === "SHOP_CARD").reduce((s, x) => s + x.paidAmount, 0);
-  const mobileTotal = sales.filter(s => s.paymentMethod === "MOBILE").reduce((s, x) => s + x.paidAmount, 0);
+  // Payment method breakdown — use sale.total (not paidAmount)
+  // paidAmount includes the cash the customer handed over (e.g. Rs 500 for
+  // a Rs 200 sale), but the ACTUAL sale value is in `total`.
+  // The change (Rs 300) should NOT be counted as revenue.
+  const cashTotal = sales.filter(s => s.paymentMethod === "CASH").reduce((s, x) => s + x.total, 0);
+  const cardTotal = sales.filter(s => s.paymentMethod === "CARD").reduce((s, x) => s + x.total, 0);
+  const shopCardTotal = sales.filter(s => s.paymentMethod === "SHOP_CARD").reduce((s, x) => s + x.total, 0);
+  const mobileTotal = sales.filter(s => s.paymentMethod === "MOBILE").reduce((s, x) => s + x.total, 0);
   // Pending = total - paidAmount (unpaid/due amount)
   const pendingTotal = sales.reduce((s, x) => s + (x.total - x.paidAmount), 0);
 
