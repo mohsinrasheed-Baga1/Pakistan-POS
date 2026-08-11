@@ -387,13 +387,15 @@ async function processSale(userId: string, body: any, items: any[]) {
           : null;
 
         // Auto-link by name if not linked yet (fallback)
+        // SQLite doesn't support 'mode: insensitive' in Prisma — use raw SQL
         if (!storeProduct) {
-          storeProduct = await db.product.findFirst({
-            where: {
-              name: { contains: product.name, mode: "insensitive" },
-              storeStock: { gt: 0 },
-            },
-          });
+          const results = await db.$queryRaw`
+            SELECT * FROM Product
+            WHERE LOWER(name) LIKE ${"%" + product.name.toLowerCase() + "%"}
+            AND storeStock > 0
+            LIMIT 1
+          ` as any[];
+          storeProduct = results[0] || null;
           // If found, save the link for next time
           if (storeProduct) {
             await db.product.update({

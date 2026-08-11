@@ -408,7 +408,8 @@ export function PosView({ settings }: PosViewProps) {
       const isSearchFocused = active === searchRef.current;
 
       // ─── + / - keys: increment/decrement last scanned product ────────
-      // Works on the FIRST item in cart (latest scan, shown at top)
+      // Works on the LAST item in cart (latest scan, shown at top)
+      // Can be pressed multiple times — each press adds/subtracts 1
       if (!e.ctrlKey && !e.altKey && !e.metaKey) {
         if (e.key === "+" || e.key === "=") {
           if (cart.items.length > 0) {
@@ -419,7 +420,8 @@ export function PosView({ settings }: PosViewProps) {
             toast.success(`${lastItem.product.name}: ${newQty}`);
             return;
           }
-        } else if (e.key === "-" || e.key === "_") {
+        }
+        if (e.key === "-" || e.key === "_") {
           if (cart.items.length > 0) {
             e.preventDefault();
             const lastItem = cart.items[cart.items.length - 1];
