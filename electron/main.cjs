@@ -741,9 +741,37 @@ if (!gotLock) {
     });
 
     ipcMain.handle("updater:download", async (event, downloadUrl) => {
+      // If no downloadUrl provided, try to get it from GitHub API directly
       if (!downloadUrl) {
-        throw new Error("No download URL provided");
+        console.log("[POS] No download URL provided — fetching from GitHub API...");
+        const https = require("https");
+        const githubData = await new Promise((resolve, reject) => {
+          const options = {
+            hostname: "api.github.com",
+            path: "/repos/mohsinrasheed-Baga1/shop-pos-system/releases/latest",
+            headers: {
+              "User-Agent": "Shop-POS-System-Updater",
+              "Accept": "application/vnd.github.v3+json",
+            },
+          };
+          https.get(options, (res) => {
+            let body = "";
+            res.on("data", (chunk) => (body += chunk));
+            res.on("end", () => {
+              try { resolve(JSON.parse(body)); }
+              catch (e) { reject(new Error("Failed to parse GitHub response")); }
+            });
+          }).on("error", reject);
+        });
+
+        const exeAsset = (githubData?.assets || []).find(a => a.name.endsWith(".exe"));
+        if (!exeAsset) {
+          throw new Error("No .exe file found in latest GitHub release");
+        }
+        downloadUrl = exeAsset.browser_download_url;
+        console.log("[POS] Got download URL from GitHub:", downloadUrl);
       }
+
       console.log("[POS] Downloading update from:", downloadUrl);
       const https = require("https");
       const fs = require("fs");

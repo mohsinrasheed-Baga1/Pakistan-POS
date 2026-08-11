@@ -2964,14 +2964,11 @@ function SoftwareUpdatesCard() {
     try {
       const downloadUrl = (updateInfo as any)?.downloadUrl;
 
-      if (isElectronUpdater && downloadUrl) {
-        // Use Electron's main process to download (handles HTTPS, redirects)
-        await window.posElectron.updater.download(downloadUrl);
-        setStatus("downloaded");
-        toast.success("Update downloaded! Click Install to apply.");
-      } else if (isElectronUpdater) {
-        // No downloadUrl — use electron-updater's built-in download
-        await window.posElectron.updater.download();
+      if (isElectronUpdater) {
+        // ALWAYS pass downloadUrl to the main process.
+        // If downloadUrl is null/undefined, the main process will
+        // fetch it from GitHub API as a fallback.
+        await window.posElectron.updater.download(downloadUrl || undefined);
         setStatus("downloaded");
         toast.success("Update downloaded! Click Install to apply.");
       } else if (downloadUrl) {
