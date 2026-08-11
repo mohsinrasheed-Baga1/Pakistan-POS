@@ -730,13 +730,84 @@ if (!gotLock) {
       console.error("[POS] Updater error:", err.message);
     });
   } else {
-    // Fallback no-op handlers when electron-updater is not available
-    ipcMain.handle("updater:check", async () => null);
-    ipcMain.handle("updater:download", async () => {
-      throw new Error("Auto-update is not available in this build");
+    // ─── FALLBACK: electron-updater NOT available ──────────────────────
+    // Still provide download/install via direct HTTPS (no electron-updater needed)
+    // This handles the case where electron-updater module is missing from the build
+    console.log("[POS] electron-updater NOT available — using direct download fallback");
+
+    ipcMain.handle("updater:check", async () => {
+      // Check handled by renderer (GitHub API fetch) — return null
+      return null;
     });
+
+    ipcMain.handle("updater:download", async (event, downloadUrl) => {
+      if (!downloadUrl) {
+        throw new Error("No download URL provided");
+      }
+      console.log("[POS] Downloading update from:", downloadUrl);
+      const https = require("https");
+      const fs = require("fs");
+      const path = require("path");
+      const os = require("os");
+
+      const tempDir = os.tmpdir();
+      const fileName = "Shop-POS-System-Update.exe";
+      const filePath = path.join(tempDir, fileName);
+      const fileStream = fs.createWriteStream(filePath);
+
+      await new Promise((resolve, reject) => {
+        const download = (url) => {
+          https.get(url, (res) => {
+            if (res.statusCode === 302 || res.statusCode === 301) {
+              download(res.headers.location);
+              return;
+            }
+            if (res.statusCode !== 200) {
+              reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+              return;
+            }
+
+            const totalBytes = parseInt(res.headers["content-length"] || "0", 10);
+            let downloadedBytes = 0;
+
+            res.on("data", (chunk) => {
+              downloadedBytes += chunk.length;
+              if (totalBytes > 0) {
+                const percent = Math.round((downloadedBytes / totalBytes) * 100);
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send("updater:progress", percent);
+                }
+              }
+            });
+
+            res.pipe(fileStream);
+            fileStream.on("finish", () => {
+              fileStream.close();
+              console.log("[POS] Download complete:", filePath);
+              resolve(filePath);
+            });
+          }).on("error", reject);
+        };
+        download(downloadUrl);
+      });
+
+      global.downloadedUpdatePath = filePath;
+      return { ok: true, filePath };
+    });
+
     ipcMain.handle("updater:install", async () => {
-      throw new Error("Auto-update is not available in this build");
+      if (global.downloadedUpdatePath) {
+        console.log("[POS] Installing from:", global.downloadedUpdatePath);
+        const { exec } = require("child_process");
+        exec(`"${global.downloadedUpdatePath}" /S`, (err) => {
+          if (err) {
+            exec(`start "" "${global.downloadedUpdatePath}"`);
+          }
+          app.quit();
+        });
+        return;
+      }
+      throw new Error("No update downloaded yet");
     });
   }
 
