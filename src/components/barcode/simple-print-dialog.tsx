@@ -240,18 +240,19 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
                 </Label>
               </div>
 
-              {/* THE STICKER PREVIEW — barcode rendered via callback ref */}
+              {/* THE STICKER PREVIEW — EXACT replica of print output
+                  Uses mm units (same as print) so what you see = what you print */}
               <div className="flex justify-center bg-muted/30 rounded-lg p-4">
                 <div style={{
-                  width: `${previewWidthPx}px`,
-                  minHeight: `${previewHeightPx}px`,
-                  padding: `${(settings.margin || 1.5) * scale * pxPerMm}px`,
+                  width: `${widthMm}mm`,
+                  minHeight: `${heightMm}mm`,
+                  padding: `${settings.margin || 1.5}mm`,
                   display: "flex",
                   flexDirection: "column",
                   alignItems: barcodeJustify,
                   justifyContent: "space-between",
                   fontFamily: `${fontFamily}, Arial, sans-serif`,
-                  fontSize: `${fontSize * scale * pxPerMm}px`,
+                  fontSize: `${fontSize}px`,
                   lineHeight: settings.lineSpacing || 1.1,
                   color: textColor,
                   background: "#fff",
@@ -263,7 +264,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
                 }}>
                   {/* Shop Name */}
                   <div style={{
-                    fontSize: `${(fontSize + 1) * scale * pxPerMm}px`,
+                    fontSize: `${fontSize + 1}px`,
                     fontWeight: "bold",
                     textAlign: textAlign as any,
                     width: "100%",
@@ -273,7 +274,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
                   }}>
                     {shopNameDisplay}
                   </div>
-                  {/* Barcode SVG — rendered via callback ref (NO timing issues) */}
+                  {/* Barcode SVG — rendered via callback ref */}
                   <div style={{
                     display: "flex",
                     alignItems: "center",
@@ -281,10 +282,6 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
                     width: "100%",
                     flex: "1",
                   }}>
-                    {/* KEY: ref={barcodeSvgRef} is a callback ref.
-                        When React mounts this SVG, barcodeSvgRef fires
-                        with the actual DOM element. JsBarcode renders
-                        into it immediately. No querySelector, no setTimeout. */}
                     <svg
                       ref={barcodeSvgRef}
                       xmlns="http://www.w3.org/2000/svg"
@@ -293,7 +290,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
                   </div>
                   {/* Product Name */}
                   <div style={{
-                    fontSize: `${fontSize * scale * pxPerMm}px`,
+                    fontSize: `${fontSize}px`,
                     fontWeight: isBold as any,
                     textAlign: textAlign as any,
                     width: "100%",

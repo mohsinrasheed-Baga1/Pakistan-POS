@@ -429,20 +429,55 @@ export function BarcodeSettingsPage() {
                 <div className="text-[10px] text-muted-foreground text-center">
                   {widthMm} × {heightMm} mm
                 </div>
-                {/* Compact preview box — small, doesn't cover settings */}
-                <div className="flex justify-center bg-muted/30 rounded-lg p-2 overflow-hidden" style={{ minHeight: "100px", maxHeight: "130px" }}>
+                {/* Compact preview box — shows ACTUAL sticker with barcode */}
+                <div className="flex justify-center bg-muted/30 rounded-lg p-2 overflow-hidden" style={{ minHeight: "100px", maxHeight: "140px" }}>
+                  {/* Render sticker preview as REAL HTML (not dangerouslySetInnerHTML)
+                      so the barcode SVG is a LIVE element that JsBarcode can render into */}
                   <div
                     key={barcodeReady ? "ready" : "pending"}
                     style={{
-                      transform: `scale(${previewScale})`,
-                      transformOrigin: "top center",
-                      width: `${widthMm}mm`,
+                      width: `${widthMm * 3.78}px`,
+                      minHeight: `${heightMm * 3.78}px`,
+                      padding: `${(draft.margin || 1.5) * 3.78}px`,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: draft.textAlign === "left" ? "flex-start" : draft.textAlign === "right" ? "flex-end" : "center",
+                      justifyContent: "space-between",
+                      fontFamily: `${draft.fontFamily}, Arial, sans-serif`,
+                      fontSize: `${draft.fontSize}px`,
+                      lineHeight: draft.lineSpacing || 1.1,
+                      color: draft.textColor,
+                      background: "#fff",
+                      textAlign: draft.textAlign as any,
+                      overflow: "hidden",
+                      boxSizing: "border-box",
+                      border: "1px solid #ccc",
                       flexShrink: 0,
+                      transformOrigin: "top center",
+                      transform: `scale(${previewScale})`,
                     }}
-                    dangerouslySetInnerHTML={{
-                      __html: buildStickerHtml(previewProduct, draft),
-                    }}
-                  />
+                  >
+                    {/* Shop Name */}
+                    <div style={{ fontSize: `${draft.fontSize + 1}px`, fontWeight: "bold", width: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {previewProduct.shopName}
+                    </div>
+                    {/* Product Name */}
+                    <div style={{ fontSize: `${draft.fontSize}px`, fontWeight: draft.fontBold ? "bold" : "normal", width: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {previewProduct.productName}
+                    </div>
+                    {/* Barcode SVG — LIVE element, JsBarcode renders directly into it */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: (draft.barcodePosition || "center") === "left" ? "flex-start" : (draft.barcodePosition || "center") === "right" ? "flex-end" : "center", width: "100%", flex: 1 }}>
+                      <svg
+                        ref={previewBarcodeCallbackRef}
+                        xmlns="http://www.w3.org/2000/svg"
+                        style={{ maxWidth: "100%", height: "auto" }}
+                      />
+                    </div>
+                    {/* Price */}
+                    <div style={{ fontSize: `${draft.fontSize + 3}px`, fontWeight: "bold" }}>
+                      Rs {previewProduct.salePrice.toLocaleString("en-PK")}
+                    </div>
+                  </div>
                 </div>
                 {/* Editable preview data */}
                 <div className="space-y-1">
@@ -473,8 +508,7 @@ export function BarcodeSettingsPage() {
           </div>
         </div>
       </div>
-      {/* Hidden SVG for JsBarcode rendering — source for preview + print */}
-      <svg ref={previewBarcodeCallbackRef} style={{ position: "absolute", left: "-9999px", width: "200px", height: "60px" }} />
+      {/* Hidden SVG no longer needed — barcode renders into visible preview SVG */}
     </div>
   );
 }
