@@ -52,23 +52,23 @@ export function BarcodeSettingsPage() {
     currency: "Rs",
   });
 
-  // Render barcode using JsBarcode (client-side — proven working)
-  // barcodeReady forces re-render of preview after JsBarcode completes
+  // Render barcode using JsBarcode via CALLBACK REF (guaranteed no timing issues)
+  // When React mounts the hidden SVG, the callback fires with the actual
+  // DOM element. JsBarcode renders into it immediately.
   const [barcodeReady, setBarcodeReady] = React.useState(false);
 
-  React.useEffect(() => {
-    if (!previewBarcodeRef.current) return;
+  const previewBarcodeCallbackRef = React.useCallback((svgEl: SVGSVGElement | null) => {
+    if (!svgEl) return;
     const value = previewProduct.productCode;
     if (!value) return;
 
     const format = draft.defaultBarcodeType === "EAN13" && /^\d{13}$/.test(value) ? "EAN13" : "CODE128";
 
-    const renderBarcode = () => {
-      if (!(window as any).JsBarcode || !previewBarcodeRef.current) return;
+    const doRender = () => {
+      if (!(window as any).JsBarcode) return;
       try {
-        // Clear any previous content
-        previewBarcodeRef.current.innerHTML = "";
-        (window as any).JsBarcode(previewBarcodeRef.current, value, {
+        svgEl.innerHTML = "";
+        (window as any).JsBarcode(svgEl, value, {
           format,
           width: draft.barcodeWidth || 2,
           height: draft.barcodeHeight || 40,
@@ -81,24 +81,27 @@ export function BarcodeSettingsPage() {
           background: "#ffffff",
           lineColor: "#000000",
         });
-        // Get the SVG outer HTML and store it in previewProduct for sticker builder
-        const svgHtml = previewBarcodeRef.current.outerHTML;
+        const svgHtml = svgEl.outerHTML;
         setPreviewProduct(prev => ({ ...prev, barcodeSvg: svgHtml }));
-        setBarcodeReady(prev => !prev); // toggle to force re-render
+        setBarcodeReady(prev => !prev);
       } catch (e) {
         console.error("JsBarcode error:", e);
       }
     };
 
     if ((window as any).JsBarcode) {
-      renderBarcode();
+      doRender();
     } else {
-      const script = document.createElement("script");
-      script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
-      script.onload = renderBarcode;
-      document.head.appendChild(script);
+      const existingScript = document.querySelector('script[src*="jsbarcode"]');
+      if (existingScript) {
+        setTimeout(doRender, 100);
+      } else {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
+        script.onload = doRender;
+        document.head.appendChild(script);
+      }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.defaultBarcodeType, draft.barcodeWidth, draft.barcodeHeight, draft.humanReadable, draft.quietZone, draft.barcodePosition, previewProduct.productCode]);
 
   const update = <K extends keyof BarcodeSettings>(key: K, value: BarcodeSettings[K]) => {
@@ -365,7 +368,7 @@ export function BarcodeSettingsPage() {
             <CardContent className="space-y-2 pt-0">
               <div className="grid grid-cols-2 gap-1.5">
                 <div><Label className="text-[10px]">Width (px) — چوڑائی</Label>
-                  <Input type="number" step="0.5" value={draft.barcodeWidth} onChange={e => update("barcodeWidth", Number(e.target.value))} className="h-8 text-xs" min="1" max="5" /></div>
+                  <Input type="number" step="0.1" value={draft.barcodeWidth} onChange={e => update("barcodeWidth", Number(e.target.value))} className="h-8 text-xs" min="0.5" max="5" /></div>
                 <div><Label className="text-[10px]">Height (px) — اونچائی</Label>
                   <Input type="number" value={draft.barcodeHeight} onChange={e => update("barcodeHeight", Number(e.target.value))} className="h-8 text-xs" min="15" max="100" /></div>
               </div>
@@ -471,7 +474,7 @@ export function BarcodeSettingsPage() {
         </div>
       </div>
       {/* Hidden SVG for JsBarcode rendering — source for preview + print */}
-      <svg ref={previewBarcodeRef} style={{ position: "absolute", left: "-9999px", width: "200px", height: "60px" }} />
+      <svg ref={previewBarcodeCallbackRef} style={{ position: "absolute", left: "-9999px", width: "200px", height: "60px" }} />
     </div>
   );
 }

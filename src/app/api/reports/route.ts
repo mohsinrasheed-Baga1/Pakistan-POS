@@ -160,8 +160,9 @@ export async function GET(req: NextRequest) {
   const cardTotal = sales.filter(s => s.paymentMethod === "CARD").reduce((s, x) => s + x.total, 0);
   const shopCardTotal = sales.filter(s => s.paymentMethod === "SHOP_CARD").reduce((s, x) => s + x.total, 0);
   const mobileTotal = sales.filter(s => s.paymentMethod === "MOBILE").reduce((s, x) => s + x.total, 0);
-  // Pending = total - paidAmount (unpaid/due amount)
-  const pendingTotal = sales.reduce((s, x) => s + (x.total - x.paidAmount), 0);
+  // Pending = VENDOR DUES (money we owe to vendors), NOT customer change
+  // This shows how much we owe to suppliers/vendors
+  const pendingTotal = totalVendorDue;
 
   return NextResponse.json({
     range,

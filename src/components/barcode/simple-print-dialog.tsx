@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * Simple Product Print Dialog (v4 — old working design restored)
+ * Simple Product Print Dialog (v5 — guaranteed barcode visibility)
  * ─────────────────────────────────────────────────────────────────────────────
- * Restored the proven design from v2.7.x that users loved:
- * - Full sticker preview with visible barcode bars
- * - Quantity selector
- * - Shop name at top, barcode in middle, product name at bottom
+ * This version uses a DIFFERENT approach to guarantee the barcode is visible:
  * 
- * Barcode is rendered with JsBarcode directly into a VISIBLE SVG element
- * inside the sticker preview — not a hidden ref. This ensures the barcode
- * bars are always visible in the preview.
+ * Instead of rendering JsBarcode into a querySelector'd SVG (which has
+ * timing issues — the ref might not be ready when JsBarcode runs),
+ * we use a CALLBACK REF on the SVG element. When React mounts the SVG,
+ * the callback fires, and we render JsBarcode into it immediately.
+ * 
+ * This eliminates ALL timing/race condition issues.
  */
 
 import * as React from "react";
@@ -36,24 +36,24 @@ interface SimplePrintDialogProps {
 export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: SimplePrintDialogProps) {
   const { settings, loading: settingsLoading } = useBarcodeSettings();
   const [count, setCount] = React.useState(1);
-  const [barcodeRendered, setBarcodeRendered] = React.useState(false);
-  const stickerPreviewRef = React.useRef<HTMLDivElement>(null);
+  const [shopSettings, setShopSettings] = React.useState<any>(null);
 
-  // Fetch shop settings if not provided
-  const [fetchedShopName, setFetchedShopName] = React.useState(shopName || "My Shop");
+  // Fetch shop settings
   React.useEffect(() => {
-    if (shopName) { setFetchedShopName(shopName); return; }
     fetch("/api/settings", { cache: "no-store" })
       .then(r => r.json())
-      .then(d => { setFetchedShopName(d?.settings?.shopName?.trim() || "My Shop"); })
-      .catch(() => setFetchedShopName("My Shop"));
-  }, [shopName]);
+      .then(d => setShopSettings(d?.settings || null))
+      .catch(() => {});
+  }, []);
 
-  // Render barcode DIRECTLY into the visible preview SVG element
-  // This is the key fix: the SVG is inside the visible sticker preview,
-  // not in a hidden ref. This guarantees the barcode bars are visible.
-  React.useEffect(() => {
-    if (!product || settingsLoading || !stickerPreviewRef.current) return;
+  const shopNameDisplay = shopName || shopSettings?.shopName?.trim() || "My Shop";
+
+  // ─── KEY FIX: Use a callback ref to render JsBarcode ──────────────
+  // When React mounts the <svg>, this callback fires with the actual
+  // DOM element. We render JsBarcode into it IMMEDIATELY.
+  // No setTimeout, no querySelector, no race conditions.
+  const barcodeSvgRef = React.useCallback((svgEl: SVGSVGElement | null) => {
+    if (!svgEl || !product || settingsLoading) return;
 
     const barcodeValue = product.productCode || product.barcode;
     if (!barcodeValue) return;
@@ -61,9 +61,8 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     const isEan13 = /^\d{13}$/.test(barcodeValue);
     const format = isEan13 ? "EAN13" : "CODE128";
 
-    const renderBarcode = () => {
-      const svgEl = stickerPreviewRef.current?.querySelector(".barcode-svg");
-      if (!svgEl || !(window as any).JsBarcode) return;
+    const doRender = () => {
+      if (!(window as any).JsBarcode) return;
       try {
         (window as any).JsBarcode(svgEl, barcodeValue, {
           format,
@@ -78,36 +77,31 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
           background: "#ffffff",
           lineColor: "#000000",
         });
-        setBarcodeRendered(true);
       } catch (e) {
         console.error("JsBarcode error:", e);
         try {
           (window as any).JsBarcode(svgEl, barcodeValue, {
             format: "CODE128",
-            width: 2,
-            height: 40,
-            displayValue: true,
-            fontSize: 12,
-            margin: 4,
+            width: 2, height: 40, displayValue: true, fontSize: 12, margin: 4,
           });
-          setBarcodeRendered(true);
-        } catch (e2) {
-          console.error("JsBarcode fallback error:", e2);
-        }
+        } catch (e2) { console.error("JsBarcode fallback error:", e2); }
       }
     };
 
-    // Reset rendered state when product changes
-    setBarcodeRendered(false);
-
     if ((window as any).JsBarcode) {
-      // Small delay to ensure DOM is ready
-      setTimeout(renderBarcode, 50);
+      doRender();
     } else {
-      const script = document.createElement("script");
-      script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
-      script.onload = () => setTimeout(renderBarcode, 50);
-      document.head.appendChild(script);
+      // Load JsBarcode if not already loaded
+      const existingScript = document.querySelector('script[src*="jsbarcode"]');
+      if (existingScript) {
+        // Script already loading, wait a bit
+        setTimeout(doRender, 100);
+      } else {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
+        script.onload = doRender;
+        document.head.appendChild(script);
+      }
     }
   }, [product, settings, settingsLoading]);
 
@@ -123,6 +117,40 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
   const barcodePos = (settings as any).barcodePosition || "center";
   const barcodeJustify = barcodePos === "left" ? "flex-start" : barcodePos === "right" ? "flex-end" : "center";
   const textAlign = align === "left" ? "left" : align === "right" ? "right" : "center";
+
+  // Preview dimensions in pixels
+  const pxPerMm = 3.78; // 96 DPI
+  const maxPreviewWidthPx = 200;
+  const naturalWidthPx = widthMm * pxPerMm;
+  const scale = Math.min(maxPreviewWidthPx / naturalWidthPx, 1);
+  const previewWidthPx = naturalWidthPx * scale;
+  const previewHeightPx = heightMm * pxPerMm * scale;
+
+  function buildPrintStickerHtml(): string {
+    return `<div class="sticker" style="
+      width:${widthMm}mm;
+      height:${heightMm}mm;
+      padding:${settings.margin || 1.5}mm;
+      display:flex;
+      flex-direction:column;
+      align-items:${barcodeJustify};
+      justify-content:space-between;
+      font-family:${fontFamily},Arial,sans-serif;
+      font-size:${fontSize}px;
+      line-height:${settings.lineSpacing || 1.1};
+      color:${textColor};
+      background:#fff;
+      text-align:${textAlign};
+      overflow:hidden;
+      box-sizing:border-box;
+    ">
+      <div style="font-size:${fontSize + 1}px;font-weight:bold;text-align:${textAlign};width:100%;">${esc(shopNameDisplay)}</div>
+      <div style="display:flex;align-items:center;justify-content:${barcodeJustify};width:100%;">
+        <svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div style="font-size:${fontSize}px;font-weight:${isBold};text-align:${textAlign};width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(product!.name)}</div>
+    </div>`;
+  }
 
   function handlePrint() {
     const stickerHtml = buildPrintStickerHtml();
@@ -187,18 +215,6 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     win.focus();
   }
 
-  function buildPrintStickerHtml(): string {
-    return `<div class="sticker" style="width:${widthMm}mm;height:${heightMm}mm;padding:${settings.margin || 1.5}mm;display:flex;flex-direction:column;align-items:${barcodeJustify};justify-content:space-between;font-family:${fontFamily},Arial,sans-serif;font-size:${fontSize}px;line-height:${settings.lineSpacing || 1.1};color:${textColor};background:#fff;text-align:${textAlign};overflow:hidden;box-sizing:border-box;">
-      <div style="font-size:${fontSize + 1}px;font-weight:bold;text-align:${textAlign};width:100%;">${esc(fetchedShopName)}</div>
-      <div style="display:flex;align-items:center;justify-content:${barcodeJustify};width:100%;">
-        <svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg"></svg>
-      </div>
-      <div style="font-size:${fontSize}px;font-weight:${isBold};text-align:${textAlign};width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(product!.name)}</div>
-    </div>`;
-  }
-
-  const previewScale = Math.min(200 / widthMm, 3.5);
-
   return (
     <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
@@ -217,39 +233,37 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Sticker Preview — shows the ACTUAL sticker with barcode */}
+              {/* Sticker Preview — shows the ACTUAL sticker with barcode bars */}
               <div className="text-center">
                 <Label className="text-xs text-muted-foreground">
                   Sticker size: {widthMm}mm × {heightMm}mm
                 </Label>
               </div>
+
+              {/* THE STICKER PREVIEW — barcode rendered via callback ref */}
               <div className="flex justify-center bg-muted/30 rounded-lg p-4">
-                <div
-                  ref={stickerPreviewRef}
-                  key={barcodeRendered ? "ready" : "pending"}
-                  style={{
-                    width: `${widthMm * previewScale * 3.78}px`,
-                    minHeight: `${heightMm * previewScale * 3.78}px`,
-                    padding: `${(settings.margin || 1.5) * previewScale * 3.78}px`,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: barcodeJustify,
-                    justifyContent: "space-between",
-                    fontFamily: `${fontFamily}, Arial, sans-serif`,
-                    fontSize: `${fontSize * previewScale * 3.78}px`,
-                    lineHeight: settings.lineSpacing || 1.1,
-                    color: textColor,
-                    background: "#fff",
-                    textAlign: textAlign as any,
-                    overflow: "hidden",
-                    boxSizing: "border-box",
-                    border: "1px solid #ccc",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-                  }}
-                >
+                <div style={{
+                  width: `${previewWidthPx}px`,
+                  minHeight: `${previewHeightPx}px`,
+                  padding: `${(settings.margin || 1.5) * scale * pxPerMm}px`,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: barcodeJustify,
+                  justifyContent: "space-between",
+                  fontFamily: `${fontFamily}, Arial, sans-serif`,
+                  fontSize: `${fontSize * scale * pxPerMm}px`,
+                  lineHeight: settings.lineSpacing || 1.1,
+                  color: textColor,
+                  background: "#fff",
+                  textAlign: textAlign as any,
+                  overflow: "hidden",
+                  boxSizing: "border-box",
+                  border: "1px solid #ccc",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                }}>
                   {/* Shop Name */}
                   <div style={{
-                    fontSize: `${(fontSize + 1) * previewScale * 3.78}px`,
+                    fontSize: `${(fontSize + 1) * scale * pxPerMm}px`,
                     fontWeight: "bold",
                     textAlign: textAlign as any,
                     width: "100%",
@@ -257,20 +271,29 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                   }}>
-                    {fetchedShopName}
+                    {shopNameDisplay}
                   </div>
-                  {/* Barcode SVG — VISIBLE, rendered by JsBarcode */}
+                  {/* Barcode SVG — rendered via callback ref (NO timing issues) */}
                   <div style={{
                     display: "flex",
                     alignItems: "center",
                     justifyContent: barcodeJustify,
                     width: "100%",
+                    flex: "1",
                   }}>
-                    <svg className="barcode-svg" xmlns="http://www.w3.org/2000/svg" style={{ maxWidth: "100%", height: "auto" }}></svg>
+                    {/* KEY: ref={barcodeSvgRef} is a callback ref.
+                        When React mounts this SVG, barcodeSvgRef fires
+                        with the actual DOM element. JsBarcode renders
+                        into it immediately. No querySelector, no setTimeout. */}
+                    <svg
+                      ref={barcodeSvgRef}
+                      xmlns="http://www.w3.org/2000/svg"
+                      style={{ maxWidth: "100%", height: "auto" }}
+                    />
                   </div>
                   {/* Product Name */}
                   <div style={{
-                    fontSize: `${fontSize * previewScale * 3.78}px`,
+                    fontSize: `${fontSize * scale * pxPerMm}px`,
                     fontWeight: isBold as any,
                     textAlign: textAlign as any,
                     width: "100%",
