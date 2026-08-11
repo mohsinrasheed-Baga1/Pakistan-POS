@@ -64,7 +64,7 @@ jobs:
         env:
           DATABASE_URL: "file:./pos.db"
 
-      - name: Delete existing release for this tag (prevent duplicates)
+      - name: Delete existing release for this tag ONLY (prevent duplicates)
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -128,3 +128,38 @@ jobs:
           else
             echo "WARNING: No .blockmap found — full download will be used"
           fi
+
+      - name: Clean up old releases (keep only latest 10)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Cleaning up old releases (keeping latest 10) ==="
+          # Get ALL releases sorted by creation date (newest first)
+          ALL_RELEASES=$(gh api repos/${{ github.repository }}/releases --paginate --jq '.[] | "\(.id) \(.tag_name) \(.created_at)"' 2>/dev/null || echo "")
+          if [ -z "$ALL_RELEASES" ]; then
+            echo "No releases to clean up"
+            exit 0
+          fi
+
+          # Count releases
+          TOTAL=$(echo "$ALL_RELEASES" | wc -l)
+          echo "Total releases: $TOTAL"
+
+          if [ "$TOTAL" -le 10 ]; then
+            echo "Only $TOTAL releases — keeping all (limit is 10)"
+            exit 0
+          fi
+
+          # Get releases to delete (everything after the first 10)
+          DELETE_COUNT=$((TOTAL - 10))
+          echo "Deleting $DELETE_COUNT old releases..."
+
+          echo "$ALL_RELEASES" | tail -n $DELETE_COUNT | while read id tag date; do
+            echo "Deleting release $tag (id=$id, created=$date)..."
+            gh api -X DELETE "repos/${{ github.repository }}/releases/$id" 2>/dev/null && echo "✓ Deleted $tag" || echo "⚠ Failed to delete $tag"
+          done
+
+          echo "=== Cleanup complete ==="
+          echo "Remaining releases:"
+          gh api repos/${{ github.repository }}/releases --jq '.[].tag_name' 2>/dev/null | head -10
