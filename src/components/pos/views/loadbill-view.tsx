@@ -446,7 +446,10 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
         )}
       </CardContent>
 
-      {/* Sell Load Checkout — shows current balance + remaining after sale */}
+      {/* Sell Load Checkout — shows current balance + remaining after sale
+          NOTE: "Total" = Load Amount + Extra Charges (what customer pays)
+          "Current Balance" = company's existing balance (info only, NOT added to total)
+          "After Sale (بقایا)" = balance - load amount (info only, NOT added to total) */}
       <CheckoutDialog
         open={sellOpen} onClose={() => setSellOpen(false)} title="Sell Mobile Load — لوڈ بیچیں"
         saving={saving} onConfirm={handleSell}
@@ -460,8 +463,6 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
         totals={[
           { label: "Load Amount", value: amtNum },
           { label: "Extra Charges", value: extraNum },
-          ...(selectedCompany ? [{ label: "Current Balance", value: selectedCompany.balance }] : []),
-          ...(selectedCompany ? [{ label: "After Sale (بقایا)", value: remainingAfter }] : []),
         ]}
       />
 
@@ -493,7 +494,8 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
         </DialogContent>
       </Dialog>
 
-      {/* Receive Load — adds balance to SIM */}
+      {/* Receive Load — adds balance to SIM
+          Total = Amount only (not current balance + amount) */}
       <CheckoutDialog
         open={recvOpen} onClose={() => setRecvOpen(false)} title="Receive Load — لوڈ وصول"
         saving={saving} onConfirm={handleReceive}
@@ -502,9 +504,7 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
           { label: "Amount *", value: amount, onChange: setAmount, type: "number", placeholder: "e.g. 5000" },
         ]}
         totals={[
-          ...(selectedCompany ? [{ label: "Current Balance", value: selectedCompany.balance }] : []),
           { label: "Load Received", value: amtNum },
-          ...(selectedCompany ? [{ label: "New Balance", value: selectedCompany.balance + amtNum }] : []),
         ]}
       />
     </Card>

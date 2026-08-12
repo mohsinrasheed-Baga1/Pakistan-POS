@@ -52,55 +52,59 @@ export function BarcodeSettingsPage() {
     currency: "Rs",
   });
 
-  // Render barcode using JsBarcode via CALLBACK REF (guaranteed no timing issues)
-  // When React mounts the hidden SVG, the callback fires with the actual
-  // DOM element. JsBarcode renders into it immediately.
+  // Render barcode using JsBarcode via CALLBACK REF
+  // Wrapped in try/catch to prevent any error from crashing the page
   const [barcodeReady, setBarcodeReady] = React.useState(false);
 
   const previewBarcodeCallbackRef = React.useCallback((svgEl: SVGSVGElement | null) => {
     if (!svgEl) return;
-    const value = previewProduct.productCode;
-    if (!value) return;
+    try {
+      const value = previewProduct.productCode;
+      if (!value) return;
 
-    const format = draft.defaultBarcodeType === "EAN13" && /^\d{13}$/.test(value) ? "EAN13" : "CODE128";
+      const format = draft.defaultBarcodeType === "EAN13" && /^\d{13}$/.test(value) ? "EAN13" : "CODE128";
 
-    const doRender = () => {
-      if (!(window as any).JsBarcode) return;
-      try {
-        svgEl.innerHTML = "";
-        (window as any).JsBarcode(svgEl, value, {
-          format,
-          width: draft.barcodeWidth || 2,
-          height: draft.barcodeHeight || 40,
-          displayValue: draft.humanReadable,
-          fontSize: 12,
-          font: "monospace",
-          fontOptions: "bold",
-          margin: draft.quietZone || 4,
-          textMargin: 2,
-          background: "#ffffff",
-          lineColor: "#000000",
-        });
-        const svgHtml = svgEl.outerHTML;
-        setPreviewProduct(prev => ({ ...prev, barcodeSvg: svgHtml }));
-        setBarcodeReady(prev => !prev);
-      } catch (e) {
-        console.error("JsBarcode error:", e);
-      }
-    };
+      const doRender = () => {
+        if (!(window as any).JsBarcode) return;
+        try {
+          svgEl.innerHTML = "";
+          (window as any).JsBarcode(svgEl, value, {
+            format,
+            width: draft.barcodeWidth || 2,
+            height: draft.barcodeHeight || 40,
+            displayValue: draft.humanReadable,
+            fontSize: 12,
+            font: "monospace",
+            fontOptions: "bold",
+            margin: draft.quietZone || 4,
+            textMargin: 2,
+            background: "#ffffff",
+            lineColor: "#000000",
+          });
+          const svgHtml = svgEl.outerHTML;
+          setPreviewProduct(prev => ({ ...prev, barcodeSvg: svgHtml }));
+          setBarcodeReady(prev => !prev);
+        } catch (e) {
+          console.error("JsBarcode render error:", e);
+        }
+      };
 
-    if ((window as any).JsBarcode) {
-      doRender();
-    } else {
-      const existingScript = document.querySelector('script[src*="jsbarcode"]');
-      if (existingScript) {
-        setTimeout(doRender, 100);
+      if ((window as any).JsBarcode) {
+        doRender();
       } else {
-        const script = document.createElement("script");
-        script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
-        script.onload = doRender;
-        document.head.appendChild(script);
+        const existingScript = document.querySelector('script[src*="jsbarcode"]');
+        if (existingScript) {
+          setTimeout(doRender, 200);
+        } else {
+          const script = document.createElement("script");
+          script.src = "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js";
+          script.onload = doRender;
+          script.onerror = () => console.error("Failed to load JsBarcode script");
+          document.head.appendChild(script);
+        }
       }
+    } catch (e) {
+      console.error("Barcode callback ref error:", e);
     }
   }, [draft.defaultBarcodeType, draft.barcodeWidth, draft.barcodeHeight, draft.humanReadable, draft.quietZone, draft.barcodePosition, previewProduct.productCode]);
 
