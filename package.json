@@ -1,6 +1,6 @@
 {
   "name": "shop-pos-system",
-  "version": "2.9.32",
+  "version": "2.10.0",
   "description": "Shop POS System - Point of Sale with barcode scanner, products and sales management",
   "author": "Mohsin Rasheed",
   "license": "MIT",
@@ -124,6 +124,7 @@
     "@radix-ui/react-toggle-group": "^1.1.10",
     "@radix-ui/react-tooltip": "^1.2.7",
     "@reactuses/core": "^6.0.5",
+    "@supabase/supabase-js": "^2.112.3",
     "@tanstack/react-query": "^5.82.0",
     "@tanstack/react-table": "^8.21.3",
     "@types/bcryptjs": "^3.0.0",

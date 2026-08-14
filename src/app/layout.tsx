@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Providers } from "@/components/providers";
+import { LicenseGate } from "@/components/license/license-gate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,7 +39,9 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <Providers>
-            {children}
+            <LicenseGate showBanner={false}>
+              {children}
+            </LicenseGate>
             <Toaster />
             <SonnerToaster position="top-center" richColors />
           </Providers>
