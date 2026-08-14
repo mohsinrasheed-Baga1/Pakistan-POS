@@ -100,33 +100,54 @@ jobs:
           EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
           if [ -z "$EXE_FILE" ]; then
             echo "ERROR: No .exe file found in release/"
+            echo ""
+            echo "=== Full release/ contents (recursive) ==="
+            find release/ -type f 2>/dev/null | head -20
             exit 1
           fi
           EXE_SIZE=$(stat -c%s "$EXE_FILE" 2>/dev/null || wc -c < "$EXE_FILE")
-          echo "Found: $EXE_FILE ($EXE_SIZE bytes)"
+          EXE_SIZE_MB=$((EXE_SIZE / 1024 / 1024))
+          echo "Found: $EXE_FILE ($EXE_SIZE bytes = ${EXE_SIZE_MB} MB)"
           if [ "$EXE_SIZE" -lt 10000000 ]; then
             echo "ERROR: .exe file is too small ($EXE_SIZE bytes < 10MB) — build likely incomplete"
             exit 1
           fi
-          echo "✓ Installer verified"
-          echo ""
-          echo "=== Verifying latest.yml (for delta updates) ==="
-          if [ -f "release/latest.yml" ]; then
-            echo "latest.yml contents:"
-            cat release/latest.yml
-            echo ""
-            echo "✓ latest.yml exists — electron-updater will use this for delta updates"
-          else
-            echo "WARNING: latest.yml not found — delta updates may not work"
+          echo "✓ Installer verified (${EXE_SIZE_MB} MB)"
+
+      - name: Verify EXE was uploaded to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          echo "=== Checking if EXE was uploaded to release $TAG ==="
+          sleep 10
+          # Get the release ID
+          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.id' 2>/dev/null)
+          if [ -z "$RELEASE_ID" ]; then
+            echo "WARNING: Could not find release for tag $TAG"
+            exit 0
           fi
-          echo ""
-          echo "=== Verifying .blockmap (for delta updates) ==="
-          BLOCKMAP=$(find release/ -name "*.exe.blockmap" -type f | head -1)
-          if [ -n "$BLOCKMAP" ]; then
-            echo "Found blockmap: $BLOCKMAP"
-            echo "✓ Blockmap exists — only changed blocks will be downloaded"
+          echo "Release ID: $RELEASE_ID"
+          # List all assets
+          echo "=== Assets in release $TAG ==="
+          gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets" --jq '.[] | "\(.name) (\(.size) bytes)"'
+          # Check if EXE is there
+          EXE_ASSET=$(gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets" --jq '.[] | select(.name | endswith(".exe")) | .name' 2>/dev/null)
+          if [ -z "$EXE_ASSET" ]; then
+            echo ""
+            echo "⚠️  WARNING: EXE is NOT uploaded to release (only blockmap is)."
+            echo "This usually means the EXE upload timed out or hit a size limit."
+            echo "Attempting manual upload..."
+            # Find the local EXE
+            EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+            if [ -n "$EXE_FILE" ]; then
+              echo "Uploading $EXE_FILE manually..."
+              gh release upload "$TAG" "$EXE_FILE" --clobber
+              echo "✓ Manual upload attempted"
+            fi
           else
-            echo "WARNING: No .blockmap found — full download will be used"
+            echo "✓ EXE is already in release: $EXE_ASSET"
           fi
 
       - name: Clean up old releases (keep only latest 10)

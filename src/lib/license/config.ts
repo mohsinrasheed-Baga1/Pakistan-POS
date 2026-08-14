@@ -31,7 +31,7 @@ export const LICENSE_CONFIG = {
 
   /** Developer contact info (shown on activation/lockout screens) */
   developer: {
-    name: "Mohsin Rasheed Bagaan",
+    name: "Mohsin Rasheed Baga",
     phone: "+923000088482",
     whatsappNumber: "923000088482", // without + or spaces for wa.me link
     whatsappMessage:
