@@ -1,16 +1,21 @@
 /**
  * License Configuration
  * =====================================================
- * Replace these values with your actual Supabase project details.
- * Find them at: Supabase Dashboard → Settings → API
+ * Supabase credentials are hardcoded here because:
+ * 1. NEXT_PUBLIC_* env vars are not always inlined during
+ *    Electron builds (especially in GitHub Actions CI)
+ * 2. The "sb_publishable_" key is designed to be public —
+ *    Supabase RLS policies protect the actual data
+ * 3. This ensures the license module works reliably across
+ *    dev, production, and packaged Electron builds
  */
 
 export const LICENSE_CONFIG = {
-  /** Your Supabase project URL (e.g. https://xyzcompany.supabase.co) */
-  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+  /** Supabase project URL (hardcoded for reliability across build environments) */
+  supabaseUrl: "https://yghnbmtuyjzebqrcbavk.supabase.co",
 
-  /** Your Supabase anon public key (safe to expose to client) */
-  supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+  /** Supabase publishable anon key (safe to expose — protected by RLS) */
+  supabaseAnonKey: "sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n",
 
   /** Edge Function URLs (auto-built from supabaseUrl) */
   get activateUrl() {
@@ -24,7 +29,7 @@ export const LICENSE_CONFIG = {
   },
 
   /** App version (for tracking in admin panel) */
-  appVersion: "2.9.32",
+  appVersion: "2.10.2",
 
   /** Trial settings */
   trialDays: 3,
