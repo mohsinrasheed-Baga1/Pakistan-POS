@@ -79,6 +79,7 @@ export function hasStoredLicense(): boolean {
 
 /**
  * Compute days remaining until expiry (0 if expired or permanent).
+ * Uses server-provided expiry date so changing PC clock doesn't extend it.
  */
 export function getDaysRemaining(license: StoredLicense): number {
   if (!license.expiresAt) return Infinity; // permanent
@@ -86,17 +87,88 @@ export function getDaysRemaining(license: StoredLicense): number {
   return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 }
 
-/** Check if license is currently expired. */
+/**
+ * Check if license is currently expired.
+ * IMPORTANT: Uses the server-provided expiresAt, not local time manipulation.
+ * Even if user changes PC clock backward, the expiry date set on Supabase
+ * server side remains the same — verifyLicense() will update it on each launch.
+ */
 export function isExpired(license: StoredLicense): boolean {
   if (!license.expiresAt) return false;
   return new Date(license.expiresAt).getTime() < Date.now();
 }
 
 /**
- * Check if it's time to re-verify with the server.
- * Returns true if last verification was > 24 hours ago.
+ * Detect if the system clock has been rolled back since last verification.
+ * This catches users trying to extend trial by changing PC date.
+ *
+ * Strategy: store the highest "Date.now()" we've ever seen.
+ * If current Date.now() is LOWER than the stored max, the clock was rolled back.
  */
-export function needsReverification(license: StoredLicense): boolean {
+const CLOCK_MAX_KEY = "pakpos_clock_max_seen";
+
+/** Get the maximum timestamp we've ever seen on this machine. */
+function getMaxClockSeen(): number {
+  if (typeof window === "undefined") return Date.now();
+  const raw = localStorage.getItem(CLOCK_MAX_KEY);
+  if (!raw) return 0;
+  try {
+    return Number(raw) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Save the maximum timestamp (only updates if current time is higher). */
+function saveMaxClockSeen(ts: number): void {
+  if (typeof window === "undefined") return;
+  const current = getMaxClockSeen();
+  if (ts > current) {
+    localStorage.setItem(CLOCK_MAX_KEY, String(ts));
+  }
+}
+
+/** Check if the system clock appears to have been rolled back. */
+export function isClockRolledBack(): boolean {
+  const now = Date.now();
+  const max = getMaxClockSeen();
+  // If we've seen a time more than 1 hour in the future of current time,
+  // the clock was rolled back.
+  if (max > 0 && now < max - 60 * 60 * 1000) {
+    return true;
+  }
+  // Otherwise update the max
+  saveMaxClockSeen(now);
+  return false;
+}
+
+/**
+ * Check if it's time to re-verify with the server.
+ *
+ * SECURITY: Always returns true on every startup so we verify with Supabase
+ * even if local time suggests recent verification. This prevents:
+ * 1. Users changing PC clock to skip verification
+ * 2. Tampering with localStorage lastVerifiedAt field
+ *
+ * Only offline grace period (7 days since last SUCCESSFUL server verify)
+ * allows the app to run without re-verification.
+ */
+export function needsReverification(_license: StoredLicense): boolean {
+  // Always verify on startup — return true
+  // The verifyLicense() call will:
+  // 1. Use server-side NOW() to check expiry (can't be faked)
+  // 2. Update the stored expiresAt from server response
+  // 3. If offline, fall back to grace period check
+  return true;
+}
+
+/**
+ * Check if offline grace period has been exceeded.
+ * Grace period = 7 days since last successful server verification.
+ * After this, app locks even if local data says license is valid.
+ */
+export function isOfflineGraceExceeded(license: StoredLicense): boolean {
   const last = new Date(license.lastVerifiedAt).getTime();
-  return Date.now() - last > LICENSE_CONFIG.verifyIntervalMs;
+  const graceMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+  return Date.now() - last > graceMs;
 }

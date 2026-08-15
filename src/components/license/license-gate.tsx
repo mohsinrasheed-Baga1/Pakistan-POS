@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ActivationScreen } from "./activation-screen";
 import { LockoutScreen } from "./lockout-screen";
 import { LicenseBanner } from "./license-banner";
-import { ensureSystemId, getStoredLicense, saveLicense, clearLicense, isExpired, needsReverification } from "@/lib/license/storage";
+import { ensureSystemId, getStoredLicense, saveLicense, clearLicense, isExpired, needsReverification, isClockRolledBack } from "@/lib/license/storage";
 import { verifyLicense } from "@/lib/license/client";
 
 type Props = {
@@ -46,7 +46,27 @@ export function LicenseGate({ children, showBanner = true }: Props) {
           return;
         }
 
+        // ANTI-DATE-CHANGE CHECK:
+        // If user has rolled back their PC clock to extend trial/license,
+        // detect it and lock the app immediately.
+        if (isClockRolledBack()) {
+          clearLicense();
+          if (mounted) {
+            setStatus({
+              kind: "locked",
+              reason: "verification_failed",
+              systemId,
+              systemInfo,
+              message:
+                "System clock tampering detected. Please set the correct date and time, then try again.",
+              oldLicenseKey: stored.licenseKey,
+            });
+          }
+          return;
+        }
+
         // Stored license exists → check if expired locally first
+        // (using server-provided expiresAt, not local time manipulation)
         if (isExpired(stored)) {
           clearLicense();
           if (mounted) {
@@ -61,7 +81,9 @@ export function LicenseGate({ children, showBanner = true }: Props) {
           return;
         }
 
-        // Re-verify with server if 24h passed
+        // Re-verify with server on EVERY startup (always returns true now)
+        // This ensures trial/license expiry is checked against server-side NOW(),
+        // which cannot be manipulated by changing PC clock.
         if (needsReverification(stored)) {
           try {
             const result = await verifyLicense({

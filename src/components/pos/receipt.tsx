@@ -228,12 +228,25 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
               <span>{formatMoney(sale.taxTotal, currency)}</span>
             </div>
           )}
-          {sale.discount > 0 && (
-            <div className="row" style={{ fontSize: tableFontSize }}>
-              <span>Discount:</span>
-              <span>-{formatMoney(sale.discount, currency)}</span>
-            </div>
-          )}
+          {/* Discount — always show (even if 0) so customer sees the savings */}
+          {(() => {
+            const discount = sale.discount || 0;
+            const subtotal = sale.subtotal || 0;
+            const discountPercent = subtotal > 0 ? ((discount / subtotal) * 100).toFixed(1) : "0";
+            return (
+              <div
+                className="row bold"
+                style={{
+                  fontSize: tableFontSize,
+                  fontWeight: "bold",
+                  color: discount > 0 ? "#dc2626" : textColor,
+                }}
+              >
+                <span>Discount{discount > 0 && ` (${discountPercent}%)`}:</span>
+                <span>-{formatMoney(discount, currency)}</span>
+              </div>
+            );
+          })()}
           <div className="row bold big" style={{ marginTop: "2px" }}>
             <span>TOTAL:</span>
             <span>{formatMoney(sale.total, currency)}</span>

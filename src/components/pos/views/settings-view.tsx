@@ -94,6 +94,7 @@ import {
 } from "@/components/ui/collapsible";
 import { BarcodeSettingsPage } from "@/components/settings/barcode-settings-page";
 import { ReceiptSettingsPage } from "@/components/settings/receipt-settings-page";
+import { LicenseSettingsCard } from "@/components/license/license-settings-card";
 import type { Settings } from "@/types";
 import { useAppStore } from "@/stores/use-pos-store";
 
@@ -301,6 +302,7 @@ export function SettingsView() {
           { id: "scanner", label: "Barcode Scanner", icon: ScanBarcode, color: "emerald" },
           { id: "barcode", label: "Barcode & Sticker", icon: BarcodeIcon, color: "emerald" },
           { id: "receipt", label: "Receipt Settings", icon: Receipt, color: "emerald" },
+          { id: "license", label: "License Info", icon: ShieldCheck, color: "amber" },
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -342,6 +344,7 @@ export function SettingsView() {
       {activeSection === "scanner" && <ScannerCard />}
       {activeSection === "barcode" && <BarcodeSettingsPage />}
       {activeSection === "receipt" && <ReceiptSettingsPage />}
+      {activeSection === "license" && <LicenseSettingsCard />}
     </div>
   );
 }

@@ -43,6 +43,7 @@ import { LoadBillView } from "@/components/pos/views/loadbill-view";
 import { NotificationsBell } from "@/components/pos/notifications-bell";
 import { toast } from "sonner";
 import { GlobalCalculator } from "@/components/pos/global-calculator";
+import { LicenseStatusBadge } from "@/components/license/license-status-badge";
 
 interface AppShellProps {
   user: { id: string; name?: string | null; email?: string | null; role: string };
@@ -157,6 +158,7 @@ export function AppShell({ user, settings }: AppShellProps) {
           {settings?.shopName || "POS"}
         </div>
         <div className="flex items-center gap-1">
+          <LicenseStatusBadge compact />
           <NotificationsBell />
           <Button
             variant="ghost"
@@ -247,6 +249,10 @@ export function AppShell({ user, settings }: AppShellProps) {
           </nav>
 
           <div className="p-3 border-t space-y-2">
+            {/* License status badge — shows trial days left or permanent status */}
+            <div className="flex justify-center">
+              <LicenseStatusBadge />
+            </div>
             <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
               <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-700">
                 {user.name?.[0] || "U"}
