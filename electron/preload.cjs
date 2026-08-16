@@ -15,6 +15,21 @@ contextBridge.exposeInMainWorld("posElectron", {
     listBackups: () => ipcRenderer.invoke("gdrive:listBackups"),
     restore: (fileId) => ipcRenderer.invoke("gdrive:restore", fileId),
     saveConfig: (clientId, clientSecret) => ipcRenderer.invoke("gdrive:save-config", clientId, clientSecret),
+    // NEW: Trigger an auto-backup immediately (used after each sale)
+    triggerBackup: (reason = "manual") => ipcRenderer.invoke("gdrive:trigger-backup", reason),
+    // NEW: Get last backup status (for UI display)
+    getBackupStatus: () => ipcRenderer.invoke("gdrive:backup-status"),
+    // NEW: Listen for auto-backup events (success/failure)
+    onAutoBackupDone: (callback) => {
+      const handler = (_evt, data) => callback(data);
+      ipcRenderer.on("gdrive:auto-backup-done", handler);
+      return () => ipcRenderer.removeListener("gdrive:auto-backup-done", handler);
+    },
+    onAutoBackupFailed: (callback) => {
+      const handler = (_evt, data) => callback(data);
+      ipcRenderer.on("gdrive:auto-backup-failed", handler);
+      return () => ipcRenderer.removeListener("gdrive:auto-backup-failed", handler);
+    },
   },
 
   // Software Updater API — ALWAYS available (even without electron-updater)

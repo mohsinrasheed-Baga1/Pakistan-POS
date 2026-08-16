@@ -514,22 +514,99 @@ if (!gotLock) {
   // ---- Auto backup scheduler ----
   let backupTimer = null;
   let lastAutoBackup = 0;
+  let lastBackupError = null;
+  const AUTO_BACKUP_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+  const AUTO_BACKUP_RETRY_MS = 5 * 60 * 1000; // retry after 5 minutes on failure
+  const AUTO_BACKUP_INITIAL_DELAY_MS = 30 * 1000; // 30 seconds after app start
+
+  async function performAutoBackup(reason = "scheduled") {
+    try {
+      const status = gdrive.getStatus();
+      if (!status.connected) {
+        lastBackupError = "Google Drive not connected";
+        return { ok: false, reason: "not_connected" };
+      }
+      // Rate limit: don't backup more than once per 5 minutes
+      // (prevents excessive backups if many sales happen quickly)
+      const now = Date.now();
+      const MIN_BACKUP_GAP_MS = 5 * 60 * 1000; // 5 minutes
+      if (now - lastAutoBackup < MIN_BACKUP_GAP_MS && reason !== "manual") {
+        return { ok: false, reason: "rate_limited", message: "Backup too recent" };
+      }
+      console.log(`[POS] Auto backup starting (${reason})...`);
+      const result = await gdrive.uploadBackup(dbPath);
+      lastAutoBackup = Date.now();
+      lastBackupError = null;
+      console.log(`[POS] Auto cloud backup completed (${reason}):`, result.name);
+      // Notify the renderer so it can update the UI
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("gdrive:auto-backup-done", {
+          ok: true,
+          reason,
+          fileName: result.name,
+          size: result.size,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return { ok: true, ...result };
+    } catch (e) {
+      lastBackupError = e.message;
+      console.log(`[POS] Auto backup failed (${reason}):`, e.message);
+      // Notify renderer about failure
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("gdrive:auto-backup-failed", {
+          ok: false,
+          reason,
+          error: e.message,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return { ok: false, error: e.message };
+    }
+  }
+
   function startBackupScheduler() {
     if (backupTimer) clearInterval(backupTimer);
+    // Initial backup after 30 seconds (if connected)
+    setTimeout(async () => {
+      const status = gdrive.getStatus();
+      if (status.connected && Date.now() - lastAutoBackup > AUTO_BACKUP_INTERVAL_MS) {
+        await performAutoBackup("initial");
+      }
+    }, AUTO_BACKUP_INITIAL_DELAY_MS);
+
+    // Then check every hour
     backupTimer = setInterval(async () => {
       const status = gdrive.getStatus();
       if (!status.connected) return;
       const now = Date.now();
-      if (now - lastAutoBackup < 4 * 60 * 60 * 1000) return;
-      try {
-        await gdrive.uploadBackup(dbPath);
-        lastAutoBackup = now;
-        console.log("[POS] Auto cloud backup completed");
-      } catch (e) {
-        console.log("[POS] Auto backup failed:", e.message);
+      const timeSinceLast = now - lastAutoBackup;
+      // Normal schedule: 4 hours since last successful backup
+      // Retry schedule: if last backup failed, retry after 5 minutes
+      const shouldRetry =
+        lastBackupError && timeSinceLast > AUTO_BACKUP_RETRY_MS;
+      const shouldSchedule = !lastBackupError && timeSinceLast > AUTO_BACKUP_INTERVAL_MS;
+      if (shouldRetry || shouldSchedule) {
+        await performAutoBackup(shouldRetry ? "retry" : "scheduled");
       }
-    }, 60 * 60 * 1000);
+    }, 60 * 60 * 1000); // check every hour
   }
+
+  // IPC: Manual trigger for backup (used by Settings > Backup Now button)
+  // and triggered automatically after each sale is completed
+  ipcMain.handle("gdrive:trigger-backup", async (_evt, reason = "manual") => {
+    return await performAutoBackup(reason);
+  });
+
+  // IPC: Get last auto-backup status (for UI display)
+  ipcMain.handle("gdrive:backup-status", async () => {
+    return {
+      lastBackupAt: lastAutoBackup > 0 ? new Date(lastAutoBackup).toISOString() : null,
+      lastError: lastBackupError,
+      connected: gdrive.getStatus().connected,
+      nextScheduledIn: Math.max(0, AUTO_BACKUP_INTERVAL_MS - (Date.now() - lastAutoBackup)),
+    };
+  });
 
   // ============================================================
   // electron-updater IPC handlers (delta/differential updates)

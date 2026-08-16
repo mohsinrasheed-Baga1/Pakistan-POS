@@ -16,6 +16,16 @@ declare global {
     backup: () => Promise<{ ok: boolean; fileId?: string; name?: string; size?: number; error?: string }>;
     listBackups: () => Promise<{ ok: boolean; backups: Array<{ id: string; name: string; size: string; createdTime: string }>; error?: string }>;
     restore: (fileId: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
+    // NEW: Auto-backup triggers (v2.10.4+)
+    triggerBackup: (reason?: string) => Promise<{ ok: boolean; fileName?: string; size?: number; error?: string; reason?: string }>;
+    getBackupStatus: () => Promise<{
+      lastBackupAt: string | null;
+      lastError: string | null;
+      connected: boolean;
+      nextScheduledIn: number;
+    }>;
+    onAutoBackupDone: (callback: (data: { ok: boolean; reason: string; fileName: string; size: number; timestamp: string }) => void) => () => void;
+    onAutoBackupFailed: (callback: (data: { ok: boolean; reason: string; error: string; timestamp: string }) => void) => () => void;
   }
 
   interface UpdaterAPI {

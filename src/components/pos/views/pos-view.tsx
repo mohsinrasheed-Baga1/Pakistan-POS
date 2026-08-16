@@ -662,6 +662,17 @@ export function PosView({ settings }: PosViewProps) {
       setPaidAmount("");
       toast.success("Sale completed!");
       loadProducts();
+      // Trigger Google Drive auto-backup after each sale (silent, non-blocking)
+      // This ensures backups are taken frequently throughout the day as sales happen
+      try {
+        if (typeof window !== "undefined" && window.posElectron?.googleDrive?.triggerBackup) {
+          window.posElectron.googleDrive.triggerBackup("after_sale").catch(() => {
+            // Silent failure — don't interrupt the user with backup errors
+          });
+        }
+      } catch {
+        // Silently ignore — backup is best-effort
+      }
     } catch (e: any) {
       // True network error (server unreachable, DNS failure, etc.)
       toast.error(`Network error: ${e.message || "Could not reach server"}`);
