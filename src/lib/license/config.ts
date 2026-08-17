@@ -29,7 +29,7 @@ export const LICENSE_CONFIG = {
   },
 
   /** App version (for tracking in admin panel) */
-  appVersion: "2.10.9",
+  appVersion: "2.10.10",
 
   /** Trial settings */
   trialDays: 3,

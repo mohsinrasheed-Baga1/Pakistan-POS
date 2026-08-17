@@ -127,7 +127,33 @@ jobs:
           RELEASE_IDS=$(gh api "repos/${{ github.repository }}/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | .id" 2>/dev/null || echo "")
 
           if [ -z "$RELEASE_IDS" ]; then
-            echo "WARNING: No release found for tag $TAG — something went wrong"
+            echo "No release found for tag $TAG — creating one now and uploading EXE"
+            # Find the local EXE
+            EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+            if [ -z "$EXE_FILE" ]; then
+              echo "ERROR: No .exe file found in release/ directory"
+              exit 1
+            fi
+            EXE_SIZE=$(stat -c%s "$EXE_FILE" 2>/dev/null || wc -c < "$EXE_FILE")
+            echo "Found EXE: $EXE_FILE ($((EXE_SIZE / 1024 / 1024)) MB)"
+            # Create a new release with the EXE
+            gh release create "$TAG" "$EXE_FILE" \
+              --title "${TAG#v}" \
+              --notes "Auto-generated release for $TAG" \
+              --target main
+            # Verify creation
+            sleep 5
+            NEW_RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.id' 2>/dev/null)
+            if [ -z "$NEW_RELEASE_ID" ]; then
+              echo "ERROR: Failed to create release for $TAG"
+              exit 1
+            fi
+            echo "Created release $NEW_RELEASE_ID for $TAG"
+            # Upload blockmap too if it exists
+            BLOCKMAP=$(find release/ -name "*.exe.blockmap" -type f | head -1)
+            if [ -n "$BLOCKMAP" ]; then
+              gh release upload "$TAG" "$BLOCKMAP" --clobber || true
+            fi
             exit 0
           fi
 
