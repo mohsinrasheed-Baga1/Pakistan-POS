@@ -410,14 +410,22 @@ export function PosView({ settings }: PosViewProps) {
       // ─── + / - keys: increment/decrement last scanned product ────────
       // Works on the LAST item in cart (latest scan, shown at top)
       // Can be pressed multiple times — each press adds/subtracts 1
+      // e.repeat=true allows continuous press (holding down the key)
       if (!e.ctrlKey && !e.altKey && !e.metaKey) {
         if (e.key === "+" || e.key === "=") {
           if (cart.items.length > 0) {
             e.preventDefault();
             const lastItem = cart.items[cart.items.length - 1];
-            const newQty = lastItem.quantity + 1;
+            const step = isLooseUnit(lastItem.product.unit) ? 0.5 : 1;
+            const newQty = lastItem.quantity + step;
+            // Stock check
+            const stock = lastItem.product.stock || 0;
+            if (!isLooseUnit(lastItem.product.unit) && newQty > stock) {
+              if (!e.repeat) toast.error(`Stock limit: only ${stock} available`);
+              return;
+            }
             cart.setQty(lastItem.product.id, newQty);
-            toast.success(`${lastItem.product.name}: ${newQty}`);
+            if (!e.repeat) toast.success(`${lastItem.product.name}: ${newQty}`);
             return;
           }
         }
@@ -425,14 +433,29 @@ export function PosView({ settings }: PosViewProps) {
           if (cart.items.length > 0) {
             e.preventDefault();
             const lastItem = cart.items[cart.items.length - 1];
-            const newQty = lastItem.quantity - 1;
+            const step = isLooseUnit(lastItem.product.unit) ? 0.5 : 1;
+            const newQty = lastItem.quantity - step;
+            // Prevent going below 1 (don't allow 0 or negative via keyboard)
             if (newQty <= 0) {
-              cart.removeItem(lastItem.product.id);
-              toast.info(`${lastItem.product.name} removed`);
+              if (!e.repeat) {
+                cart.removeItem(lastItem.product.id);
+                toast.info(`${lastItem.product.name} removed`);
+              }
+              return;
             } else {
               cart.setQty(lastItem.product.id, newQty);
-              toast.success(`${lastItem.product.name}: ${newQty}`);
+              if (!e.repeat) toast.success(`${lastItem.product.name}: ${newQty}`);
             }
+            return;
+          }
+        }
+        // ─── Delete key: remove last cart item (alternative to Ctrl+Backspace) ─
+        if (e.key === "Delete") {
+          if (cart.items.length > 0 && !isSearchFocused) {
+            e.preventDefault();
+            const lastItem = cart.items[cart.items.length - 1];
+            cart.removeItem(lastItem.product.id);
+            if (!e.repeat) toast.info(`${lastItem.product.name} removed`);
             return;
           }
         }

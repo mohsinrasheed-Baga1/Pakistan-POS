@@ -2,12 +2,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db, ensureSchema } from "@/lib/db";
+import { parsePermissions, type Permissions, type Permission } from "@/lib/user-permissions";
 
 export type SessionUser = {
   id: string;
   name?: string | null;
   email?: string | null;
   role: "ADMIN" | "MANAGER" | "CASHIER";
+  permissions: Permissions;
 };
 
 // Track whether we've disabled FK constraints on this PrismaClient instance.
@@ -51,11 +53,28 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 
   const session = await getServerSession(authOptions);
   if (!session?.user) return null;
+
+  // Load user's permissions from DB
+  const userId = (session.user as any).id;
+  const role = (session.user as any).role as string;
+  let permissions: Permissions;
+  try {
+    const userRow = await db.user.findUnique({
+      where: { id: userId },
+      select: { permissions: true },
+    });
+    permissions = parsePermissions(userRow?.permissions, role);
+  } catch {
+    // If permissions column doesn't exist yet, use defaults
+    permissions = parsePermissions(null, role);
+  }
+
   return {
-    id: (session.user as any).id,
+    id: userId,
     name: session.user.name,
     email: session.user.email,
-    role: (session.user as any).role,
+    role: role as SessionUser["role"],
+    permissions,
   };
 }
 
@@ -67,4 +86,21 @@ export async function requireUser(minRole: "CASHIER" | "MANAGER" | "ADMIN" = "CA
     throw new Error("Unauthorized");
   }
   return user;
+}
+
+/** Check if current user has a specific permission. */
+export async function checkPermission(permission: Permission): Promise<boolean> {
+  const user = await getSessionUser();
+  if (!user) return false;
+  // Admin always has all permissions
+  if (user.role === "ADMIN") return true;
+  return user.permissions[permission] === true;
+}
+
+/** Require a specific permission — throws if user doesn't have it. */
+export async function requirePermission(permission: Permission) {
+  const has = await checkPermission(permission);
+  if (!has) {
+    throw new Error(`Unauthorized: missing permission ${permission}`);
+  }
 }

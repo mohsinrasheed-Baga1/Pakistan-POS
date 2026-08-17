@@ -50,17 +50,17 @@ interface AppShellProps {
   settings: any;
 }
 
-const NAV: { id: View; label: string; icon: any; minRole?: string }[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "pos", label: "Sell (POS)", icon: ShoppingCart },
-  { id: "loadbill", label: "Load & Bill", icon: Smartphone },
-  { id: "products", label: "Products", icon: Package },
-  { id: "store", label: "Main Store", icon: Warehouse },
-  { id: "vendors", label: "Vendors", icon: Truck },
-  { id: "expenses", label: "Expenses", icon: TrendingDown },
-  { id: "cards", label: "Shop Cards", icon: CreditCard },
-  { id: "sales", label: "Sales History", icon: Receipt },
-  { id: "reports", label: "Reports", icon: BarChart3 },
+const NAV: { id: View; label: string; icon: any; minRole?: string; permission?: string }[] = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "canViewDashboard" },
+  { id: "pos", label: "Sell (POS)", icon: ShoppingCart, permission: "canSell" },
+  { id: "loadbill", label: "Load & Bill", icon: Smartphone, permission: "canAccessLoadBill" },
+  { id: "products", label: "Products", icon: Package, permission: "canViewSalesHistory" },
+  { id: "store", label: "Main Store", icon: Warehouse, permission: "canAccessMainStore" },
+  { id: "vendors", label: "Vendors", icon: Truck, permission: "canAccessVendors" },
+  { id: "expenses", label: "Expenses", icon: TrendingDown, permission: "canAccessExpenses" },
+  { id: "cards", label: "Shop Cards", icon: CreditCard, permission: "canAccessShopCards" },
+  { id: "sales", label: "Sales History", icon: Receipt, permission: "canViewSalesHistory" },
+  { id: "reports", label: "Reports", icon: BarChart3, permission: "canViewReports" },
   { id: "users", label: "User Management", icon: Users, minRole: "ADMIN" },
   { id: "settings", label: "Settings", icon: SettingsIcon, minRole: "ADMIN" },
 ];
@@ -73,9 +73,24 @@ export function AppShell({ user, settings }: AppShellProps) {
   React.useEffect(() => setMounted(true), []);
 
   const roleOrder = { CASHIER: 1, MANAGER: 2, ADMIN: 3 };
-  const navItems = NAV.filter(
-    (n) => !n.minRole || roleOrder[user.role as keyof typeof roleOrder] >= roleOrder[n.minRole as keyof typeof roleOrder]
-  );
+  const navItems = NAV.filter((n) => {
+    // Check role
+    if (n.minRole && roleOrder[user.role as keyof typeof roleOrder] < roleOrder[n.minRole as keyof typeof roleOrder]) {
+      return false;
+    }
+    // Admins see all
+    if (user.role === "ADMIN") return true;
+    // Check permission (will be undefined for items that only require minRole)
+    if (n.permission) {
+      // permissions object comes from the user prop (we'll need to add it)
+      // For now, fall back to role-based check
+      const userPerms = (user as any).permissions;
+      if (userPerms && userPerms[n.permission] === false) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   // Global calculator state — opens with Ctrl+C on ANY page
   const [calcOpen, setCalcOpen] = React.useState(false);

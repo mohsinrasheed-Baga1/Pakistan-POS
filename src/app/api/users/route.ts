@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
 import bcrypt from "bcryptjs";
+import {
+  getDefaultPermissions,
+  parsePermissions,
+  serializePermissions,
+  type Permissions,
+} from "@/lib/user-permissions";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -18,10 +24,16 @@ export async function GET() {
       phone: true,
       role: true,
       active: true,
+      permissions: true,
       createdAt: true,
     },
   });
-  return NextResponse.json({ users });
+  // Parse permissions for each user (so frontend gets object, not JSON string)
+  const usersWithParsedPermissions = users.map((u) => ({
+    ...u,
+    permissions: parsePermissions(u.permissions, u.role),
+  }));
+  return NextResponse.json({ users: usersWithParsedPermissions });
 }
 
 export async function POST(req: NextRequest) {
@@ -39,14 +51,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Email already exists" }, { status: 400 });
   }
   const hash = await bcrypt.hash(body.password, 10);
+  const role = body.role || "CASHIER";
+
+  // Get permissions from request body, or use defaults for the role
+  let permissions: Permissions;
+  if (body.permissions && typeof body.permissions === "object") {
+    permissions = { ...getDefaultPermissions(role), ...body.permissions };
+  } else {
+    permissions = getDefaultPermissions(role);
+  }
+
   const created = await db.user.create({
     data: {
       email,
       name: body.name,
       password: hash,
       phone: body.phone || null,
-      role: body.role || "CASHIER",
+      role,
       active: body.active !== false,
+      permissions: serializePermissions(permissions),
     },
     select: {
       id: true,
@@ -55,8 +78,14 @@ export async function POST(req: NextRequest) {
       phone: true,
       role: true,
       active: true,
+      permissions: true,
       createdAt: true,
     },
   });
-  return NextResponse.json({ user: created });
+  return NextResponse.json({
+    user: {
+      ...created,
+      permissions: parsePermissions(created.permissions, created.role),
+    },
+  });
 }

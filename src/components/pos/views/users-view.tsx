@@ -5,6 +5,21 @@ import { Plus, Pencil, Trash2, Users as UsersIcon, RefreshCw, ShieldCheck } from
 
 import type { User, Role } from "@/types";
 import { toast } from "sonner";
+import {
+  ALL_PERMISSIONS,
+  PERMISSION_LABELS,
+  getDefaultPermissions,
+  type Permission,
+} from "@/lib/user-permissions";
+
+// Helper: get default permissions for a role (returns plain object)
+function getDefaultPermissionsForRole(role: string): Record<string, boolean> {
+  const perms = getDefaultPermissions(role);
+  return Object.keys(perms).reduce((acc, k) => {
+    acc[k] = (perms as any)[k];
+    return acc;
+  }, {} as Record<string, boolean>);
+}
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,6 +103,8 @@ interface UserFormState {
   role: Role;
   password: string;
   active: boolean;
+  // v2.10.6: granular permissions
+  permissions: Record<string, boolean>;
 }
 
 const EMPTY_FORM: UserFormState = {
@@ -97,6 +114,7 @@ const EMPTY_FORM: UserFormState = {
   role: "CASHIER",
   password: "",
   active: true,
+  permissions: {},
 };
 
 /* ---------- main view ---------- */
@@ -478,13 +496,35 @@ function UserDialog({
           role: editing.role,
           password: "",
           active: editing.active,
+          // Use stored permissions, or defaults if not set
+          permissions: (editing as any).permissions || {},
         });
       } else {
-        setForm(EMPTY_FORM);
+        setForm({
+          ...EMPTY_FORM,
+          // Set default permissions for the default role (CASHIER)
+          permissions: getDefaultPermissionsForRole("CASHIER"),
+        });
       }
       setErrors({});
     }
   }, [open, editing]);
+
+  // When role changes, update default permissions (only if user hasn't customized)
+  const handleRoleChange = (newRole: Role) => {
+    setForm((p) => ({
+      ...p,
+      role: newRole,
+      permissions: getDefaultPermissionsForRole(newRole),
+    }));
+  };
+
+  const togglePermission = (perm: string) => {
+    setForm((p) => ({
+      ...p,
+      permissions: { ...p.permissions, [perm]: !p.permissions[perm] },
+    }));
+  };
 
   const update = <K extends keyof UserFormState>(key: K, value: UserFormState[K]) => {
     setForm((p) => ({ ...p, [key]: value }));
@@ -522,6 +562,8 @@ function UserDialog({
       phone: form.phone.trim() || null,
       role: form.role,
       active: form.active,
+      // v2.10.6: send granular permissions
+      permissions: form.permissions,
     };
     if (form.password) payload.password = form.password;
 
@@ -626,7 +668,7 @@ function UserDialog({
               </Label>
               <Select
                 value={form.role}
-                onValueChange={(v) => update("role", v as Role)}
+                onValueChange={(v) => handleRoleChange(v as Role)}
                 disabled={saving}
               >
                 <SelectTrigger id="u-role" className="w-full">
@@ -665,6 +707,50 @@ function UserDialog({
                 <p className="text-xs text-rose-500">{errors.password}</p>
               )}
             </div>
+
+            {/* ─── Granular Permissions (v2.10.6) ───────────────────────── */}
+            {form.role !== "ADMIN" && (
+              <div className="sm:col-span-2 space-y-3 rounded-lg border bg-muted/20 p-4">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <Label className="text-sm font-semibold">Permissions</Label>
+                  <span className="text-xs text-muted-foreground">
+                    (Admins get all permissions automatically)
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Customize what this user can access. Changing the role above
+                  resets these to default for that role.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {ALL_PERMISSIONS.map((perm: Permission) => {
+                    const info = PERMISSION_LABELS[perm];
+                    const value = form.permissions[perm] ?? false;
+                    return (
+                      <label
+                        key={perm}
+                        className={`flex items-start gap-2 p-2 rounded-md border cursor-pointer transition-colors ${
+                          value
+                            ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-800"
+                            : "border-border hover:bg-muted/50"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={value}
+                          onChange={() => togglePermission(perm)}
+                          className="mt-0.5"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium">{info.label}</div>
+                          <div className="text-xs text-muted-foreground">{info.description}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Active toggle */}
             <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3 sm:col-span-2">

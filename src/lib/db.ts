@@ -475,6 +475,8 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["phone", "TEXT"],
     ["securityQuestion", "TEXT"],
     ["securityAnswer", "TEXT"],
+    // v2.10.6: granular permissions stored as JSON string
+    ["permissions", "TEXT"],
   ],
   Vendor: [
     // Older versions of Vendor only had id, name, companyName, createdAt,

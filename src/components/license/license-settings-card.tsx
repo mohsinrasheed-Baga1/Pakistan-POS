@@ -226,17 +226,27 @@ export function LicenseSettingsCard() {
             value={new Date(license.activatedAt).toLocaleDateString()}
           />
 
-          {/* Expiry date */}
-          <InfoRow
-            icon={<Calendar className="w-4 h-4 text-muted-foreground" />}
-            label="Expires On"
-            value={
-              license.expiresAt
-                ? new Date(license.expiresAt).toLocaleDateString()
-                : "Never (permanent)"
-            }
-            highlight={isExpiringSoon ? "text-amber-600 font-bold" : ""}
-          />
+          {/* Expiry date — hide for permanent licenses (they have no expiry) */}
+          {!isPermanent && (
+            <InfoRow
+              icon={<Calendar className="w-4 h-4 text-muted-foreground" />}
+              label="Expires On"
+              value={
+                license.expiresAt
+                  ? new Date(license.expiresAt).toLocaleDateString()
+                  : "Never (permanent)"
+              }
+              highlight={isExpiringSoon ? "text-amber-600 font-bold" : ""}
+            />
+          )}
+          {isPermanent && (
+            <InfoRow
+              icon={<Crown className="w-4 h-4 text-amber-600" />}
+              label="License Status"
+              value="Lifetime License — No Expiry"
+              highlight="text-amber-700 font-bold"
+            />
+          )}
 
           {/* Last verified */}
           <InfoRow

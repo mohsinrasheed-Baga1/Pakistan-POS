@@ -192,8 +192,8 @@ export function LoginScreen() {
                 </Button>
               </form>
 
-              {/* Forgot Password Link */}
-              <div className="mt-3 text-center">
+              {/* Forgot Password Link + Activate License Link */}
+              <div className="mt-3 flex flex-col items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setMode("forgot-step1")}
@@ -201,6 +201,21 @@ export function LoginScreen() {
                 >
                   <KeyRound className="w-3.5 h-3.5" />
                   Forgot Password?
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Clear stored license → will trigger activation screen on next page load
+                    if (typeof window !== "undefined") {
+                      localStorage.removeItem("pakpos_license_data");
+                      localStorage.removeItem("pakpos_system_id");
+                    }
+                    window.location.reload();
+                  }}
+                  className="text-sm text-blue-600 hover:text-blue-700 hover:underline inline-flex items-center gap-1"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Activate License / Start Trial
                 </button>
               </div>
 
