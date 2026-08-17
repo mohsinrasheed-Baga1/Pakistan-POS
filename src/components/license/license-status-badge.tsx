@@ -3,27 +3,51 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Gift, Crown, ShieldCheck, Clock, AlertCircle, MessageCircle } from "lucide-react";
+import {
+  Gift,
+  Crown,
+  ShieldCheck,
+  Clock,
+  AlertCircle,
+  MessageCircle,
+  ShoppingCart,
+} from "lucide-react";
 import type { StoredLicense } from "@/lib/license/storage";
-import { getStoredLicense, getDaysRemaining } from "@/lib/license/storage";
+import {
+  getStoredLicense,
+  getDaysRemaining,
+  isTrialLicense,
+  getTrialSalesRemaining,
+} from "@/lib/license/storage";
 import { LICENSE_CONFIG } from "@/lib/license/config";
 
 /**
  * Compact license status banner shown at top of POS app.
- * Updates every 60 seconds so days-remaining countdown stays fresh.
+ * Updates every 30 seconds so days-remaining countdown stays fresh.
  */
 export function LicenseStatusBadge({ compact = false }: { compact?: boolean }) {
   const [license, setLicense] = useState<StoredLicense | null>(null);
+  const [trialSalesRemaining, setTrialSalesRemaining] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    setLicense(getStoredLicense());
+    const l = getStoredLicense();
+    setLicense(l);
+    if (isTrialLicense(l)) {
+      setTrialSalesRemaining(getTrialSalesRemaining());
+    }
 
-    // Refresh every 60 seconds (so days-remaining updates)
+    // Refresh every 30 seconds (so days-remaining + trial sales count updates)
     const t = setInterval(() => {
-      setLicense(getStoredLicense());
-    }, 60000);
+      const l2 = getStoredLicense();
+      setLicense(l2);
+      if (isTrialLicense(l2)) {
+        setTrialSalesRemaining(getTrialSalesRemaining());
+      } else {
+        setTrialSalesRemaining(null);
+      }
+    }, 30000);
     return () => clearInterval(t);
   }, []);
 
@@ -49,10 +73,15 @@ export function LicenseStatusBadge({ compact = false }: { compact?: boolean }) {
       <Badge
         variant={isExpiringSoon ? "destructive" : "secondary"}
         className="text-[10px] font-mono gap-1"
-        title={`License: ${label} • ${isPermanent ? "Lifetime" : `${daysRemaining}d left`}`}
+        title={`License: ${label} • ${isPermanent ? "Lifetime" : `${daysRemaining}d left`}${
+          isTrial && trialSalesRemaining !== null ? ` • ${trialSalesRemaining} sales left today` : ""
+        }`}
       >
         {icon}
         {isPermanent ? "LIFE" : `${daysRemaining}d`}
+        {isTrial && trialSalesRemaining !== null && (
+          <span className="ml-1 opacity-70">·{trialSalesRemaining}sale</span>
+        )}
       </Badge>
     );
   }
@@ -75,6 +104,15 @@ export function LicenseStatusBadge({ compact = false }: { compact?: boolean }) {
           <span className="flex items-center gap-1">
             <Clock className="w-3 h-3" />
             {daysRemaining} {daysRemaining === 1 ? "day" : "days"} left
+          </span>
+        </>
+      )}
+      {isTrial && trialSalesRemaining !== null && (
+        <>
+          <span className="opacity-50">•</span>
+          <span className="flex items-center gap-1">
+            <ShoppingCart className="w-3 h-3" />
+            {trialSalesRemaining} sales today
           </span>
         </>
       )}

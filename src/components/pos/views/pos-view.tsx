@@ -575,6 +575,34 @@ export function PosView({ settings }: PosViewProps) {
       return;
     }
 
+    // ─── TRIAL DAILY LIMIT CHECK ─────────────────────────────────────
+    // If using trial license, check if daily sale limit (30) is reached
+    try {
+      const { getStoredLicense, isTrialLicense, isTrialDailyLimitReached, getTrialSalesRemaining } =
+        await import("@/lib/license/storage");
+      const license = getStoredLicense();
+      if (isTrialLicense(license)) {
+        if (isTrialDailyLimitReached()) {
+          // Show limit reached toast and offer WhatsApp contact
+          toast.error(
+            "⚠️ Daily Limit Reached — You've made 30 sales today (trial limit).\nPurchase a license to continue selling unlimited.",
+            { duration: 8000 }
+          );
+          return; // Block the sale
+        }
+        const remaining = getTrialSalesRemaining();
+        if (remaining <= 5) {
+          // Warning when 5 or fewer sales left
+          toast.info(
+            `Trial limit: ${remaining} sales remaining today. Purchase a license to continue unlimited.`,
+            { duration: 5000 }
+          );
+        }
+      }
+    } catch {
+      // If license check fails, allow the sale (best-effort)
+    }
+
     // ─── SHOP CARD PAYMENT LOGIC ────────────────────────────────────────
     // If a shop card is linked, the sale is paid via the card's balance:
     //   - If card has ADVANCE balance (balance > 0): deduct from balance,
@@ -662,6 +690,22 @@ export function PosView({ settings }: PosViewProps) {
       setPaidAmount("");
       toast.success("Sale completed!");
       loadProducts();
+      // ─── Increment trial daily sale counter ─────────────────────────
+      // Only increments if license is trial type. Auto-resets each day.
+      try {
+        const { getStoredLicense, isTrialLicense, incrementTrialDailySales } =
+          await import("@/lib/license/storage");
+        const license = getStoredLicense();
+        if (isTrialLicense(license)) {
+          const newCount = incrementTrialDailySales();
+          if (newCount >= 25) {
+            // Warn as user approaches limit
+            toast.info(`Trial: ${30 - newCount} sales remaining today`, { duration: 3000 });
+          }
+        }
+      } catch {
+        // Silent — don't interrupt sale flow
+      }
       // Trigger Google Drive auto-backup after each sale (silent, non-blocking)
       // This ensures backups are taken frequently throughout the day as sales happen
       try {

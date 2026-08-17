@@ -114,40 +114,65 @@ jobs:
           fi
           echo "✓ Installer verified (${EXE_SIZE_MB} MB)"
 
-      - name: Verify EXE was uploaded to GitHub Release
+      - name: Verify EXE was uploaded to GitHub Release (auto-fix duplicates)
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.TAG }}
         run: |
-          echo "=== Checking if EXE was uploaded to release $TAG ==="
+          echo "=== Checking releases for tag $TAG ==="
           sleep 10
-          # Get the release ID
-          RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.id' 2>/dev/null)
-          if [ -z "$RELEASE_ID" ]; then
-            echo "WARNING: Could not find release for tag $TAG"
+
+          # Get ALL releases with this tag (may have duplicates from prior runs)
+          RELEASE_IDS=$(gh api "repos/${{ github.repository }}/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | .id" 2>/dev/null || echo "")
+
+          if [ -z "$RELEASE_IDS" ]; then
+            echo "WARNING: No release found for tag $TAG — something went wrong"
             exit 0
           fi
-          echo "Release ID: $RELEASE_ID"
-          # List all assets
-          echo "=== Assets in release $TAG ==="
-          gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets" --jq '.[] | "\(.name) (\(.size) bytes)"'
-          # Check if EXE is there
-          EXE_ASSET=$(gh api "repos/${{ github.repository }}/releases/$RELEASE_ID/assets" --jq '.[] | select(.name | endswith(".exe")) | .name' 2>/dev/null)
-          if [ -z "$EXE_ASSET" ]; then
+
+          echo "Found release IDs: $(echo $RELEASE_IDS | tr '\n' ' ')"
+
+          # Find the release that has the .exe asset (this is the GOOD one)
+          GOOD_RELEASE_ID=""
+          for id in $RELEASE_IDS; do
+            EXE_CHECK=$(gh api "repos/${{ github.repository }}/releases/$id/assets" --jq '[.[] | select(.name | endswith(".exe"))] | length' 2>/dev/null)
+            echo "Release $id has $EXE_CHECK .exe asset(s)"
+            if [ "$EXE_CHECK" -gt 0 ] && [ -z "$GOOD_RELEASE_ID" ]; then
+              GOOD_RELEASE_ID=$id
+              echo "✓ Using release $id as the GOOD one (has .exe)"
+            fi
+          done
+
+          # If no release has the EXE, upload manually
+          if [ -z "$GOOD_RELEASE_ID" ]; then
             echo ""
-            echo "⚠️  WARNING: EXE is NOT uploaded to release (only blockmap is)."
-            echo "This usually means the EXE upload timed out or hit a size limit."
-            echo "Attempting manual upload..."
-            # Find the local EXE
+            echo "⚠️  No release has .exe — attempting manual upload..."
             EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
             if [ -n "$EXE_FILE" ]; then
-              echo "Uploading $EXE_FILE manually..."
+              FIRST_ID=$(echo "$RELEASE_IDS" | head -n 1)
+              echo "Uploading $EXE_FILE to release $FIRST_ID..."
               gh release upload "$TAG" "$EXE_FILE" --clobber
-              echo "✓ Manual upload attempted"
+              echo "✓ Manual upload done"
+              GOOD_RELEASE_ID=$FIRST_ID
             fi
+          fi
+
+          # Now delete any DUPLICATE releases (same tag, different id, no .exe)
+          for id in $RELEASE_IDS; do
+            if [ "$id" != "$GOOD_RELEASE_ID" ]; then
+              echo "Deleting duplicate release $id (no .exe or duplicate)..."
+              gh api -X DELETE "repos/${{ github.repository }}/releases/$id" 2>/dev/null && echo "✓ Deleted $id" || echo "⚠ Failed to delete $id"
+            fi
+          done
+
+          # Final verification
+          FINAL_EXE=$(gh api "repos/${{ github.repository }}/releases/$GOOD_RELEASE_ID/assets" --jq '.[] | select(.name | endswith(".exe")) | .name' 2>/dev/null)
+          if [ -n "$FINAL_EXE" ]; then
+            echo "✓ FINAL VERIFICATION: $FINAL_EXE is in release $GOOD_RELEASE_ID"
           else
-            echo "✓ EXE is already in release: $EXE_ASSET"
+            echo "⚠️  ERROR: Still no .exe in release after all attempts"
+            exit 1
           fi
 
       - name: Clean up old releases (keep only latest 10)

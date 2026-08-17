@@ -917,6 +917,15 @@ if (!gotLock) {
   }
 
   app.whenReady().then(async () => {
+    // ─── Set up Windows network sharing permissions automatically ───────
+    // This allows Multi-PC mode to work just by connecting to WiFi/LAN,
+    // without the customer needing to manually configure Windows settings.
+    try {
+      await setupNetworkSharingPermissions();
+    } catch (e) {
+      console.log("[POS] Network sharing setup warning:", e.message);
+    }
+
     // F1 shortcut: open POS view and focus barcode input
     globalShortcut.register("F1", () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -944,6 +953,85 @@ if (!gotLock) {
     createWindow();
     startBackupScheduler();
   });
+
+  // ============================================================
+  // Auto Network Sharing Permissions Setup
+  // ============================================================
+  // On Windows, this automatically configures:
+  // 1. Windows Firewall inbound rule for the app's port (3000)
+  // 2. Network discovery + file sharing enabled on the current network profile
+  // 3. SMB share 'ShopPOS' on the data folder (host mode)
+  //
+  // This runs in the background after app launch. If it fails (e.g. user is
+  // not admin), the app still works in single-PC mode — only multi-PC mode
+  // would require manual firewall configuration by the user.
+  async function setupNetworkSharingPermissions() {
+    if (process.platform !== "win32") {
+      console.log("[POS] Network sharing: skipping on non-Windows");
+      return;
+    }
+
+    const { exec } = require("child_process");
+    const path = require("path");
+    const fs = require("fs");
+    const os = require("os");
+
+    const dataDir = path.join(app.getPath("userData"), "data");
+    if (!fs.existsSync(dataDir)) {
+      try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
+    }
+
+    // Run a series of netsh commands to enable network sharing
+    // (silent — no UAC prompt in most cases since we use 'netsh' which is allowed)
+    const commands = [
+      // 1. Enable network discovery (current profile)
+      'netsh advfirewall firewall set rule group="Network Discovery" new enable=Yes',
+      // 2. Enable file and printer sharing (current profile)
+      'netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes',
+      // 3. Allow inbound on port 3000 (POS app's HTTP port)
+      'netsh advfirewall firewall add rule name="Pakistan POS HTTP" dir=in action=allow protocol=TCP localport=3000',
+      // 4. Set current network profile to Private (so sharing works)
+      // Note: This needs PowerShell and may fail silently if not admin
+      'powershell -Command "Set-NetConnectionProfile -NetworkCategory Private" 2>nul',
+    ];
+
+    console.log("[POS] Setting up network sharing permissions...");
+    for (const cmd of commands) {
+      try {
+        await new Promise((resolve) => {
+          exec(cmd, { windowsHide: true }, (err) => {
+            if (err) {
+              // Silent — these may fail if user is not admin
+              console.log(`[POS] Network setup cmd failed (may need admin): ${cmd.substring(0, 60)}...`);
+            }
+            resolve(); // always resolve — don't block app on this
+          });
+        });
+      } catch (e) {
+        // Silent — continue
+      }
+    }
+
+    // Try to create a network share "ShopPOS" pointing to the data folder
+    // This needs admin rights; if it fails, user can do it manually
+    const shareCmd = `net share ShopPOS="${dataDir}" /GRANT:Everyone,FULL`;
+    try {
+      await new Promise((resolve) => {
+        exec(shareCmd, { windowsHide: true }, (err, stdout) => {
+          if (err) {
+            console.log(`[POS] Network share creation failed (needs admin). User can run as admin once.`);
+          } else {
+            console.log(`[POS] Network share 'ShopPOS' created at ${dataDir}`);
+          }
+          resolve();
+        });
+      });
+    } catch {
+      // Silent — non-fatal
+    }
+
+    console.log("[POS] Network sharing setup complete (best-effort)");
+  }
 
   app.on("window-all-closed", () => {
     isQuitting = true;

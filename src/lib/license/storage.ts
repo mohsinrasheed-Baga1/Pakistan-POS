@@ -172,3 +172,77 @@ export function isOfflineGraceExceeded(license: StoredLicense): boolean {
   const graceMs = 7 * 24 * 60 * 60 * 1000; // 7 days
   return Date.now() - last > graceMs;
 }
+
+// ============================================================
+// TRIAL DAILY SALE LIMIT
+// ============================================================
+// Trial users can only make a limited number of sales per day.
+// After reaching the limit, they see a "Daily Limit Reached" message
+// and need to purchase a license to continue selling.
+
+const TRIAL_DAILY_LIMIT = 30;
+const TRIAL_DAILY_KEY = "pakpos_trial_daily_sales";
+
+type DailySalesRecord = {
+  date: string; // YYYY-MM-DD
+  count: number;
+  limit: number;
+};
+
+/** Get today's date string (YYYY-MM-DD) in local timezone. */
+function getTodayDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/** Get the daily sales record for trial (auto-resets each day). */
+export function getTrialDailySales(): DailySalesRecord {
+  if (typeof window === "undefined") {
+    return { date: getTodayDateString(), count: 0, limit: TRIAL_DAILY_LIMIT };
+  }
+  try {
+    const raw = localStorage.getItem(TRIAL_DAILY_KEY);
+    const today = getTodayDateString();
+    if (!raw) {
+      return { date: today, count: 0, limit: TRIAL_DAILY_LIMIT };
+    }
+    const parsed = JSON.parse(raw) as DailySalesRecord;
+    // Reset count if date changed
+    if (parsed.date !== today) {
+      return { date: today, count: 0, limit: TRIAL_DAILY_LIMIT };
+    }
+    return { ...parsed, limit: TRIAL_DAILY_LIMIT };
+  } catch {
+    return { date: getTodayDateString(), count: 0, limit: TRIAL_DAILY_LIMIT };
+  }
+}
+
+/** Increment trial daily sales counter. Returns the new count. */
+export function incrementTrialDailySales(): number {
+  const current = getTrialDailySales();
+  const updated = { ...current, count: current.count + 1 };
+  if (typeof window !== "undefined") {
+    localStorage.setItem(TRIAL_DAILY_KEY, JSON.stringify(updated));
+  }
+  return updated.count;
+}
+
+/** Check if trial has reached today's sale limit. */
+export function isTrialDailyLimitReached(): boolean {
+  const record = getTrialDailySales();
+  return record.count >= record.limit;
+}
+
+/** Get remaining sales for today. */
+export function getTrialSalesRemaining(): number {
+  const record = getTrialDailySales();
+  return Math.max(0, record.limit - record.count);
+}
+
+/** Check if a license is trial type (used to apply daily limits). */
+export function isTrialLicense(license: StoredLicense | null): boolean {
+  return license?.licenseType === "trial";
+}
