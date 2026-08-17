@@ -595,7 +595,7 @@ function UserDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]" dir="ltr">
+      <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto" dir="ltr">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">

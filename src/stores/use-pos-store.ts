@@ -152,13 +152,13 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
     })),
   decrementItem: (productId, step) =>
     set((state) => ({
-      items: state.items
-        .map((i) =>
-          i.product.id === productId
-            ? { ...i, quantity: i.quantity - step }
-            : i
-        )
-        .filter((i) => i.quantity > 0),
+      items: state.items.map((i) =>
+        i.product.id === productId
+          ? // Don't go below 1 — keep item in cart at minimum quantity 1
+            // (User can use the X button or Delete key to remove the item)
+            { ...i, quantity: Math.max(1, i.quantity - step) }
+          : i
+      ),
     })),
   removeLastItem: () =>
     set((state) => ({
@@ -178,12 +178,15 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
     set((state) => {
       if (state.items.length === 0) return state;
       const lastIdx = state.items.length - 1;
-      const newItems = state.items
-        .map((item, idx) =>
-          idx === lastIdx ? { ...item, quantity: item.quantity - step } : item
-        )
-        .filter((i) => i.quantity > 0);
-      return { items: newItems };
+      // Don't go below 1 — keep last item at minimum quantity 1
+      // (User can press Delete key or click X button to remove the item)
+      return {
+        items: state.items.map((item, idx) =>
+          idx === lastIdx
+            ? { ...item, quantity: Math.max(1, item.quantity - step) }
+            : item
+        ),
+      };
     }),
   setDiscount: (discount) => set({ discount }),
   setCustomer: (customerName, customerPhone) =>

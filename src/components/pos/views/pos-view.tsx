@@ -432,18 +432,11 @@ export function PosView({ settings }: PosViewProps) {
             e.preventDefault();
             const lastItem = cart.items[cart.items.length - 1];
             const step = isLooseUnit(lastItem.product.unit) ? 0.5 : 1;
-            const newQty = lastItem.quantity - step;
-            if (newQty <= 0) {
-              if (!e.repeat) {
-                cart.removeLastItem();
-                toast.info(`${lastItem.product.name} removed`);
-              }
-              return;
-            } else {
-              // Use the store's decrementLastItem (always uses latest state)
-              cart.decrementLastItem(step);
-              if (!e.repeat) toast.success(`${lastItem.product.name}: ${newQty}`);
-            }
+            const newQty = Math.max(1, lastItem.quantity - step);
+            // Don't remove on minus — just decrement (min 1)
+            // User can use Delete key or X button to actually remove the item
+            cart.decrementLastItem(step);
+            if (!e.repeat) toast.success(`${lastItem.product.name}: ${newQty}`);
             return;
           }
         }

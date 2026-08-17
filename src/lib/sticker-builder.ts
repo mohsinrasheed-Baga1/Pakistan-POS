@@ -62,9 +62,9 @@ export function buildStickerHtml(data: StickerData, settings: BarcodeSettings): 
     barcodeNumber: settings.humanReadable
       ? `<div style="font-size: ${settings.fontSize - 1}px; font-family: monospace; font-weight: bold; color: ${settings.textColor};">${escapeHtml(data.productCode)}</div>`
       : "",
-    sellingPrice: `<div style="font-size: ${settings.fontSize + 3}px; font-weight: bold; color: ${settings.textColor};">${escapeHtml(data.currency)} ${data.salePrice.toLocaleString("en-PK", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>`,
-    purchasePrice: data.purchasePrice !== undefined
-      ? `<div style="font-size: ${settings.fontSize - 2}px; color: ${settings.textColor}; opacity: 0.6;">Cost: ${escapeHtml(data.currency)} ${data.purchasePrice.toLocaleString()}</div>`
+    sellingPrice: `<div style="font-size: ${settings.fontSize + 3}px; font-weight: bold; color: ${settings.textColor};">${escapeHtml(data.currency)} ${formatPrice(data.salePrice)}</div>`,
+    purchasePrice: data.purchasePrice != null
+      ? `<div style="font-size: ${settings.fontSize - 2}px; color: ${settings.textColor}; opacity: 0.6;">Cost: ${escapeHtml(data.currency)} ${formatPrice(data.purchasePrice)}</div>`
       : "",
     weight: data.weight ? `<div style="font-size: ${settings.fontSize - 2}px; color: ${settings.textColor}; opacity: 0.7;">Wt: ${escapeHtml(data.weight)}</div>` : "",
     unit: data.unit ? `<div style="font-size: ${settings.fontSize - 2}px; color: ${settings.textColor}; opacity: 0.7;">Unit: ${escapeHtml(data.unit)}</div>` : "",
@@ -169,11 +169,25 @@ export function buildPrintHtml(
   `;
 }
 
-function escapeHtml(s: string): string {
+function escapeHtml(s: string | null | undefined): string {
+  if (s == null) return "";
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// Safe number formatter — handles undefined/null/NaN without crashing
+function safeNumber(n: number | null | undefined): number {
+  if (n == null || isNaN(n as number)) return 0;
+  return n;
+}
+
+function formatPrice(n: number | null | undefined, min = 0, max = 2): string {
+  return safeNumber(n).toLocaleString("en-PK", {
+    minimumFractionDigits: min,
+    maximumFractionDigits: max,
+  });
 }

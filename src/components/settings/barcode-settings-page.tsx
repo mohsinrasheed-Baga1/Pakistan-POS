@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { useBarcodeSettings } from "@/hooks/use-barcode-settings";
 import {
   BarcodeSettings, ALL_STICKER_FIELDS, STICKER_SIZES, PRINTER_TYPES, FONT_FAMILIES,
+  DEFAULT_BARCODE_SETTINGS,
   getStickerDimensions,
 } from "@/lib/barcode-settings";
 import { buildStickerHtml, buildPrintHtml, StickerData } from "@/lib/sticker-builder";
@@ -41,13 +42,31 @@ export function BarcodeSettingsPage() {
             corrupted saved settings. Try resetting to defaults.
           </p>
           <Button
-            onClick={() => {
-              fetch("/api/settings/barcode", { method: "DELETE" }).then(() => {
+            onClick={async () => {
+              try {
+                await fetch("/api/settings/barcode", { method: "DELETE" });
+                // Clear any cached data and force a full reload
+                if (typeof window !== "undefined") {
+                  // Clear sessionStorage and any cached state
+                  sessionStorage.clear();
+                  localStorage.removeItem("barcode-settings-cache");
+                }
+                // Force a full page reload (not just React state reload)
+                window.location.href = window.location.pathname + "?reset=1&t=" + Date.now();
+              } catch (e) {
+                console.error("Reset failed:", e);
+                // Even if reset fails, try to reload
                 window.location.reload();
-              }).catch(() => window.location.reload());
+              }
             }}
           >
             Reset Settings
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => window.location.reload()}
+          >
+            Just Reload Page
           </Button>
         </div>
       }
@@ -79,12 +98,23 @@ class ErrorBoundary extends React.Component<
 }
 
 function BarcodeSettingsPageInner() {
-  const { settings, loading, reload } = useBarcodeSettings();
+  const { settings: loadedSettings, loading, reload } = useBarcodeSettings();
   const [saving, setSaving] = React.useState(false);
   const previewBarcodeRef = React.useRef<SVGSVGElement>(null);
 
-  const [draft, setDraft] = React.useState<BarcodeSettings>(settings);
-  React.useEffect(() => { if (!loading) setDraft(settings); }, [settings, loading]);
+  // Always have a safe draft — never undefined even if loading fails
+  const settings: BarcodeSettings = loadedSettings || DEFAULT_BARCODE_SETTINGS;
+  const [draft, setDraft] = React.useState<BarcodeSettings>(DEFAULT_BARCODE_SETTINGS);
+  React.useEffect(() => {
+    if (!loading && loadedSettings) {
+      try {
+        setDraft(loadedSettings);
+      } catch (e) {
+        console.error("Failed to set draft, using defaults:", e);
+        setDraft(DEFAULT_BARCODE_SETTINGS);
+      }
+    }
+  }, [loadedSettings, loading]);
 
   const [previewProduct, setPreviewProduct] = React.useState<StickerData>({
     shopName: "My Shop",
