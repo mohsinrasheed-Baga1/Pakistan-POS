@@ -417,13 +417,8 @@ export function PosView({ settings }: PosViewProps) {
             e.preventDefault();
             const lastItem = cart.items[cart.items.length - 1];
             const step = isLooseUnit(lastItem.product.unit) ? 0.5 : 1;
-            // Stock check
-            const stock = lastItem.product.stock || 0;
-            if (!isLooseUnit(lastItem.product.unit) && lastItem.quantity + step > stock) {
-              if (!e.repeat) toast.error(`Stock limit: only ${stock} available`);
-              return;
-            }
             // Use the store's incrementLastItem (always uses latest state)
+            // No stock check — user can add unlimited quantities
             cart.incrementLastItem(step);
             if (!e.repeat) {
               const updatedQty = lastItem.quantity + step;
@@ -452,7 +447,7 @@ export function PosView({ settings }: PosViewProps) {
             return;
           }
         }
-        // ─── Delete key: remove last cart item (alternative to Ctrl+Backspace) ─
+        // ─── Delete key: remove last cart item ──────────────────────────
         if (e.key === "Delete") {
           if (cart.items.length > 0 && !isSearchFocused) {
             e.preventDefault();
@@ -1074,8 +1069,7 @@ export function PosView({ settings }: PosViewProps) {
                                   className="h-6 w-6"
                                   onClick={() => {
                                     const step = isLooseUnit(item.product.unit) ? 0.5 : 1;
-                                    // Use decrementItem (always uses latest state)
-                                    // It automatically removes item if quantity drops to 0
+                                    // No stock limit on decrement — user can always reduce
                                     cart.decrementItem(item.product.id, step);
                                   }}
                                 >
@@ -1106,13 +1100,13 @@ export function PosView({ settings }: PosViewProps) {
                                   className="h-6 w-6"
                                   onClick={() => {
                                     const step = isLooseUnit(item.product.unit) ? 0.5 : 1;
-                                    // Stock check
-                                    const stock = item.product.stock || 0;
-                                    if (!isLooseUnit(item.product.unit) && item.quantity + step > stock) {
-                                      toast.error(`Stock limit: only ${stock} available`);
-                                      return;
-                                    }
-                                    // Use incrementItem (always uses latest state)
+                                    // Use incrementItem — always uses latest state
+                                    // (no stale closure issues)
+                                    // Note: stock check is NOT done here because:
+                                    // 1. Many products have stock=0 or low stock by design
+                                    // 2. User should be able to add more even if stock is low
+                                    //    (sale will be recorded as negative stock = "to order")
+                                    // 3. Sale API does its own stock deduction logic
                                     cart.incrementItem(item.product.id, step);
                                   }}
                                 >
