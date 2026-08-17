@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ActivationScreen } from "./activation-screen";
 import { LockoutScreen } from "./lockout-screen";
 import { LicenseBanner } from "./license-banner";
-import { ensureSystemId, getStoredLicense, saveLicense, clearLicense, isExpired, needsReverification, isClockRolledBack } from "@/lib/license/storage";
+import { ensureSystemId, getStoredLicense, saveLicense, clearLicense, isExpired, isClockRolledBack } from "@/lib/license/storage";
 import { verifyLicense } from "@/lib/license/client";
 
 type Props = {
@@ -81,71 +81,115 @@ export function LicenseGate({ children, showBanner = true }: Props) {
           return;
         }
 
-        // Re-verify with server on EVERY startup (always returns true now)
-        // This ensures trial/license expiry is checked against server-side NOW(),
-        // which cannot be manipulated by changing PC clock.
-        if (needsReverification(stored)) {
-          try {
-            const result = await verifyLicense({
-              licenseKey: stored.licenseKey,
-              systemId,
-            });
+        // ─── FAST PATH: If verified within 24h, immediately activate ───
+        // This prevents the "license asks every launch" issue
+        const lastVerified = new Date(stored.lastVerifiedAt).getTime();
+        const hoursSinceLastVerify = (Date.now() - lastVerified) / (1000 * 60 * 60);
+        if (hoursSinceLastVerify < 24) {
+          // Recently verified — trust local state and immediately unlock
+          if (mounted) setStatus({ kind: "active", systemId });
 
-            if (result.success && result.valid) {
-              // Update stored license with fresh data
-              const updated = {
-                ...stored,
-                lastVerifiedAt: new Date().toISOString(),
-                ...(result.license?.expiresAt
-                  ? { expiresAt: result.license.expiresAt }
-                  : {}),
-              };
-              saveLicense(updated);
-              if (mounted) setStatus({ kind: "active", systemId });
-            } else {
-              // Locked
-              clearLicense();
-              const reason =
-                result.reason === "license_revoked"
-                  ? "revoked"
-                  : result.reason === "license_expired"
-                    ? "expired"
-                    : "verification_failed";
-              if (mounted) {
+          // Background verify (silent — won't lock app if it fails)
+          verifyLicense({
+            licenseKey: stored.licenseKey,
+            systemId,
+          })
+            .then((result) => {
+              if (!mounted) return;
+              if (result.success && result.valid) {
+                // Update last verified timestamp + expiry if changed
+                const updated = {
+                  ...stored,
+                  lastVerifiedAt: new Date().toISOString(),
+                  ...(result.license?.expiresAt
+                    ? { expiresAt: result.license.expiresAt }
+                    : {}),
+                };
+                saveLicense(updated);
+                // Already active — no state change needed
+              } else if (
+                result.reason === "license_revoked" ||
+                result.reason === "license_expired"
+              ) {
+                // Server says license is revoked or expired — LOCK NOW
+                clearLicense();
                 setStatus({
                   kind: "locked",
-                  reason,
+                  reason:
+                    result.reason === "license_revoked"
+                      ? "revoked"
+                      : "expired",
                   systemId,
                   systemInfo,
                   message: result.message,
                   oldLicenseKey: stored.licenseKey,
                 });
               }
-            }
-          } catch {
-            // Network error during verification.
-            // Allow offline use if license is still locally valid (within 7-day grace).
-            const offlineGraceMs = 7 * 24 * 60 * 60 * 1000; // 7 days
-            const lastVerified = new Date(stored.lastVerifiedAt).getTime();
-            if (Date.now() - lastVerified < offlineGraceMs) {
-              if (mounted) setStatus({ kind: "active", systemId });
-            } else {
-              if (mounted) {
-                setStatus({
-                  kind: "locked",
-                  reason: "verification_failed",
-                  systemId,
-                  systemInfo,
-                  message:
-                    "Couldn't verify your license for over 7 days. Please connect to internet and try again.",
-                  oldLicenseKey: stored.licenseKey,
-                });
-              }
+              // For other failures (network), keep app active
+            })
+            .catch(() => {
+              // Silent — network error, keep app running
+            });
+          return;
+        }
+
+        // ─── SLOW PATH: Not verified in >24h — must verify before unlock ─
+        try {
+          const result = await verifyLicense({
+            licenseKey: stored.licenseKey,
+            systemId,
+          });
+
+          if (result.success && result.valid) {
+            // Update stored license with fresh data
+            const updated = {
+              ...stored,
+              lastVerifiedAt: new Date().toISOString(),
+              ...(result.license?.expiresAt
+                ? { expiresAt: result.license.expiresAt }
+                : {}),
+            };
+            saveLicense(updated);
+            if (mounted) setStatus({ kind: "active", systemId });
+          } else {
+            // Locked
+            clearLicense();
+            const reason =
+              result.reason === "license_revoked"
+                ? "revoked"
+                : result.reason === "license_expired"
+                  ? "expired"
+                  : "verification_failed";
+            if (mounted) {
+              setStatus({
+                kind: "locked",
+                reason,
+                systemId,
+                systemInfo,
+                message: result.message,
+                oldLicenseKey: stored.licenseKey,
+              });
             }
           }
-        } else {
-          // Recent verification — trust local state
-          if (mounted) setStatus({ kind: "active", systemId });
+        } catch {
+          // Network error during verification.
+          // Allow offline use if license is still locally valid (within 7-day grace).
+          const offlineGraceMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+          if (Date.now() - lastVerified < offlineGraceMs) {
+            if (mounted) setStatus({ kind: "active", systemId });
+          } else {
+            if (mounted) {
+              setStatus({
+                kind: "locked",
+                reason: "verification_failed",
+                systemId,
+                systemInfo,
+                message:
+                  "Couldn't verify your license for over 7 days. Please connect to internet and try again.",
+                oldLicenseKey: stored.licenseKey,
+              });
+            }
+          }
         }
       } catch (err) {
         console.error("License gate error:", err);

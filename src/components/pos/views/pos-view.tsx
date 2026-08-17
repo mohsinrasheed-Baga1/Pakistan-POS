@@ -417,15 +417,18 @@ export function PosView({ settings }: PosViewProps) {
             e.preventDefault();
             const lastItem = cart.items[cart.items.length - 1];
             const step = isLooseUnit(lastItem.product.unit) ? 0.5 : 1;
-            const newQty = lastItem.quantity + step;
             // Stock check
             const stock = lastItem.product.stock || 0;
-            if (!isLooseUnit(lastItem.product.unit) && newQty > stock) {
+            if (!isLooseUnit(lastItem.product.unit) && lastItem.quantity + step > stock) {
               if (!e.repeat) toast.error(`Stock limit: only ${stock} available`);
               return;
             }
-            cart.setQty(lastItem.product.id, newQty);
-            if (!e.repeat) toast.success(`${lastItem.product.name}: ${newQty}`);
+            // Use the store's incrementLastItem (always uses latest state)
+            cart.incrementLastItem(step);
+            if (!e.repeat) {
+              const updatedQty = lastItem.quantity + step;
+              toast.success(`${lastItem.product.name}: ${updatedQty}`);
+            }
             return;
           }
         }
@@ -435,15 +438,15 @@ export function PosView({ settings }: PosViewProps) {
             const lastItem = cart.items[cart.items.length - 1];
             const step = isLooseUnit(lastItem.product.unit) ? 0.5 : 1;
             const newQty = lastItem.quantity - step;
-            // Prevent going below 1 (don't allow 0 or negative via keyboard)
             if (newQty <= 0) {
               if (!e.repeat) {
-                cart.removeItem(lastItem.product.id);
+                cart.removeLastItem();
                 toast.info(`${lastItem.product.name} removed`);
               }
               return;
             } else {
-              cart.setQty(lastItem.product.id, newQty);
+              // Use the store's decrementLastItem (always uses latest state)
+              cart.decrementLastItem(step);
               if (!e.repeat) toast.success(`${lastItem.product.name}: ${newQty}`);
             }
             return;
@@ -454,7 +457,7 @@ export function PosView({ settings }: PosViewProps) {
           if (cart.items.length > 0 && !isSearchFocused) {
             e.preventDefault();
             const lastItem = cart.items[cart.items.length - 1];
-            cart.removeItem(lastItem.product.id);
+            cart.removeLastItem();
             if (!e.repeat) toast.info(`${lastItem.product.name} removed`);
             return;
           }
@@ -1070,9 +1073,10 @@ export function PosView({ settings }: PosViewProps) {
                                   variant="outline"
                                   className="h-6 w-6"
                                   onClick={() => {
-                                    const newQty = item.quantity - (isLooseUnit(item.product.unit) ? 0.5 : 1);
-                                    if (newQty <= 0) return; // prevent negative
-                                    cart.setQty(item.product.id, newQty);
+                                    const step = isLooseUnit(item.product.unit) ? 0.5 : 1;
+                                    // Use decrementItem (always uses latest state)
+                                    // It automatically removes item if quantity drops to 0
+                                    cart.decrementItem(item.product.id, step);
                                   }}
                                 >
                                   <Minus className="w-3 h-3" />
@@ -1102,14 +1106,14 @@ export function PosView({ settings }: PosViewProps) {
                                   className="h-6 w-6"
                                   onClick={() => {
                                     const step = isLooseUnit(item.product.unit) ? 0.5 : 1;
-                                    const newQty = item.quantity + step;
-                                    // Stock check: prevent selling more than available
+                                    // Stock check
                                     const stock = item.product.stock || 0;
-                                    if (!isLooseUnit(item.product.unit) && newQty > stock) {
+                                    if (!isLooseUnit(item.product.unit) && item.quantity + step > stock) {
                                       toast.error(`Stock limit: only ${stock} available`);
                                       return;
                                     }
-                                    cart.setQty(item.product.id, newQty);
+                                    // Use incrementItem (always uses latest state)
+                                    cart.incrementItem(item.product.id, step);
                                   }}
                                 >
                                   <Plus className="w-3 h-3" />

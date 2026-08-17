@@ -55,6 +55,15 @@ interface CartState {
   addItem: (product: Product, qty?: number) => void;
   removeItem: (productId: string) => void;
   setQty: (productId: string, qty: number) => void;
+  // v2.10.7: increment/decrement helpers that always use latest state
+  // (prevents stale closure issues with + / - buttons)
+  incrementItem: (productId: string, step: number) => void;
+  decrementItem: (productId: string, step: number) => void;
+  // v2.10.7: remove last cart item (for Delete key)
+  removeLastItem: () => void;
+  // v2.10.7: increment/decrement last cart item (for +/- keyboard)
+  incrementLastItem: (step: number) => void;
+  decrementLastItem: (step: number) => void;
   setDiscount: (v: number) => void;
   setCustomer: (name: string, phone: string) => void;
   setPaymentMethod: (m: "CASH" | "CARD" | "MOBILE") => void;
@@ -132,6 +141,50 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
               i.product.id === productId ? { ...i, quantity: qty } : i
             ),
     })),
+  // v2.10.7: increment always uses latest state (no stale closures)
+  incrementItem: (productId, step) =>
+    set((state) => ({
+      items: state.items.map((i) =>
+        i.product.id === productId
+          ? { ...i, quantity: i.quantity + step }
+          : i
+      ),
+    })),
+  decrementItem: (productId, step) =>
+    set((state) => ({
+      items: state.items
+        .map((i) =>
+          i.product.id === productId
+            ? { ...i, quantity: i.quantity - step }
+            : i
+        )
+        .filter((i) => i.quantity > 0),
+    })),
+  removeLastItem: () =>
+    set((state) => ({
+      items: state.items.slice(0, -1),
+    })),
+  incrementLastItem: (step) =>
+    set((state) => {
+      if (state.items.length === 0) return state;
+      const lastIdx = state.items.length - 1;
+      return {
+        items: state.items.map((item, idx) =>
+          idx === lastIdx ? { ...item, quantity: item.quantity + step } : item
+        ),
+      };
+    }),
+  decrementLastItem: (step) =>
+    set((state) => {
+      if (state.items.length === 0) return state;
+      const lastIdx = state.items.length - 1;
+      const newItems = state.items
+        .map((item, idx) =>
+          idx === lastIdx ? { ...item, quantity: item.quantity - step } : item
+        )
+        .filter((i) => i.quantity > 0);
+      return { items: newItems };
+    }),
   setDiscount: (discount) => set({ discount }),
   setCustomer: (customerName, customerPhone) =>
     set({ customerName, customerPhone }),

@@ -771,15 +771,46 @@ if (!gotLock) {
         // If we downloaded via GitHub API fallback, run the installer directly
         if (global.downloadedUpdatePath) {
           console.log("[POS] Installing from:", global.downloadedUpdatePath);
-          const { exec } = require("child_process");
-          // Run the installer silently (NSIS supports /S for silent install)
-          exec(`"${global.downloadedUpdatePath}" /S`, (err) => {
-            if (err) {
-              // If silent fails, try normal launch
-              exec(`start "" "${global.downloadedUpdatePath}"`);
-            }
-            app.quit();
+          const { exec, spawn } = require("child_process");
+          const fs = require("fs");
+          const path = require("path");
+
+          // Get the app executable path (for re-launching after install)
+          const appExePath = process.execPath;
+          const appDir = path.dirname(appExePath);
+          console.log("[POS] Will re-launch app from:", appExePath);
+
+          // Write a small helper batch file that:
+          // 1. Waits for current app to exit
+          // 2. Runs the installer silently
+          // 3. Re-launches the new app after install completes
+          const helperBat = path.join(app.getPath("temp"), "pos-update-helper.bat");
+          const batContent = `@echo off
+REM Wait for current app to exit
+timeout /t 2 /nobreak >nul
+REM Run installer silently
+start /wait "" "${global.downloadedUpdatePath}" /S
+REM Wait for install to complete
+timeout /t 3 /nobreak >nul
+REM Re-launch the new app
+start "" "${appExePath}"
+REM Self-cleanup
+del "%~f0"
+`;
+          fs.writeFileSync(helperBat, batContent);
+
+          // Launch the helper batch detached from this app
+          const child = spawn("cmd.exe", ["/c", helperBat], {
+            detached: true,
+            stdio: "ignore",
+            windowsHide: true,
           });
+          child.unref();
+
+          // Give the helper a moment, then quit
+          setTimeout(() => {
+            app.quit();
+          }, 500);
           return;
         }
         // Default: electron-updater's quit and install
@@ -903,13 +934,27 @@ if (!gotLock) {
     ipcMain.handle("updater:install", async () => {
       if (global.downloadedUpdatePath) {
         console.log("[POS] Installing from:", global.downloadedUpdatePath);
-        const { exec } = require("child_process");
-        exec(`"${global.downloadedUpdatePath}" /S`, (err) => {
-          if (err) {
-            exec(`start "" "${global.downloadedUpdatePath}"`);
-          }
-          app.quit();
+        const { spawn } = require("child_process");
+        const fs = require("fs");
+        const path = require("path");
+
+        const appExePath = process.execPath;
+        const helperBat = path.join(app.getPath("temp"), "pos-update-helper.bat");
+        const batContent = `@echo off
+timeout /t 2 /nobreak >nul
+start /wait "" "${global.downloadedUpdatePath}" /S
+timeout /t 3 /nobreak >nul
+start "" "${appExePath}"
+del "%~f0"
+`;
+        fs.writeFileSync(helperBat, batContent);
+        const child = spawn("cmd.exe", ["/c", helperBat], {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
         });
+        child.unref();
+        setTimeout(() => app.quit(), 500);
         return;
       }
       throw new Error("No update downloaded yet");

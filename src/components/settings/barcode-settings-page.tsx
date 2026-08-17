@@ -29,6 +29,56 @@ import {
 import { buildStickerHtml, buildPrintHtml, StickerData } from "@/lib/sticker-builder";
 
 export function BarcodeSettingsPage() {
+  // Wrap the entire page in an error boundary to prevent "client-side exception"
+  // from taking down the whole app. If anything fails, show a fallback message.
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="p-6 max-w-md mx-auto text-center">
+          <h2 className="text-lg font-bold text-red-600 mb-2">Settings Load Error</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            The barcode & sticker settings page failed to load. This may be due to
+            corrupted saved settings. Try resetting to defaults.
+          </p>
+          <Button
+            onClick={() => {
+              fetch("/api/settings/barcode", { method: "DELETE" }).then(() => {
+                window.location.reload();
+              }).catch(() => window.location.reload());
+            }}
+          >
+            Reset Settings
+          </Button>
+        </div>
+      }
+    >
+      <BarcodeSettingsPageInner />
+    </ErrorBoundary>
+  );
+}
+
+// ─── Error Boundary (class component) ─────────────────────────────────────
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error) {
+    console.error("BarcodeSettingsPage ErrorBoundary:", error);
+  }
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
+function BarcodeSettingsPageInner() {
   const { settings, loading, reload } = useBarcodeSettings();
   const [saving, setSaving] = React.useState(false);
   const previewBarcodeRef = React.useRef<SVGSVGElement>(null);
@@ -533,7 +583,9 @@ function DragDropFieldList({ fields, onChange }: { fields: string[]; onChange: (
   }));
 
   const sorted = [
-    ...fields.map(key => allFields.find(f => f.key === key)!).filter(Boolean),
+    ...fields
+      .map(key => allFields.find(f => f.key === key))
+      .filter((f): f is typeof allFields[number] => !!f),
     ...allFields.filter(f => !fields.includes(f.key)),
   ];
 
