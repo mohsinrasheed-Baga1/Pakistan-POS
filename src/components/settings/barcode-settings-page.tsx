@@ -134,8 +134,8 @@ function BarcodeSettingsPageInner() {
 
   // Render barcode using JsBarcode via CALLBACK REF
   // Wrapped in try/catch to prevent any error from crashing the page
-  const [barcodeReady, setBarcodeReady] = React.useState(false);
-
+  // v2.10.11: Added proper deps + removed setBarcodeReady toggle that was
+  //   causing infinite re-render when draft changed
   const previewBarcodeCallbackRef = React.useCallback((svgEl: SVGSVGElement | null) => {
     if (!svgEl) return;
     try {
@@ -162,8 +162,11 @@ function BarcodeSettingsPageInner() {
             lineColor: "#000000",
           });
           const svgHtml = svgEl.outerHTML;
-          setPreviewProduct(prev => ({ ...prev, barcodeSvg: svgHtml }));
-          setBarcodeReady(prev => !prev);
+          // Only update if SVG actually changed (prevents infinite loop)
+          setPreviewProduct(prev => {
+            if (prev.barcodeSvg === svgHtml) return prev; // no change — no re-render
+            return { ...prev, barcodeSvg: svgHtml };
+          });
         } catch (e) {
           console.error("JsBarcode render error:", e);
         }
@@ -518,7 +521,7 @@ function BarcodeSettingsPageInner() {
                   {/* Render sticker preview as REAL HTML (not dangerouslySetInnerHTML)
                       so the barcode SVG is a LIVE element that JsBarcode can render into */}
                   <div
-                    key={barcodeReady ? "ready" : "pending"}
+                    key={previewProduct.barcodeSvg ? "ready" : "pending"}
                     style={{
                       width: `${widthMm * 3.78}px`,
                       minHeight: `${heightMm * 3.78}px`,

@@ -45,6 +45,22 @@ declare global {
       version: string;
       platform: string;
       openPath?: (p: string) => Promise<{ ok: boolean; opened?: string; error?: string }>;
+      // v2.10.11: Get real machine fingerprint from Electron main process
+      getSystemFingerprint?: () => Promise<{
+        systemId: string;
+        systemInfo: {
+          hostname: string;
+          platform: string;
+          cpuModel: string;
+          cpuCores: number;
+          totalMemory: string;
+          machineModel: string;
+          macAddress: string;
+          machineUuid: string;
+          diskSerial: string;
+        };
+        error?: string;
+      }>;
       googleDrive?: GoogleDriveAPI;
       updater?: UpdaterAPI;
     };

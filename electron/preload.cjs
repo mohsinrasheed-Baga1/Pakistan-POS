@@ -7,6 +7,10 @@ contextBridge.exposeInMainWorld("posElectron", {
   openPath: (p) => ipcRenderer.invoke("pos:open-path", p),
   openExternal: (url) => ipcRenderer.invoke("pos:open-external", url),
 
+  // System Fingerprint — get REAL machine ID from main process (v2.10.11)
+  // Returns unique ID based on MAC address, hostname, machine UUID, disk serial
+  getSystemFingerprint: () => ipcRenderer.invoke("system:get-fingerprint"),
+
   googleDrive: {
     connect: () => ipcRenderer.invoke("gdrive:connect"),
     disconnect: () => ipcRenderer.invoke("gdrive:disconnect"),

@@ -4,8 +4,9 @@
  * Creates a unique, stable ID for the current machine.
  * Used to enforce "one license = one system" rule.
  *
- * Browser-safe version: uses canvas fingerprint + screen + navigator.
- * Electron version: also available (see ElectronFingerprint below).
+ * Priority:
+ * 1. Electron IPC (real machine fingerprint: MAC, hostname, disk serial, UUID)
+ * 2. Browser fallback (canvas + navigator — less unique, but works in dev)
  */
 
 import crypto from "crypto";
@@ -17,6 +18,9 @@ type SystemInfo = {
   cpuCores: number;
   totalMemory: string;
   machineModel: string;
+  macAddress?: string;
+  machineUuid?: string;
+  diskSerial?: string;
 };
 
 /**
@@ -27,6 +31,24 @@ async function collectSystemInfo(): Promise<{
   systemId: string;
   systemInfo: SystemInfo;
 }> {
+  // ─── PRIORITY 1: Electron IPC (real machine fingerprint) ──────────────
+  // This is the most reliable — uses MAC, hostname, machine UUID, disk serial
+  if (typeof window !== "undefined" && window.posElectron?.getSystemFingerprint) {
+    try {
+      const result = await window.posElectron.getSystemFingerprint();
+      if (result && result.systemId && !result.error) {
+        return {
+          systemId: result.systemId,
+          systemInfo: result.systemInfo as SystemInfo,
+        };
+      }
+      console.warn("[SystemID] Electron fingerprint returned no ID, falling back");
+    } catch (e) {
+      console.warn("[SystemID] Electron fingerprint failed, falling back:", e);
+    }
+  }
+
+  // ─── FALLBACK: Browser-based fingerprint (dev mode or non-Electron) ────
   let hostname = "unknown-host";
   let platform = "unknown-platform";
   let cpuModel = "unknown-cpu";
@@ -34,7 +56,7 @@ async function collectSystemInfo(): Promise<{
   let totalMemory = "0 GB";
   let machineModel = "unknown";
 
-  // Node.js / Electron main process
+  // Node.js / Electron main process (only works if running in main)
   if (typeof process !== "undefined" && process.versions?.node) {
     try {
       const os = await import("os");
@@ -57,7 +79,7 @@ async function collectSystemInfo(): Promise<{
     if (platform === "unknown-platform") platform = navigator.platform || platform;
   }
 
-  // Canvas fingerprint (browser-only, stable across sessions)
+  // Canvas fingerprint (browser-only)
   let canvasHash = "no-canvas";
   try {
     if (typeof document !== "undefined") {
@@ -69,7 +91,12 @@ async function collectSystemInfo(): Promise<{
         ctx.fillStyle = "#f60";
         ctx.fillRect(125, 1, 62, 20);
         ctx.fillStyle = "#069";
-        ctx.fillText("PakistanPOS-Fingerprint-2026", 2, 15);
+        // Use a more specific string to make canvas more unique per machine
+        ctx.fillText(
+          `PakistanPOS-FP-${hostname}-${cpuModel}-${navigator?.userAgent?.substring(0, 50) || ""}`,
+          2,
+          15,
+        );
         canvasHash = canvas.toDataURL().slice(-64);
       }
     }
@@ -77,7 +104,7 @@ async function collectSystemInfo(): Promise<{
     canvasHash = "canvas-error";
   }
 
-  // MAC address (Electron only — needs os.networkInterfaces)
+  // MAC address (Electron main process only — renderer can't access this)
   let macAddress = "no-mac";
   try {
     if (typeof process !== "undefined" && process.versions?.node) {
@@ -87,7 +114,6 @@ async function collectSystemInfo(): Promise<{
         const nets = interfaces[name];
         if (!nets) continue;
         for (const net of nets) {
-          // Skip internal (loopback) and non-IPv4
           if (!net.internal && net.family === "IPv4" && net.mac && net.mac !== "00:00:00:00:00:00") {
             macAddress = net.mac;
             break;
@@ -100,7 +126,7 @@ async function collectSystemInfo(): Promise<{
     // ignore
   }
 
-  // Combine into fingerprint
+  // Combine into fingerprint — include hostname + user + canvas for uniqueness
   const fingerprint = [
     hostname,
     platform,
@@ -110,24 +136,24 @@ async function collectSystemInfo(): Promise<{
     machineModel,
     macAddress,
     canvasHash,
+    navigator?.userAgent?.substring(0, 100) || "no-ua",
   ].join("|");
 
-  // SHA-256 hash → take first 32 chars for readability
-  const systemId = `SYS-${crypto
+  // SHA-256 hash → take first 24 chars
+  const hash = crypto
     .createHash("sha256")
     .update(fingerprint)
     .digest("hex")
     .substring(0, 24)
-    .toUpperCase()}`;
+    .toUpperCase();
 
-  // Insert dashes for readability: SYS-XXXX-XXXX-XXXX-XXXX-XXXX
-  const formatted = `${systemId.substring(0, 4)}-${systemId.substring(4, 8)}-${systemId.substring(
+  const systemId = `SYS-${hash.substring(0, 4)}-${hash.substring(4, 8)}-${hash.substring(
     8,
     12,
-  )}-${systemId.substring(12, 16)}-${systemId.substring(16, 20)}-${systemId.substring(20, 24)}`;
+  )}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 24)}`;
 
   return {
-    systemId: formatted,
+    systemId,
     systemInfo: {
       hostname,
       platform,
@@ -135,6 +161,7 @@ async function collectSystemInfo(): Promise<{
       cpuCores,
       totalMemory,
       machineModel,
+      macAddress,
     },
   };
 }

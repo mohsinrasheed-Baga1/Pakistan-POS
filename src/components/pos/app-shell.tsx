@@ -22,6 +22,8 @@ import {
   Truck,
   TrendingDown,
   Smartphone,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -71,6 +73,20 @@ export function AppShell({ user, settings }: AppShellProps) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
+
+  // v2.10.11: Collapsible sidebar state (persists in localStorage)
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
+  React.useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("pos-sidebar-collapsed") : null;
+    if (saved === "true") setSidebarCollapsed(true);
+  }, []);
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") localStorage.setItem("pos-sidebar-collapsed", String(next));
+      return next;
+    });
+  };
 
   const roleOrder = { CASHIER: 1, MANAGER: 2, ADMIN: 3 };
   const navItems = NAV.filter((n) => {
@@ -191,31 +207,47 @@ export function AppShell({ user, settings }: AppShellProps) {
       </header>
 
       <div className="flex flex-1">
-        {/* Sidebar (left for LTR) */}
+        {/* Sidebar (left for LTR) — collapsible v2.10.11 */}
         <aside
           className={cn(
-            "fixed lg:sticky top-0 left-0 z-50 h-screen w-72 bg-background border-r flex flex-col transition-transform lg:translate-x-0",
+            "fixed lg:sticky top-0 left-0 z-50 h-screen bg-background border-r flex flex-col transition-all duration-200 lg:translate-x-0",
+            sidebarCollapsed ? "w-16" : "w-72",
             sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
           )}
         >
           <div className="flex items-center justify-between p-4 border-b h-16">
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center">
+            <div className={cn("flex items-center gap-2", sidebarCollapsed && "justify-center w-full")}>
+              <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center flex-shrink-0">
                 <Store className="w-5 h-5 text-white" />
               </div>
-              <div className="leading-tight">
-                <div className="font-bold text-sm">
-                  {settings?.shopName || "POS"}
+              {!sidebarCollapsed && (
+                <div className="leading-tight min-w-0">
+                  <div className="font-bold text-sm truncate">
+                    {settings?.shopName || "POS"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Shop System
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  Shop System
-                </div>
-              </div>
+              )}
             </div>
             <div className="flex items-center gap-1">
-              <div className="hidden lg:block">
-                <NotificationsBell />
-              </div>
+              {!sidebarCollapsed && (
+                <div className="hidden lg:block">
+                  <NotificationsBell />
+                </div>
+              )}
+              {/* Collapse toggle button (desktop only) */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden lg:flex"
+                onClick={toggleSidebar}
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {sidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
@@ -227,17 +259,21 @@ export function AppShell({ user, settings }: AppShellProps) {
             </div>
           </div>
 
-          <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          <nav className={cn("flex-1 p-3 space-y-1 overflow-y-auto", sidebarCollapsed && "px-2")}>
             {/* Prominent Sell button */}
             <button
               onClick={() => {
                 setView("pos");
                 setSidebarOpen(false);
               }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-base font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-md mb-3"
+              className={cn(
+                "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-base font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-md mb-3",
+                sidebarCollapsed && "px-2",
+              )}
+              title="Sell (POS)"
             >
-              <ShoppingCart className="w-5 h-5" />
-              SELL (POS)
+              <ShoppingCart className="w-5 h-5 flex-shrink-0" />
+              {!sidebarCollapsed && "SELL (POS)"}
             </button>
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -251,13 +287,15 @@ export function AppShell({ user, settings }: AppShellProps) {
                   }}
                   className={cn(
                     "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left",
+                    sidebarCollapsed && "justify-center px-2",
                     active
                       ? "bg-emerald-600 text-white shadow-sm"
                       : "hover:bg-muted text-foreground"
                   )}
+                  title={sidebarCollapsed ? item.label : undefined}
                 >
                   <Icon className="w-5 h-5 shrink-0" />
-                  <span className="flex-1 text-left">{item.label}</span>
+                  {!sidebarCollapsed && <span className="flex-1 text-left">{item.label}</span>}
                 </button>
               );
             })}
@@ -317,7 +355,8 @@ export function AppShell({ user, settings }: AppShellProps) {
 
         {/* Main content */}
         <main className="flex-1 min-w-0 min-h-screen flex flex-col">
-          <div className="flex-1 p-4 lg:p-6">{renderView()}</div>
+          {/* v2.10.11: Use full width on large screens (22" monitors) */}
+          <div className="flex-1 p-4 lg:p-6 w-full max-w-[2560px] mx-auto">{renderView()}</div>
           <footer className="mt-auto border-t bg-background py-3 px-4 text-center text-xs text-muted-foreground">
             {settings?.shopName || "POS System"} • Built with Z.ai • All rights reserved
           </footer>

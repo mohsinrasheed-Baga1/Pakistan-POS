@@ -609,6 +609,128 @@ if (!gotLock) {
   });
 
   // ============================================================
+  // System Fingerprint — Real Machine ID (v2.10.11)
+  // ============================================================
+  // The renderer process (browser) can't access MAC address, hostname,
+  // or disk serial — these are OS-level APIs. So we collect them here
+  // in the main process and return to renderer via IPC.
+  ipcMain.handle("system:get-fingerprint", async () => {
+    try {
+      const os = require("os");
+      const { execSync } = require("child_process");
+      const crypto = require("crypto");
+
+      // 1. MAC address (primary identifier)
+      let macAddress = "no-mac";
+      try {
+        const interfaces = os.networkInterfaces();
+        for (const name of Object.keys(interfaces)) {
+          const nets = interfaces[name];
+          if (!nets) continue;
+          for (const net of nets) {
+            if (!net.internal && net.family === "IPv4" && net.mac && net.mac !== "00:00:00:00:00:00") {
+              macAddress = net.mac;
+              break;
+            }
+          }
+          if (macAddress !== "no-mac") break;
+        }
+      } catch {}
+
+      // 2. Hostname
+      let hostname = "unknown-host";
+      try { hostname = os.hostname() || hostname; } catch {}
+
+      // 3. CPU model
+      let cpuModel = "unknown-cpu";
+      let cpuCores = 1;
+      try {
+        const cpus = os.cpus();
+        cpuModel = cpus?.[0]?.model || cpuModel;
+        cpuCores = cpus?.length || cpuCores;
+      } catch {}
+
+      // 4. Total memory
+      let totalMemory = "0 GB";
+      try {
+        const totalBytes = os.totalmem();
+        totalMemory = `${(totalBytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+      } catch {}
+
+      // 5. Machine UUID / Serial (Windows: registry, Mac: ioreg, Linux: /etc/machine-id)
+      let machineUuid = "no-uuid";
+      try {
+        if (process.platform === "win32") {
+          // Windows: get machine GUID from registry
+          const out = execSync('reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid', { windowsHide: true }).toString();
+          const match = out.match(/MachineGuid\s+REG_SZ\s+([A-Fa-f0-9-]+)/);
+          if (match) machineUuid = match[1];
+        } else if (process.platform === "darwin") {
+          // Mac: IOPlatformUUID
+          const out = execSync("ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/ { print $3 }'", { windowsHide: true }).toString().trim();
+          if (out) machineUuid = out.replace(/"/g, "");
+        } else if (process.platform === "linux") {
+          // Linux: /etc/machine-id
+          const fs = require("fs");
+          if (fs.existsSync("/etc/machine-id")) {
+            machineUuid = fs.readFileSync("/etc/machine-id", "utf-8").trim();
+          }
+        }
+      } catch {}
+
+      // 6. Disk volume serial (Windows only)
+      let diskSerial = "no-disk";
+      try {
+        if (process.platform === "win32") {
+          const out = execSync("vol C:", { windowsHide: true }).toString();
+          const match = out.match(/Serial Number is\s+([A-Fa-f0-9-]+)/);
+          if (match) diskSerial = match[1];
+        }
+      } catch {}
+
+      // 7. Current user
+      let userName = "unknown-user";
+      try { userName = os.userInfo()?.username || userName; } catch {}
+
+      // Combine ALL unique identifiers into fingerprint
+      const fingerprint = [
+        `mac=${macAddress}`,
+        `host=${hostname}`,
+        `cpu=${cpuModel}`,
+        `cores=${cpuCores}`,
+        `mem=${totalMemory}`,
+        `uuid=${machineUuid}`,
+        `disk=${diskSerial}`,
+        `user=${userName}`,
+      ].join("|");
+
+      // SHA-256 hash → take first 24 chars
+      const hash = crypto.createHash("sha256").update(fingerprint).digest("hex").substring(0, 24).toUpperCase();
+
+      // Format: SYS-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
+      const systemId = `SYS-${hash.substring(0, 4)}-${hash.substring(4, 8)}-${hash.substring(8, 12)}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 24)}`;
+
+      return {
+        systemId,
+        systemInfo: {
+          hostname,
+          platform: `${os.type()} ${os.release()}`,
+          cpuModel,
+          cpuCores,
+          totalMemory,
+          machineModel: `${userName}@${hostname}`,
+          macAddress,
+          machineUuid,
+          diskSerial,
+        },
+      };
+    } catch (e) {
+      console.error("[POS] System fingerprint error:", e.message);
+      return { error: e.message, systemId: null, systemInfo: null };
+    }
+  });
+
+  // ============================================================
   // electron-updater IPC handlers (delta/differential updates)
   // ============================================================
   if (autoUpdater) {
