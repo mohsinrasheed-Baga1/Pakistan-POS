@@ -311,6 +311,16 @@ function BarcodeSettingsPageInner() {
         </div>
       </div>
 
+      {/* v2.10.13: Hint to select default sticker printer for silent printing */}
+      <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm p-3 rounded-md flex items-center gap-2">
+        <Printer className="w-4 h-4 flex-shrink-0" />
+        <span>
+          <strong>Silent Sticker Printing:</strong> To print stickers without
+          the printer dialog each time, select a default sticker printer in{" "}
+          <strong>Settings → Printer</strong>.
+        </span>
+      </div>
+
       {/* 2-column layout: settings (wide) + preview sidebar (narrow) */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
 

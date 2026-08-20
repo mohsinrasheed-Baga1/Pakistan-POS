@@ -134,6 +134,18 @@ export function ReceiptSettingsPage() {
         </div>
       </div>
 
+      {/* v2.10.13: Hint to select default printer for silent printing */}
+      <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm p-3 rounded-md flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Printer className="w-4 h-4 flex-shrink-0" />
+          <span>
+            <strong>Silent Printing:</strong> To print receipts without the
+            printer dialog each time, select a default receipt printer in{" "}
+            <strong>Settings → Printer</strong>.
+          </span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
         {/* LEFT: Settings */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

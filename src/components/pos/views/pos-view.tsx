@@ -1068,36 +1068,13 @@ export function PosView({ settings }: PosViewProps) {
                                 >
                                   <Minus className="w-3 h-3" />
                                 </Button>
-                                <Input
-                                  className="h-6 w-14 text-center px-1 text-xs"
-                                  value={item.quantity}
-                                  inputMode="decimal"
-                                  onFocus={(e) => e.target.select()}
-                                  onChange={(e) => {
-                                    // Allow decimal input (e.g. 0.56, 0.32, 1.5)
-                                    // Don't immediately convert to number — let user type
-                                    const raw = e.target.value;
-                                    // Allow empty string (user clearing the field to type new value)
-                                    if (raw === "") {
-                                      cart.setQty(item.product.id, 0);
-                                      return;
-                                    }
-                                    // Allow valid number formats: "0", "0.", "0.5", "1.25", etc.
-                                    if (/^\d*\.?\d*$/.test(raw)) {
-                                      const v = Number(raw);
-                                      if (!isNaN(v) && v >= 0) {
-                                        cart.setQty(item.product.id, v);
-                                      }
-                                    }
-                                  }}
-                                  onKeyDown={(e) => {
-                                    // Enter on quantity field = refocus search for next scan
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      setQ("");
-                                      setHighlightedIndex(-1);
-                                      setTimeout(() => searchRef.current?.focus(), 50);
-                                    }
+                                <CartItemQtyInput
+                                  quantity={item.quantity}
+                                  onSetQty={(qty) => cart.setQty(item.product.id, qty)}
+                                  onEnter={() => {
+                                    setQ("");
+                                    setHighlightedIndex(-1);
+                                    setTimeout(() => searchRef.current?.focus(), 50);
                                   }}
                                 />
                                 <Button
@@ -1516,6 +1493,75 @@ interface ReturnDialogProps {
   onOpenChange: (open: boolean) => void;
   currency: string;
   onReturned?: () => void;
+}
+
+// ─── v2.10.13: CartItemQtyInput ──────────────────────────────────────────
+// Separate component to handle decimal quantity input properly.
+// Uses local string state so the user can type "0." then "3" → "0.3"
+// without React resetting the field to "0" on each keystroke.
+function CartItemQtyInput({
+  quantity,
+  onSetQty,
+  onEnter,
+}: {
+  quantity: number;
+  onSetQty: (qty: number) => void;
+  onEnter?: () => void;
+}) {
+  // Local string state mirrors the input so user can type decimals freely
+  const [inputValue, setInputValue] = React.useState<string>(String(quantity));
+
+  // Sync from external changes (e.g. +/- buttons, programmatic updates)
+  React.useEffect(() => {
+    const currentNum = Number(inputValue);
+    // Only update if external value is significantly different
+    if (!isNaN(currentNum) && Math.abs(currentNum - quantity) > 0.001) {
+      setInputValue(String(quantity));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quantity]);
+
+  return (
+    <Input
+      className="h-6 w-14 text-center px-1 text-xs"
+      value={inputValue}
+      inputMode="decimal"
+      onFocus={(e) => e.target.select()}
+      onChange={(e) => {
+        const raw = e.target.value;
+        // Allow: empty, "0", "0.", "0.3", "1.25", "12.5", etc.
+        if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+          setInputValue(raw);
+          const v = Number(raw);
+          if (!isNaN(v) && v >= 0) {
+            onSetQty(v);
+          }
+        }
+      }}
+      onBlur={() => {
+        // On blur, normalize the value (remove trailing dot, etc.)
+        const v = Number(inputValue);
+        if (isNaN(v) || v <= 0) {
+          onSetQty(1);
+          setInputValue("1");
+        } else {
+          setInputValue(String(v));
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          // Commit value and trigger Enter callback
+          const v = Number(inputValue);
+          if (!isNaN(v) && v > 0) {
+            onSetQty(v);
+            setInputValue(String(v));
+          }
+          onEnter?.();
+        }
+      }}
+    />
+  );
 }
 
 function ReturnDialog({

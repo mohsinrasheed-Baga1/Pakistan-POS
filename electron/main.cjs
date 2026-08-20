@@ -971,22 +971,65 @@ if (!gotLock) {
           const appDir = path.dirname(appExePath);
           console.log("[POS] Will re-launch app from:", appExePath);
 
-          // Write a small helper batch file that:
+          // v2.10.13: Show a visible progress window to the user
+          // Create a small HTML window that shows install progress
+          const progressHtml = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Pakistan POS - Updating...</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    margin: 0; padding: 40px; text-align: center;
+    height: 100vh; display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+  }
+  .logo { font-size: 48px; margin-bottom: 16px; }
+  h1 { color: #166534; margin: 0 0 8px 0; font-size: 24px; }
+  p { color: #15803d; margin: 0 0 24px 0; font-size: 14px; }
+  .progress-bar {
+    width: 320px; height: 8px; background: #d1fae5; border-radius: 4px;
+    overflow: hidden; margin: 0 auto 16px;
+  }
+  .progress-fill {
+    width: 30%; height: 100%; background: linear-gradient(90deg, #22c55e, #16a34a);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { width: 30%; } 50% { width: 70%; } }
+  .status { color: #166534; font-size: 13px; margin-top: 8px; }
+  .warning { color: #92400e; font-size: 12px; margin-top: 16px; background: #fef3c7; padding: 8px 12px; border-radius: 4px; display: inline-block; }
+</style>
+</head><body>
+  <div class="logo">🛍️</div>
+  <h1>Pakistan POS is updating...</h1>
+  <p>Please wait while the new version is being installed.</p>
+  <div class="progress-bar"><div class="progress-fill"></div></div>
+  <div class="status" id="status">Installing... (do not close this window)</div>
+  <div class="warning">⚠️ The app will restart automatically when done.</div>
+</body></html>`;
+          const progressHtmlPath = path.join(app.getPath("temp"), "pos-update-progress.html");
+          fs.writeFileSync(progressHtmlPath, progressHtml);
+
+          // Open the progress window in default browser
+          const { shell } = require("electron");
+          shell.openPath(progressHtmlPath);
+
+          // Write a helper batch file that:
           // 1. Waits for current app to exit
-          // 2. Runs the installer silently
+          // 2. Runs the installer (NOT silent — so user sees UAC + progress)
           // 3. Re-launches the new app after install completes
           const helperBat = path.join(app.getPath("temp"), "pos-update-helper.bat");
           const batContent = `@echo off
 REM Wait for current app to exit
 timeout /t 2 /nobreak >nul
-REM Run installer silently
-start /wait "" "${global.downloadedUpdatePath}" /S
+REM Run installer (visible — user sees UAC prompt + install progress)
+start /wait "" "${global.downloadedUpdatePath}"
 REM Wait for install to complete
 timeout /t 3 /nobreak >nul
 REM Re-launch the new app
 start "" "${appExePath}"
 REM Self-cleanup
 del "%~f0"
+del "${progressHtmlPath}"
 `;
           fs.writeFileSync(helperBat, batContent);
 
@@ -1128,15 +1171,44 @@ del "%~f0"
         const { spawn } = require("child_process");
         const fs = require("fs");
         const path = require("path");
+        const { shell } = require("electron");
 
         const appExePath = process.execPath;
+
+        // v2.10.13: Show visible progress window
+        const progressHtml = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Pakistan POS - Updating...</title>
+<style>
+  body { font-family: 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); margin: 0; padding: 40px; text-align: center; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+  .logo { font-size: 48px; margin-bottom: 16px; }
+  h1 { color: #166534; margin: 0 0 8px 0; font-size: 24px; }
+  p { color: #15803d; margin: 0 0 24px 0; font-size: 14px; }
+  .progress-bar { width: 320px; height: 8px; background: #d1fae5; border-radius: 4px; overflow: hidden; margin: 0 auto 16px; }
+  .progress-fill { width: 30%; height: 100%; background: linear-gradient(90deg, #22c55e, #16a34a); animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { width: 30%; } 50% { width: 70%; } }
+  .status { color: #166534; font-size: 13px; margin-top: 8px; }
+  .warning { color: #92400e; font-size: 12px; margin-top: 16px; background: #fef3c7; padding: 8px 12px; border-radius: 4px; display: inline-block; }
+</style></head><body>
+  <div class="logo">🛍️</div>
+  <h1>Pakistan POS is updating...</h1>
+  <p>Please wait while the new version is being installed.</p>
+  <div class="progress-bar"><div class="progress-fill"></div></div>
+  <div class="status">Installing... (do not close this window)</div>
+  <div class="warning">⚠️ The app will restart automatically when done.</div>
+</body></html>`;
+        const progressHtmlPath = path.join(app.getPath("temp"), "pos-update-progress.html");
+        fs.writeFileSync(progressHtmlPath, progressHtml);
+        shell.openPath(progressHtmlPath);
+
+        // Helper batch: visible installer (user sees UAC + progress)
         const helperBat = path.join(app.getPath("temp"), "pos-update-helper.bat");
         const batContent = `@echo off
 timeout /t 2 /nobreak >nul
-start /wait "" "${global.downloadedUpdatePath}" /S
+start /wait "" "${global.downloadedUpdatePath}"
 timeout /t 3 /nobreak >nul
 start "" "${appExePath}"
 del "%~f0"
+del "${progressHtmlPath}"
 `;
         fs.writeFileSync(helperBat, batContent);
         const child = spawn("cmd.exe", ["/c", helperBat], {

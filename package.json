@@ -1,6 +1,6 @@
 {
   "name": "shop-pos-system",
-  "version": "2.10.12",
+  "version": "2.10.13",
   "description": "Shop POS System - Point of Sale with barcode scanner, products and sales management",
   "author": "Mohsin Rasheed",
   "license": "MIT",
@@ -83,7 +83,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Shop POS System",
-      "artifactName": "Shop-POS-System-Setup-${version}.exe"
+      "artifactName": "Shop-POS-System-Setup-${version}.exe",
+      "include": "build/installer.nsh"
     },
     "toolsets": {
       "nsis": "0.0.0"
