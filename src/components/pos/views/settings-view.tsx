@@ -939,13 +939,23 @@ function PrinterSettingsCard({ settings, onSave }: PrinterSettingsCardProps) {
 
   // Load available printers via Electron IPC
   React.useEffect(() => {
-    if (typeof window !== "undefined" && window.posElectron?.printer?.list) {
-      window.posElectron.printer.list().then((res) => {
-        if (res.printers) setPrinters(res.printers);
-      }).catch(() => {
-        // Not in Electron or printers not available
-      });
+    let cancelled = false;
+    async function loadPrinters() {
+      try {
+        if (typeof window === "undefined" || !window.posElectron?.printer?.list) {
+          return; // Not in Electron — no printers available
+        }
+        const res = await window.posElectron.printer.list();
+        if (!cancelled && res && Array.isArray(res.printers)) {
+          setPrinters(res.printers);
+        }
+      } catch (e) {
+        console.error("Failed to load printers:", e);
+        // Don't crash — just leave printers empty
+      }
     }
+    loadPrinters();
+    return () => { cancelled = true; };
   }, []);
 
   async function onSubmit(e: React.FormEvent) {
@@ -1041,12 +1051,12 @@ function PrinterSettingsCard({ settings, onSave }: PrinterSettingsCardProps) {
               <>
                 <div className="space-y-1.5 max-w-md">
                   <Label htmlFor="receipt-printer">Receipt Printer</Label>
-                  <Select value={receiptPrinterName} onValueChange={setReceiptPrinterName}>
+                  <Select value={receiptPrinterName || "__none__"} onValueChange={(v) => setReceiptPrinterName(v === "__none__" ? "" : v)}>
                     <SelectTrigger id="receipt-printer">
                       <SelectValue placeholder="Select receipt printer" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">No default (ask each time)</SelectItem>
+                      <SelectItem value="__none__">No default (ask each time)</SelectItem>
                       {printers.map((p) => (
                         <SelectItem key={p.name} value={p.name}>
                           {p.displayName || p.name}
@@ -1059,12 +1069,12 @@ function PrinterSettingsCard({ settings, onSave }: PrinterSettingsCardProps) {
 
                 <div className="space-y-1.5 max-w-md">
                   <Label htmlFor="sticker-printer">Sticker Printer</Label>
-                  <Select value={stickerPrinterName} onValueChange={setStickerPrinterName}>
+                  <Select value={stickerPrinterName || "__none__"} onValueChange={(v) => setStickerPrinterName(v === "__none__" ? "" : v)}>
                     <SelectTrigger id="sticker-printer">
                       <SelectValue placeholder="Select sticker printer" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">No default (ask each time)</SelectItem>
+                      <SelectItem value="__none__">No default (ask each time)</SelectItem>
                       {printers.map((p) => (
                         <SelectItem key={p.name} value={p.name}>
                           {p.displayName || p.name}

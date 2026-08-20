@@ -978,6 +978,25 @@ export function PosView({ settings }: PosViewProps) {
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="text-orange-600 hover:bg-orange-50"
+                      onClick={() => {
+                        // v2.10.14: Delete last cart item — no need to select it first
+                        // Get the item name BEFORE removing (state update is async)
+                        const lastItem = cart.items[cart.items.length - 1];
+                        const itemName = lastItem?.product?.name || "Item";
+                        cart.removeLastItem();
+                        toast.info(`Removed: ${itemName}`);
+                        setTimeout(() => searchRef.current?.focus(), 50);
+                      }}
+                      title="Delete the last product added to cart (or press Delete key)"
+                    >
+                      <X className="w-4 h-4 mr-1" /> Delete Last
+                    </Button>
+                  )}
+                  {cart.items.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="text-red-600 hover:bg-red-50"
                       onClick={() => cart.clear()}
                     >
