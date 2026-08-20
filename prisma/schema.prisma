@@ -366,6 +366,9 @@ model Settings {
   receiptFooter String?
   invoicePrefix String   @default("INV")
   printerWidth  Int      @default(58)
+  // v2.10.12: Default printer names for silent printing
+  receiptPrinterName String?
+  stickerPrinterName String?
   backupPasswordHash String?
   // Multi-computer sharing: "local" | "host" | "client"
   shareMode     String   @default("local")

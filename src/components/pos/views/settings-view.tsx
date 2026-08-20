@@ -922,17 +922,42 @@ function PrinterSettingsCard({ settings, onSave }: PrinterSettingsCardProps) {
     settings.printerWidth === 80 ? 80 : 58
   );
   const [saving, setSaving] = React.useState(false);
+  // v2.10.12: Default printer names
+  const [receiptPrinterName, setReceiptPrinterName] = React.useState<string>(
+    settings.receiptPrinterName || ""
+  );
+  const [stickerPrinterName, setStickerPrinterName] = React.useState<string>(
+    settings.stickerPrinterName || ""
+  );
+  const [printers, setPrinters] = React.useState<Array<{ name: string; displayName: string; isDefault: boolean }>>([]);
 
   React.useEffect(() => {
     setWidth(settings.printerWidth === 80 ? 80 : 58);
+    setReceiptPrinterName(settings.receiptPrinterName || "");
+    setStickerPrinterName(settings.stickerPrinterName || "");
   }, [settings]);
+
+  // Load available printers via Electron IPC
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && window.posElectron?.printer?.list) {
+      window.posElectron.printer.list().then((res) => {
+        if (res.printers) setPrinters(res.printers);
+      }).catch(() => {
+        // Not in Electron or printers not available
+      });
+    }
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (saving) return;
     setSaving(true);
     try {
-      await onSave({ printerWidth: width });
+      await onSave({
+        printerWidth: width,
+        receiptPrinterName,
+        stickerPrinterName,
+      });
       toast.success("Printer settings saved");
     } catch (err: any) {
       toast.error(err?.message || "Could not save");
@@ -949,7 +974,9 @@ function PrinterSettingsCard({ settings, onSave }: PrinterSettingsCardProps) {
           Printer Settings
         </CardTitle>
         <CardDescription>
-          Choose the thermal receipt paper width used by your printer
+          Choose the thermal receipt paper width and default printers for
+          receipts and stickers. When default printers are set, printing will
+          be silent (no printer dialog).
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -990,6 +1017,67 @@ function PrinterSettingsCard({ settings, onSave }: PrinterSettingsCardProps) {
             Current: {width}mm thermal paper. This affects receipt layout
             width.
           </p>
+
+          {/* v2.10.12: Default Printer Selection */}
+          <Separator />
+          <div className="space-y-4">
+            <div>
+              <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                <Printer className="w-4 h-4" />
+                Default Printers (Silent Printing)
+              </h4>
+              <p className="text-xs text-muted-foreground mb-3">
+                Select default printers to skip the printer selection dialog
+                every time you print a receipt or sticker.
+              </p>
+            </div>
+
+            {printers.length === 0 ? (
+              <p className="text-xs text-amber-600 bg-amber-50 p-3 rounded-md border border-amber-200">
+                ⚠ No printers detected. Make sure you're running the desktop
+                app (not in browser) and printers are installed.
+              </p>
+            ) : (
+              <>
+                <div className="space-y-1.5 max-w-md">
+                  <Label htmlFor="receipt-printer">Receipt Printer</Label>
+                  <Select value={receiptPrinterName} onValueChange={setReceiptPrinterName}>
+                    <SelectTrigger id="receipt-printer">
+                      <SelectValue placeholder="Select receipt printer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">No default (ask each time)</SelectItem>
+                      {printers.map((p) => (
+                        <SelectItem key={p.name} value={p.name}>
+                          {p.displayName || p.name}
+                          {p.isDefault ? " (System Default)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5 max-w-md">
+                  <Label htmlFor="sticker-printer">Sticker Printer</Label>
+                  <Select value={stickerPrinterName} onValueChange={setStickerPrinterName}>
+                    <SelectTrigger id="sticker-printer">
+                      <SelectValue placeholder="Select sticker printer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">No default (ask each time)</SelectItem>
+                      {printers.map((p) => (
+                        <SelectItem key={p.name} value={p.name}>
+                          {p.displayName || p.name}
+                          {p.isDefault ? " (System Default)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+          </div>
+
           <div className="flex justify-end">
             <Button
               type="submit"

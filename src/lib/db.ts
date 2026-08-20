@@ -550,6 +550,9 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["googleClientId", "TEXT"],
     ["googleClientSecret", "TEXT"],
     ["googleRefreshToken", "TEXT"],
+    // v2.10.12: Default printer names for silent printing
+    ["receiptPrinterName", "TEXT"],
+    ["stickerPrinterName", "TEXT"],
   ],
   // Load & Bill module — new columns added in v2.7.47
   MobileLoadTxn: [

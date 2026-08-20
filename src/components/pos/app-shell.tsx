@@ -301,48 +301,65 @@ export function AppShell({ user, settings }: AppShellProps) {
             })}
           </nav>
 
-          <div className="p-3 border-t space-y-2">
-            {/* License status badge — shows trial days left or permanent status */}
+          <div className={cn("p-3 border-t space-y-2", sidebarCollapsed && "p-2")}>
+            {/* License status badge — uses compact mode when sidebar collapsed */}
             <div className="flex justify-center">
-              <LicenseStatusBadge />
+              <LicenseStatusBadge compact={sidebarCollapsed} />
             </div>
-            <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
-              <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-700">
-                {user.name?.[0] || "U"}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{user.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {user.role === "ADMIN" ? "Admin" : user.role === "MANAGER" ? "Manager" : "Cashier"}
+            {/* Hide user info + theme/logout buttons when collapsed to save space */}
+            {!sidebarCollapsed && (
+              <>
+                <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
+                  <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-700">
+                    {user.name?.[0] || "U"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{user.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {user.role === "ADMIN" ? "Admin" : user.role === "MANAGER" ? "Manager" : "Cashier"}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            <div className="flex gap-2">
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  >
+                    {mounted && theme === "dark" ? (
+                      <>
+                        <Sun className="w-4 h-4 mr-1" /> Light
+                      </>
+                    ) : (
+                      <>
+                        <Moon className="w-4 h-4 mr-1" /> Dark
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    onClick={handleSignOut}
+                  >
+                    <LogOut className="w-4 h-4 mr-1" /> Logout
+                  </Button>
+                </div>
+              </>
+            )}
+            {/* When collapsed, show just logout icon button */}
+            {sidebarCollapsed && (
               <Button
                 variant="outline"
-                size="sm"
-                className="flex-1"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              >
-                {mounted && theme === "dark" ? (
-                  <>
-                    <Sun className="w-4 h-4 mr-1" /> Light
-                  </>
-                ) : (
-                  <>
-                    <Moon className="w-4 h-4 mr-1" /> Dark
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                size="icon"
+                className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
                 onClick={handleSignOut}
+                title="Logout"
               >
-                <LogOut className="w-4 h-4 mr-1" /> Logout
+                <LogOut className="w-4 h-4" />
               </Button>
-            </div>
+            )}
           </div>
         </aside>
 

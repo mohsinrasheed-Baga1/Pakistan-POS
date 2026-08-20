@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld("posElectron", {
   // Returns unique ID based on MAC address, hostname, machine UUID, disk serial
   getSystemFingerprint: () => ipcRenderer.invoke("system:get-fingerprint"),
 
+  // v2.10.12: Printer Management
+  printer: {
+    list: () => ipcRenderer.invoke("printer:list"),
+    silentPrint: (opts) => ipcRenderer.invoke("printer:silent-print", opts),
+  },
+
   googleDrive: {
     connect: () => ipcRenderer.invoke("gdrive:connect"),
     disconnect: () => ipcRenderer.invoke("gdrive:disconnect"),

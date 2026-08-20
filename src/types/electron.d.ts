@@ -40,6 +40,23 @@ declare global {
     onProgress: (callback: (percent: number) => void) => () => void;
   }
 
+  interface PrinterAPI {
+    list: () => Promise<{
+      printers: Array<{
+        name: string;
+        displayName: string;
+        isDefault: boolean;
+        status: number;
+      }>;
+      error?: string;
+    }>;
+    silentPrint: (opts: {
+      html: string;
+      printerName?: string;
+      silent?: boolean;
+    }) => Promise<{ ok: boolean; error?: string }>;
+  }
+
   interface Window {
     posElectron?: {
       version: string;
@@ -61,6 +78,8 @@ declare global {
         };
         error?: string;
       }>;
+      // v2.10.12: Printer management
+      printer?: PrinterAPI;
       googleDrive?: GoogleDriveAPI;
       updater?: UpdaterAPI;
     };

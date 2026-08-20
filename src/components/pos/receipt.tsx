@@ -13,6 +13,7 @@ import { formatMoney, unitLabel } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
 import { useReceiptSettings } from "@/hooks/use-receipt-settings";
 import { getReceiptWidth } from "@/lib/receipt-settings";
+import { toast } from "sonner";
 
 interface ReceiptProps {
   sale: any;
@@ -48,12 +49,11 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
   const barcodeHeight = 24;
   const barcodeWidth = widthMm > 60 ? 1.5 : 1;
 
-  function handlePrint() {
+  async function handlePrint() {
     const content = printRef.current;
     if (!content) return;
-    const win = window.open("", "_blank", `width=${widthMm > 60 ? 320 : 240},height=600`);
-    if (!win) return;
-    win.document.write(`
+
+    const html = `
       <html dir="ltr"><head><title>Receipt ${sale.invoiceNo}</title>
       <style>
         @page { size: ${widthMm}mm auto; margin: ${rs.marginTop}mm ${rs.marginRight}mm ${rs.marginBottom}mm ${rs.marginLeft}mm; }
@@ -78,7 +78,34 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
         .payment-label { font-weight: bold; }
         .text-${textAlign} { text-align: ${textAlign}; }
       </style></head><body>${content.innerHTML}</body></html>
-    `);
+    `;
+
+    // v2.10.12: Try silent print first if a default receipt printer is set
+    if (typeof window !== "undefined" && window.posElectron?.printer?.silentPrint && settings?.receiptPrinterName) {
+      try {
+        const result = await window.posElectron.printer.silentPrint({
+          html,
+          printerName: settings.receiptPrinterName,
+          silent: true,
+        });
+        if (result.ok) {
+          toast.success("Receipt printed");
+          return;
+        } else {
+          toast.error("Silent print failed: " + (result.error || "Unknown error") + ". Trying dialog...");
+        }
+      } catch (e: any) {
+        toast.error("Silent print error: " + e.message + ". Trying dialog...");
+      }
+    }
+
+    // Fallback: open print dialog (or silent print without specific printer)
+    const win = window.open("", "_blank", `width=${widthMm > 60 ? 320 : 240},height=600`);
+    if (!win) {
+      toast.error("Pop-up blocked. Allow pop-ups for this site.");
+      return;
+    }
+    win.document.write(html);
     win.document.close();
     win.focus();
     setTimeout(() => {

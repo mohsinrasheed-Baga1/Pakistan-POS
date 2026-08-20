@@ -1069,13 +1069,26 @@ export function PosView({ settings }: PosViewProps) {
                                   <Minus className="w-3 h-3" />
                                 </Button>
                                 <Input
-                                  className="h-6 w-12 text-center px-1 text-xs"
+                                  className="h-6 w-14 text-center px-1 text-xs"
                                   value={item.quantity}
+                                  inputMode="decimal"
                                   onFocus={(e) => e.target.select()}
                                   onChange={(e) => {
-                                    const v = Number(e.target.value);
-                                    if (!isNaN(v) && v >= 0)
-                                      cart.setQty(item.product.id, v);
+                                    // Allow decimal input (e.g. 0.56, 0.32, 1.5)
+                                    // Don't immediately convert to number — let user type
+                                    const raw = e.target.value;
+                                    // Allow empty string (user clearing the field to type new value)
+                                    if (raw === "") {
+                                      cart.setQty(item.product.id, 0);
+                                      return;
+                                    }
+                                    // Allow valid number formats: "0", "0.", "0.5", "1.25", etc.
+                                    if (/^\d*\.?\d*$/.test(raw)) {
+                                      const v = Number(raw);
+                                      if (!isNaN(v) && v >= 0) {
+                                        cart.setQty(item.product.id, v);
+                                      }
+                                    }
                                   }}
                                   onKeyDown={(e) => {
                                     // Enter on quantity field = refocus search for next scan

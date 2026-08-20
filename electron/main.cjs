@@ -731,6 +731,75 @@ if (!gotLock) {
   });
 
   // ============================================================
+  // Printer Management (v2.10.12)
+  // ============================================================
+  // Get list of available printers
+  ipcMain.handle("printer:list", async () => {
+    try {
+      if (!mainWindow || mainWindow.isDestroyed()) return { printers: [] };
+      const printers = await mainWindow.webContents.getPrintersAsync();
+      return {
+        printers: printers.map((p) => ({
+          name: p.name,
+          displayName: p.displayName,
+          isDefault: p.isDefault,
+          status: p.status,
+        })),
+      };
+    } catch (e) {
+      console.error("[POS] Printer list error:", e.message);
+      return { printers: [], error: e.message };
+    }
+  });
+
+  // Silent print HTML content to a specific printer (no dialog)
+  // Used for receipts and stickers
+  ipcMain.handle("printer:silent-print", async (_evt, opts) => {
+    try {
+      const { html, printerName, silent = true } = opts || {};
+      if (!html) return { ok: false, error: "No HTML provided" };
+
+      // Open a hidden window to render the HTML
+      const printWin = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          offscreen: false,
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+      });
+
+      // Load HTML content
+      await printWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+
+      // Wait a moment for rendering
+      await new Promise((r) => setTimeout(r, 300));
+
+      // Print options
+      const printOptions = {
+        silent,
+        printBackground: true,
+      };
+      if (printerName) {
+        printOptions.deviceName = printerName;
+      }
+
+      await new Promise((resolve, reject) => {
+        printWin.webContents.print(printOptions, (success, failureReason) => {
+          if (success) resolve();
+          else reject(new Error(failureReason || "Print failed"));
+        });
+      });
+
+      printWin.destroy();
+      return { ok: true };
+    } catch (e) {
+      console.error("[POS] Silent print error:", e.message);
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ============================================================
   // electron-updater IPC handlers (delta/differential updates)
   // ============================================================
   if (autoUpdater) {
