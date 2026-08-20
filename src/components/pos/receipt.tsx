@@ -295,10 +295,18 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
               </span>
             </div>
           )}
+          {/* v2.10.15: Show change (when customer paid more than total) */}
           {rs.showChange && sale.change > 0 && (
             <div className="row" style={{ fontSize: tableFontSize }}>
               <span>Change:</span>
               <span>{formatMoney(sale.change, currency)}</span>
+            </div>
+          )}
+          {/* v2.10.15: Show balance due (when customer paid less than total) */}
+          {(sale.balanceDue || 0) > 0 && (
+            <div className="row bold" style={{ fontSize: tableFontSize, fontWeight: "bold", color: "#dc2626" }}>
+              <span>Balance Due:</span>
+              <span>{formatMoney(sale.balanceDue, currency)}</span>
             </div>
           )}
 

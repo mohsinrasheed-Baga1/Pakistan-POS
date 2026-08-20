@@ -140,6 +140,8 @@ model Sale {
   total         Float      @default(0)
   paidAmount    Float      @default(0)
   change        Float      @default(0)
+  // v2.10.15: balanceDue — amount customer still owes (if paidAmount < total)
+  balanceDue    Float      @default(0)
   paymentMethod String     @default("CASH")
   saleType      String     @default("RETAIL")
   status        String     @default("COMPLETED")

@@ -918,6 +918,64 @@ interface PrinterSettingsCardProps {
 }
 
 function PrinterSettingsCard({ settings, onSave }: PrinterSettingsCardProps) {
+  // v2.10.15: Wrap entire card in error boundary to prevent crash
+  return (
+    <PrinterErrorBoundary>
+      <PrinterSettingsCardInner settings={settings} onSave={onSave} />
+    </PrinterErrorBoundary>
+  );
+}
+
+// v2.10.15: Error Boundary for Printer Settings
+class PrinterErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; errorMessage: string }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, errorMessage: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, errorMessage: error.message };
+  }
+  componentDidCatch(error: Error) {
+    console.error("PrinterSettingsCard ErrorBoundary:", error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Printer className="w-5 h-5 text-emerald-600" />
+              Printer Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="p-4 rounded-md bg-amber-50 border border-amber-200 text-amber-800">
+              <p className="font-semibold mb-2">⚠️ Printer settings failed to load</p>
+              <p className="text-xs mb-3">Error: {this.state.errorMessage}</p>
+              <p className="text-sm mb-3">
+                This usually happens when the printer detection fails. You can
+                still use receipt printing — just set paper width below.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => this.setState({ hasError: false, errorMessage: "" })}
+              >
+                Try Again
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function PrinterSettingsCardInner({ settings, onSave }: PrinterSettingsCardProps) {
   const [width, setWidth] = React.useState<number>(
     settings.printerWidth === 80 ? 80 : 58
   );

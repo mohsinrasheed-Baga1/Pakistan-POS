@@ -518,6 +518,8 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["note", "TEXT"],
     ["customerName", "TEXT"],
     ["customerPhone", "TEXT"],
+    // v2.10.15: balanceDue — amount customer still owes (if paidAmount < total)
+    ["balanceDue", "REAL NOT NULL DEFAULT 0"],
   ],
   SaleReturn: [
     ["userId", "TEXT"],

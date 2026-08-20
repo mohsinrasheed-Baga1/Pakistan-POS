@@ -589,6 +589,20 @@ export function PosView({ settings }: PosViewProps) {
       return;
     }
 
+    // ─── STOCK VALIDATION — Prevent selling more than available ──────
+    // v2.10.15: Each product's quantity in cart must not exceed its stock
+    // Negative stock is NOT allowed — sale is blocked if any item exceeds stock
+    for (const item of cart.items) {
+      const stock = item.product.stock || 0;
+      if (item.quantity > stock) {
+        toast.error(
+          `Stock limit: "${item.product.name}" — only ${stock} ${unitLabel(item.product.unit)} available, but ${item.quantity} in cart`,
+          { duration: 6000 }
+        );
+        return; // Block the sale
+      }
+    }
+
     // ─── TRIAL DAILY LIMIT CHECK ─────────────────────────────────────
     // If using trial license, check if daily sale limit (30) is reached
     try {

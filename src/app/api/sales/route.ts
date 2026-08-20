@@ -216,8 +216,16 @@ async function processSale(userId: string, body: any, items: any[]) {
 
   const discount = Number(body.discount) || 0;
   const total = Math.max(0, subtotal + taxTotal - discount);
-  const paidAmount = Number(body.paidAmount) || total;
-  const change = Math.max(0, paidAmount - total);
+
+  // v2.10.15: Properly handle paidAmount, change, and balanceDue
+  // - If paidAmount >= total: change = paidAmount - total, balanceDue = 0
+  // - If paidAmount < total: change = 0, balanceDue = total - paidAmount
+  //   (customer still owes money — recorded as due)
+  // - If paidAmount not provided: paidAmount = total (exact payment, no change)
+  const rawPaidAmount = Number(body.paidAmount);
+  const paidAmount = isNaN(rawPaidAmount) ? total : rawPaidAmount;
+  const change = paidAmount >= total ? paidAmount - total : 0;
+  const balanceDue = paidAmount < total ? total - paidAmount : 0;
 
   // Create the sale WITHOUT `include: { user }` to avoid the
   // "Field user is required to return data, got null instead" error when
@@ -235,6 +243,7 @@ async function processSale(userId: string, body: any, items: any[]) {
       total,
       paidAmount,
       change,
+      balanceDue,
       paymentMethod: body.paymentMethod || "CASH",
       status: "COMPLETED",
       note: body.note || null,
