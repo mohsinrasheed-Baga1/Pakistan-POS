@@ -67,6 +67,9 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         th, td { text-align: left; padding: 1px 0; font-size: ${tableFontSize}; word-wrap: break-word; overflow: hidden; font-weight: ${fontBold}; }
         th { border-bottom: 1px solid #000; font-weight: bold; }
+        /* v2.10.18: Prevent items from being split across pages */
+        tr { page-break-inside: avoid; }
+        thead { display: table-header-group; }
         .bold { font-weight: bold; }
         .big { font-size: ${headerFontSize}; font-weight: bold; color: ${headerColor}; }
         .sub-name { font-size: ${titleFontSize}; font-weight: bold; margin-top: 2px; }

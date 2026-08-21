@@ -383,7 +383,7 @@ export function AppShell({ user, settings }: AppShellProps) {
           {/* v2.10.11: Use full width on large screens (22" monitors) */}
           <div className="flex-1 p-4 lg:p-6 w-full max-w-[2560px] mx-auto">{renderView()}</div>
           <footer className="mt-auto border-t bg-background py-3 px-4 text-center text-xs text-muted-foreground">
-            {settings?.shopName || "POS System"} • Built with Z.ai • All rights reserved
+            {settings?.shopName || "POS System"} • Built by Mohsin Rasheed Baga
           </footer>
         </main>
       </div>

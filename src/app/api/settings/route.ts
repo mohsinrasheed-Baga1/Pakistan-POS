@@ -31,6 +31,13 @@ export async function PUT(req: NextRequest) {
     receiptFooter: body.receiptFooter,
     invoicePrefix: body.invoicePrefix,
     printerWidth: Number(body.printerWidth) === 80 ? 80 : 58,
+    // v2.10.18: Save printer names for silent printing
+    receiptPrinterName: typeof body.receiptPrinterName === "string" && body.receiptPrinterName.trim()
+      ? body.receiptPrinterName.trim()
+      : null,
+    stickerPrinterName: typeof body.stickerPrinterName === "string" && body.stickerPrinterName.trim()
+      ? body.stickerPrinterName.trim()
+      : null,
   };
   // Multi-computer sharing fields (optional). When present we persist them
   // alongside the other settings so the GET /api/settings response reflects

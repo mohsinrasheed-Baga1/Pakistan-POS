@@ -187,12 +187,29 @@ async function processSale(userId: string, body: any, items: any[]) {
   let subtotal = 0;
   let taxTotal = 0;
   const saleItemsData: any[] = [];
+
+  // v2.10.18: Merge duplicate items (same productId) before processing
+  // This prevents receipt from showing the same product multiple times
+  const mergedItems: { productId: string; quantity: number; price: number }[] = [];
   for (const it of items) {
+    const existing = mergedItems.find((m) => m.productId === it.productId);
+    if (existing) {
+      existing.quantity += Number(it.quantity);
+    } else {
+      mergedItems.push({
+        productId: it.productId,
+        quantity: Number(it.quantity),
+        price: Number(it.price),
+      });
+    }
+  }
+
+  for (const it of mergedItems) {
     const product = await db.product.findUnique({ where: { id: it.productId } });
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 400 });
     }
-    const qty = Number(it.quantity);
+    const qty = it.quantity;
     if (qty <= 0) {
       return NextResponse.json({ error: "Invalid quantity" }, { status: 400 });
     }
