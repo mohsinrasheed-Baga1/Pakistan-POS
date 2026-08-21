@@ -417,8 +417,14 @@ export function PosView({ settings }: PosViewProps) {
             e.preventDefault();
             const lastItem = cart.items[cart.items.length - 1];
             const step = isLooseUnit(lastItem.product.unit) ? 0.5 : 1;
-            // Use the store's incrementLastItem (always uses latest state)
-            // No stock check — user can add unlimited quantities
+            // v2.10.16: Stock check on keyboard + as well
+            const stock = lastItem.product.stock || 0;
+            if (lastItem.quantity + step > stock) {
+              if (!e.repeat) {
+                toast.error(`Stock limit: only ${stock} ${unitLabel(lastItem.product.unit)} available`);
+              }
+              return;
+            }
             cart.incrementLastItem(step);
             if (!e.repeat) {
               const updatedQty = lastItem.quantity + step;
@@ -962,62 +968,60 @@ export function PosView({ settings }: PosViewProps) {
         <div className="lg:sticky lg:top-4 h-fit">
           <Card className="border-2 border-emerald-700 bg-emerald-100 dark:bg-emerald-900/40 shadow-lg">
             <CardContent className="p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="font-bold flex items-center gap-2 text-emerald-900 dark:text-emerald-100">
-                  <ShoppingCart className="w-5 h-5 text-emerald-700" />
-                  {cart.activeCartLabel || "Cart"}
-                  {totals.itemCount > 0 && (
-                    <Badge className="bg-emerald-700 text-white">{totals.itemCount}</Badge>
-                  )}
-                </h2>
-                <div className="flex gap-1">
-                  {/* Hold Cart button — parks current sale, opens fresh cart */}
-                  {cart.items.length > 0 && (
+              {/* v2.10.16: Cart header with proper layout — no overflow */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-bold flex items-center gap-2 text-emerald-900 dark:text-emerald-100">
+                    <ShoppingCart className="w-5 h-5 text-emerald-700" />
+                    {cart.activeCartLabel || "Cart"}
+                    {totals.itemCount > 0 && (
+                      <Badge className="bg-emerald-700 text-white">{totals.itemCount}</Badge>
+                    )}
+                  </h2>
+                </div>
+                {/* Cart action buttons — wrap properly on small screens */}
+                {cart.items.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-blue-600 hover:bg-blue-50"
+                      className="text-blue-600 hover:bg-blue-50 h-8"
                       onClick={() => {
                         cart.holdCart();
                         setScannedCard(null);
                         toast.success("Cart held — new cart opened");
                         setTimeout(() => searchRef.current?.focus(), 50);
                       }}
-                      title="Hold this cart and start a new one"
+                      title="Hold this cart and start a new one (F8)"
                     >
-                      <Pause className="w-4 h-4 mr-1" /> Hold
+                      <Pause className="w-3.5 h-3.5 mr-1" /> Hold
                     </Button>
-                  )}
-                  {cart.items.length > 0 && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-orange-600 hover:bg-orange-50"
+                      className="text-orange-600 hover:bg-orange-50 h-8"
                       onClick={() => {
-                        // v2.10.14: Delete last cart item — no need to select it first
-                        // Get the item name BEFORE removing (state update is async)
                         const lastItem = cart.items[cart.items.length - 1];
                         const itemName = lastItem?.product?.name || "Item";
                         cart.removeLastItem();
                         toast.info(`Removed: ${itemName}`);
                         setTimeout(() => searchRef.current?.focus(), 50);
                       }}
-                      title="Delete the last product added to cart (or press Delete key)"
+                      title="Delete the last product added to cart (Delete key)"
                     >
-                      <X className="w-4 h-4 mr-1" /> Delete Last
+                      <X className="w-3.5 h-3.5 mr-1" /> Delete Last
                     </Button>
-                  )}
-                  {cart.items.length > 0 && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-red-600 hover:bg-red-50"
+                      className="text-red-600 hover:bg-red-50 h-8"
                       onClick={() => cart.clear()}
+                      title="Clear entire cart (F12)"
                     >
-                      <Trash2 className="w-4 h-4 mr-1" /> Clear
+                      <Trash2 className="w-3.5 h-3.5 mr-1" /> Clear
                     </Button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Held carts bar — shows parked carts that can be restored */}
@@ -1116,13 +1120,12 @@ export function PosView({ settings }: PosViewProps) {
                                   className="h-6 w-6"
                                   onClick={() => {
                                     const step = isLooseUnit(item.product.unit) ? 0.5 : 1;
-                                    // Use incrementItem — always uses latest state
-                                    // (no stale closure issues)
-                                    // Note: stock check is NOT done here because:
-                                    // 1. Many products have stock=0 or low stock by design
-                                    // 2. User should be able to add more even if stock is low
-                                    //    (sale will be recorded as negative stock = "to order")
-                                    // 3. Sale API does its own stock deduction logic
+                                    // v2.10.16: Stock check — don't allow incrementing beyond stock
+                                    const stock = item.product.stock || 0;
+                                    if (item.quantity + step > stock) {
+                                      toast.error(`Stock limit: only ${stock} ${unitLabel(item.product.unit)} available`);
+                                      return;
+                                    }
                                     cart.incrementItem(item.product.id, step);
                                   }}
                                 >

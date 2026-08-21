@@ -237,16 +237,24 @@ export function AppShell({ user, settings }: AppShellProps) {
                   <NotificationsBell />
                 </div>
               )}
-              {/* Collapse toggle button (desktop only) */}
+              {/* v2.10.16: Collapse toggle — darker color + arrow icon for clarity */}
               <Button
-                variant="ghost"
+                variant="outline"
                 size="icon"
-                className="hidden lg:flex"
+                className="hidden lg:flex bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-700 shadow-sm"
                 onClick={toggleSidebar}
                 aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                title={sidebarCollapsed ? "→ Expand sidebar" : "← Collapse sidebar"}
               >
-                {sidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+                {sidebarCollapsed ? (
+                  <span className="flex items-center gap-0.5">
+                    <PanelLeftOpen className="w-4 h-4" />
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-0.5">
+                    <PanelLeftClose className="w-4 h-4" />
+                  </span>
+                )}
               </Button>
               <Button
                 variant="ghost"

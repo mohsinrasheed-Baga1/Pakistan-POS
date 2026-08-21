@@ -27,6 +27,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+// v2.10.16: Select imports — REQUIRED for printer dropdowns (was missing!)
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -3894,21 +3902,43 @@ function CloudBackupCard() {
 // Shortcuts page card
 // ============================================================
 function ShortcutsCard() {
+  // v2.10.16: Updated with ALL shortcuts including new +, -, Delete, Ctrl+C calculator
   const shortcuts = [
+    // ─── GLOBAL (work on any page) ──────────────────────────────────
     { key: "Ctrl + Shift + P", desc: "Jump to POS (Sell) from any page", section: "Global" },
+    { key: "Ctrl + C", desc: "Toggle Calculator (any page, if no text selected)", section: "Global" },
+    { key: "F1", desc: "Jump to POS + focus barcode input", section: "Global" },
+    { key: "F4", desc: "Open Calculator", section: "Global" },
+
+    // ─── POS (Point of Sale) ────────────────────────────────────────
     { key: "↑ ↓", desc: "Navigate products up/down in POS", section: "POS" },
     { key: "← →", desc: "Jump 4 products left/right in POS", section: "POS" },
     { key: "Enter", desc: "Add highlighted product to cart", section: "POS" },
+    { key: "+ or =", desc: "Increase quantity of LAST cart item by 1 (hold for continuous)", section: "POS" },
+    { key: "- or _", desc: "Decrease quantity of LAST cart item by 1 (min 1, won't delete)", section: "POS" },
+    { key: "Delete", desc: "Delete the LAST cart item (remove from cart)", section: "POS" },
+    { key: "Ctrl + Backspace", desc: "Undo last cart item (alternative to Delete)", section: "POS" },
     { key: "F2", desc: "Checkout (complete sale)", section: "POS" },
     { key: "F3", desc: "Return / Refund", section: "POS" },
-    { key: "F4", desc: "Open Calculator", section: "POS" },
+    { key: "F8", desc: "Hold current cart (park sale, start new cart)", section: "POS" },
     { key: "F9", desc: "Toggle price: Regular → Wholesale → Shopkeeper", section: "POS" },
-    { key: "F12", desc: "Clear cart", section: "POS" },
+    { key: "F12", desc: "Clear entire cart", section: "POS" },
+    { key: "Alt + Enter", desc: "Open checkout dialog", section: "POS" },
+    { key: "Space (after checkout)", desc: "Tab to next field + Enter completes sale", section: "POS" },
     { key: "Escape", desc: "Clear search + refocus", section: "POS" },
+
+    // ─── Scanner ────────────────────────────────────────────────────
     { key: "Space", desc: "Scanner: same as Enter (next scan)", section: "Scanner" },
+
+    // ─── Calculator ─────────────────────────────────────────────────
     { key: "0-9 + - * / Enter", desc: "Calculator keyboard input", section: "Calculator" },
-    { key: "C", desc: "Calculator: clear", section: "Calculator" },
+    { key: "C", desc: "Calculator: clear all", section: "Calculator" },
     { key: "Backspace", desc: "Calculator: delete last digit", section: "Calculator" },
+    { key: "Esc", desc: "Calculator: close", section: "Calculator" },
+
+    // ─── Quantity Input ─────────────────────────────────────────────
+    { key: "Type number", desc: "Type any decimal (e.g. 0.5, 1.25, 0.32) in quantity field", section: "Quantity Input" },
+    { key: "Enter (in qty field)", desc: "Commit value + refocus search for next scan", section: "Quantity Input" },
   ];
 
   const sections = [...new Set(shortcuts.map((s) => s.section))];
@@ -3920,7 +3950,7 @@ function ShortcutsCard() {
           <Keyboard className="w-5 h-5 text-emerald-600" />
           Keyboard Shortcuts
         </CardTitle>
-        <CardDescription>All keyboard shortcuts for faster operation</CardDescription>
+        <CardDescription>All keyboard shortcuts for faster operation (v2.10.16)</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {sections.map((section) => (
@@ -3936,8 +3966,12 @@ function ShortcutsCard() {
             </div>
           </div>
         ))}
-        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-700">
-          Tip: Use scanner + keyboard to sell without mouse. Scan product → Enter → F2 → Enter. Done!
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-700 space-y-1">
+          <div><strong>💡 Pro Tip:</strong> Use scanner + keyboard to sell without mouse.</div>
+          <div><strong>Fast Sale:</strong> Scan → Enter → F2 → Enter. Done!</div>
+          <div><strong>Quick Qty:</strong> Scan → + + + (hold) → F2 → Enter.</div>
+          <div><strong>Delete Last:</strong> Press Delete key to remove last item.</div>
+          <div><strong>Calculator:</strong> Press Ctrl+C anywhere (if no text selected).</div>
         </div>
       </CardContent>
     </Card>
