@@ -82,10 +82,40 @@ jobs:
             echo "No existing release found for $TAG"
           fi
 
-      - name: Build Windows Installer and Publish to GitHub (delta updates)
-        run: bunx electron-builder --win nsis --x64 --publish always
+      - name: Build Windows Installer (NO auto-publish — we upload manually)
+        run: bunx electron-builder --win nsis --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release and Upload EXE
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          echo "=== Creating release and uploading EXE for $TAG ==="
+          EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+          BLOCKMAP_FILE=$(find release/ -name "*.exe.blockmap" -type f | head -1)
+          if [ -z "$EXE_FILE" ]; then
+            echo "ERROR: No .exe file found in release/"
+            exit 1
+          fi
+          EXE_SIZE=$(stat -c%s "$EXE_FILE" 2>/dev/null || wc -c < "$EXE_FILE")
+          echo "Found EXE: $EXE_FILE ($((EXE_SIZE / 1024 / 1024)) MB)"
+          # Create release with EXE as asset
+          gh release create "$TAG" "$EXE_FILE" \
+            --title "${TAG#v}" \
+            --notes "Pakistan POS System ${TAG}" \
+            --target main
+          # Upload blockmap too
+          if [ -n "$BLOCKMAP_FILE" ]; then
+            gh release upload "$TAG" "$BLOCKMAP_FILE" --clobber || true
+          fi
+          # Upload latest.yml if it exists (for electron-updater delta updates)
+          if [ -f "release/latest.yml" ]; then
+            gh release upload "$TAG" "release/latest.yml" --clobber || true
+          fi
+          echo "✓ Release created and EXE uploaded"
 
       - name: Verify installer was built
         shell: bash
