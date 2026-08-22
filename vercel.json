@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "buildCommand": "npm run vercel-build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "github": {
+    "enabled": true,
+    "silent": false
+  }
+}
