@@ -6,11 +6,17 @@ const globalForPrisma = globalThis as unknown as {
   schemaEnsuring: Promise<void> | undefined
 }
 
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: ['error', 'warn'],
-  })
+// v2.10.20: On Vercel (web deployment), don't instantiate Prisma client
+// The web app uses Supabase directly, not Prisma/SQLite
+// This prevents "Invalid URL" error during Vercel build/prerender
+const isVercel = process.env.VERCEL === "1" || process.env.NEXT_PUBLIC_IS_VERCEL === "true";
+
+export const db = isVercel
+  ? ({} as PrismaClient) // stub — web app won't use Prisma queries
+  : (globalForPrisma.prisma ??
+      new PrismaClient({
+        log: ['error', 'warn'],
+      }))
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DISABLE SQLite FOREIGN KEY CONSTRAINTS

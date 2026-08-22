@@ -7,6 +7,9 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Providers } from "@/components/providers";
 import { LicenseGate } from "@/components/license/license-gate";
 
+// v2.10.20: Force dynamic rendering on Vercel to prevent prerendering errors
+export const dynamic = "force-dynamic";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
