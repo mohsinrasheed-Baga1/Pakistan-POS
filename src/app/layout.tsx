@@ -21,8 +21,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "POS System - Shop Management",
-  description: "Point of Sale system with barcode scanner, products and sales management",
+  title: "Pakistan POS — Shop Management System",
+  description: "Pakistan POS — Point of Sale system with barcode scanner, products and sales management",
 };
 
 export default function RootLayout({

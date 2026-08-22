@@ -1,10 +1,10 @@
 {
-  "name": "shop-pos-system",
-  "version": "2.10.18",
-  "description": "Shop POS System - Point of Sale with barcode scanner, products and sales management",
+  "name": "pakistan-pos",
+  "version": "2.10.20",
+  "description": "Pakistan POS - Point of Sale System with barcode scanner, products and sales management",
   "author": "Mohsin Rasheed",
   "license": "MIT",
-  "homepage": "https://shoppos.app",
+  "homepage": "https://pakistanpos.vercel.app",
   "main": "electron/main.cjs",
   "private": true,
   "scripts": {
