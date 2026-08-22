@@ -605,6 +605,12 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
 // request arrived.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function ensureSchema() {
+  // v2.10.20: Skip ensureSchema on Vercel (web deployment)
+  // Vercel doesn't have a real SQLite database — it uses Supabase
+  // Running ensureSchema on Vercel causes "duplicate column" errors
+  if (process.env.VERCEL === "1" || process.env.NEXT_PUBLIC_IS_VERCEL === "true") {
+    return;
+  }
   if (globalForPrisma.schemaEnsured) return;
   // If an ensureSchema() call is already in flight, await that same promise
   // instead of starting a parallel one — otherwise we get race conditions

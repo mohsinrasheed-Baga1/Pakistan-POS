@@ -32,22 +32,16 @@ let fkDisabledForThisProcess = false;
  * SQLite's FK checks are redundant and only cause false failures.
  */
 export async function getSessionUser(): Promise<SessionUser | null> {
-  await ensureSchema();
-
-  // Disable FK constraints for this connection. SQLite's PRAGMA is
-  // per-connection, so we must run this on every request — Prisma may
-  // hand us a different connection from its pool each time.
-  // Wrapped in try/catch because some queries may already be in a
-  // transaction (PRAGMA cannot run inside a transaction).
-  try {
-    await db.$executeRawUnsafe(`PRAGMA foreign_keys = OFF;`);
-    fkDisabledForThisProcess = true;
-  } catch (e: any) {
-    // If we can't disable FK (e.g. inside a transaction), that's OK —
-    // Prisma's connection pool may give us a different connection next
-    // time where FK is already off (from the module-load PRAGMA in db.ts).
-    if (!fkDisabledForThisProcess) {
-      console.warn("[session] Could not disable foreign_keys pragma:", e?.message || e);
+  // v2.10.20: On Vercel, skip ensureSchema + FK pragma (no SQLite DB)
+  if (process.env.VERCEL !== "1" && process.env.NEXT_PUBLIC_IS_VERCEL !== "true") {
+    await ensureSchema();
+    try {
+      await db.$executeRawUnsafe(`PRAGMA foreign_keys = OFF;`);
+      fkDisabledForThisProcess = true;
+    } catch (e: any) {
+      if (!fkDisabledForThisProcess) {
+        console.warn("[session] Could not disable foreign_keys pragma:", e?.message || e);
+      }
     }
   }
 

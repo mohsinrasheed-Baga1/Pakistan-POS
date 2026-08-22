@@ -6,16 +6,27 @@ import { AppShell } from "@/components/pos/app-shell";
 import { seedIfNeeded } from "@/lib/seed";
 import { getSessionUser } from "@/lib/session";
 
+const isVercel = process.env.VERCEL === "1" || process.env.NEXT_PUBLIC_IS_VERCEL === "true";
+
 export default async function Home() {
-  // ensure admin + settings exist
-  await seedIfNeeded();
+  // v2.10.20: On Vercel, skip SQLite operations (web uses Supabase)
+  if (!isVercel) {
+    // ensure admin + settings exist (desktop only)
+    await seedIfNeeded();
+  }
 
   const session = await getSessionUser();
   if (!session) {
     return <LoginScreen />;
   }
 
-  const settings = await db.settings.findUnique({ where: { id: "shop" } });
+  let settings: any = null;
+  if (!isVercel) {
+    try {
+      settings = await db.settings.findUnique({ where: { id: "shop" } });
+    } catch {}
+  }
+
   const user = {
     id: session.id,
     name: session.name,

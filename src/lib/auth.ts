@@ -3,6 +3,15 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 
+// v2.10.20: Auto-detect NEXTAUTH_URL for Vercel deployment
+// Vercel provides VERCEL_URL automatically
+const NEXTAUTH_URL =
+  process.env.NEXTAUTH_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+
+const NEXTAUTH_SECRET =
+  process.env.NEXTAUTH_SECRET || "pakpos-fallback-secret-for-vercel-build";
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -12,6 +21,10 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        // v2.10.20: Skip DB auth on Vercel (web uses Supabase instead)
+        if (process.env.VERCEL === "1") {
+          return null; // Web portal uses separate auth
+        }
         if (!credentials?.email || !credentials?.password) return null;
         const user = await db.user.findUnique({
           where: { email: credentials.email.toLowerCase() },
@@ -29,7 +42,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 7 },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: NEXTAUTH_SECRET,
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
