@@ -6,13 +6,20 @@ const globalForPrisma = globalThis as unknown as {
   schemaEnsuring: Promise<void> | undefined
 }
 
-// v2.10.20: On Vercel (web deployment), don't instantiate Prisma client
-// The web app uses Supabase directly, not Prisma/SQLite
-// This prevents "Invalid URL" error during Vercel build/prerender
+// v2.10.20: On Vercel, use a lazy-loaded PrismaClient that only connects on first query
+// This prevents 'Invalid URL' during build/prerender
 const isVercel = process.env.VERCEL === "1" || process.env.NEXT_PUBLIC_IS_VERCEL === "true";
 
+// Lazy proxy — PrismaClient only created when a property is accessed
 export const db = isVercel
-  ? ({} as PrismaClient) // stub — web app won't use Prisma queries
+  ? new Proxy({} as PrismaClient, {
+      get(_target, prop) {
+        if (!globalForPrisma.prisma) {
+          globalForPrisma.prisma = new PrismaClient({ log: ['error'] });
+        }
+        return (globalForPrisma.prisma as any)[prop];
+      },
+    })
   : (globalForPrisma.prisma ??
       new PrismaClient({
         log: ['error', 'warn'],
