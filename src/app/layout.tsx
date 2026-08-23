@@ -30,6 +30,8 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const isVercel = process.env.VERCEL === "1" || process.env.NEXT_PUBLIC_IS_VERCEL === "true";
+
   return (
     <html lang="en" suppressHydrationWarning dir="ltr">
       <body
@@ -42,9 +44,14 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <Providers>
-            <LicenseGate showBanner={false}>
-              {children}
-            </LicenseGate>
+            {/* v2.10.20: Skip LicenseGate on Vercel — web portal doesn't need license check */}
+            {isVercel ? (
+              children
+            ) : (
+              <LicenseGate showBanner={false}>
+                {children}
+              </LicenseGate>
+            )}
             <Toaster />
             <SonnerToaster position="top-center" richColors />
           </Providers>
