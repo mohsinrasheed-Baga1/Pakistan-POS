@@ -56,7 +56,7 @@ const NAV: { id: View; label: string; icon: any; minRole?: string; permission?: 
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "canViewDashboard" },
   { id: "pos", label: "Sell (POS)", icon: ShoppingCart, permission: "canSell" },
   { id: "loadbill", label: "Load & Bill", icon: Smartphone, permission: "canAccessLoadBill" },
-  { id: "products", label: "Products", icon: Package, permission: "canViewSalesHistory" },
+  { id: "products", label: "Shop Store", icon: Package, permission: "canViewSalesHistory" },
   { id: "store", label: "Main Store", icon: Warehouse, permission: "canAccessMainStore" },
   { id: "vendors", label: "Vendors", icon: Truck, permission: "canAccessVendors" },
   { id: "expenses", label: "Expenses", icon: TrendingDown, permission: "canAccessExpenses" },

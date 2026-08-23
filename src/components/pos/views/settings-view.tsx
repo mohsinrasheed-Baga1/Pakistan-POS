@@ -244,6 +244,9 @@ export function SettingsView() {
         receiptFooter: pick("receiptFooter"),
         invoicePrefix: pick("invoicePrefix"),
         printerWidth: pick("printerWidth"),
+        // v2.10.22: Printer names must be included in save body
+        receiptPrinterName: pick("receiptPrinterName"),
+        stickerPrinterName: pick("stickerPrinterName"),
         googleClientId: pick("googleClientId"),
         googleClientSecret: pick("googleClientSecret"),
         googleRefreshToken: pick("googleRefreshToken"),

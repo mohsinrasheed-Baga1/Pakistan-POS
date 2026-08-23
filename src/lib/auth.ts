@@ -41,7 +41,9 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-  session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 7 },
+  // v2.10.22: Short session timeout — forces login after restart
+  // maxAge = 4 hours (login expires after 4 hours of inactivity or on restart)
+  session: { strategy: "jwt", maxAge: 60 * 60 * 4 },
   secret: NEXTAUTH_SECRET,
   callbacks: {
     async jwt({ token, user }) {

@@ -1268,6 +1268,9 @@ function CardPrintDialog({
               <div style="width:10mm;height:10mm;">${qrImg}</div>
               ${card.customerId ? `<div style="margin-left:1mm;font-size:6px;font-family:monospace;color:#555;line-height:1.2;"><span style="font-weight:bold;color:#333;font-size:6.5px;">${escapeHtml(card.customerId)}</span></div>` : ""}
             </div>
+            <div style="text-align:center;font-size:5.5px;color:#666;margin-top:0.3mm;font-family:Arial,sans-serif;font-weight:bold;">
+              Scan QR &amp; Check Balance
+            </div>
           </div>
         </div>
       </div>`;

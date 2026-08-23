@@ -38,6 +38,9 @@ import {
 import { verifyLicense } from "@/lib/license/client";
 import { LICENSE_CONFIG } from "@/lib/license/config";
 import { WhatsAppButton } from "@/components/license/whatsapp-button";
+import { getShopSupabaseConfig, setShopSupabaseConfig, hasSupabaseSync } from "@/lib/supabase-sync";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export function LicenseSettingsCard() {
   const [license, setLicense] = React.useState<StoredLicense | null>(null);
@@ -45,6 +48,12 @@ export function LicenseSettingsCard() {
   const [systemInfo, setSystemInfo] = React.useState<unknown>(null);
   const [verifying, setVerifying] = React.useState(false);
   const [lastChecked, setLastChecked] = React.useState<string | null>(null);
+  // v2.10.22: Supabase credentials editing
+  const [showSyncEdit, setShowSyncEdit] = React.useState(false);
+  const [syncUrl, setSyncUrl] = React.useState("");
+  const [syncKey, setSyncKey] = React.useState("");
+  const [syncSaving, setSyncSaving] = React.useState(false);
+  const [syncEnabled, setSyncEnabled] = React.useState(false);
 
   React.useEffect(() => {
     (async () => {
@@ -52,6 +61,13 @@ export function LicenseSettingsCard() {
       setSystemId(systemId);
       setSystemInfo(systemInfo);
       setLicense(getStoredLicense());
+      // v2.10.22: Load Supabase sync config
+      const config = getShopSupabaseConfig();
+      if (config) {
+        setSyncUrl(config.url);
+        setSyncKey(config.key);
+        setSyncEnabled(true);
+      }
     })();
   }, []);
 
@@ -307,6 +323,89 @@ export function LicenseSettingsCard() {
             Last checked: {new Date(lastChecked).toLocaleTimeString()}
           </p>
         )}
+
+        {/* v2.10.22: Online Portal Sync Settings */}
+        <Separator />
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium flex items-center gap-2">
+              <Monitor className="w-4 h-4" />
+              Online Portal Sync
+            </h4>
+            {syncEnabled ? (
+              <Badge className="bg-emerald-600">ENABLED</Badge>
+            ) : (
+              <Badge variant="secondary">OFFLINE ONLY</Badge>
+            )}
+          </div>
+
+          {syncEnabled && !showSyncEdit && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 text-sm space-y-1">
+              <div><strong>Supabase URL:</strong> {syncUrl}</div>
+              <div><strong>Key:</strong> <code className="text-xs">{syncKey.substring(0, 25)}...</code></div>
+              <Button size="sm" variant="outline" className="mt-2" onClick={() => setShowSyncEdit(true)}>
+                Edit Sync Settings
+              </Button>
+            </div>
+          )}
+
+          {!syncEnabled && !showSyncEdit && (
+            <div className="bg-muted/50 border border-dashed border-muted-foreground/30 rounded-md p-3 text-sm text-muted-foreground">
+              Online sync is not configured. Your POS works offline only.
+              <Button size="sm" variant="outline" className="mt-2 w-full border-emerald-300 text-emerald-700" onClick={() => setShowSyncEdit(true)}>
+                Enable Online Sync
+              </Button>
+            </div>
+          )}
+
+          {showSyncEdit && (
+            <div className="border-2 border-dashed border-emerald-300 rounded-lg p-4 space-y-3 bg-emerald-50/30">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Supabase URL</Label>
+                <Input
+                  value={syncUrl}
+                  onChange={(e) => setSyncUrl(e.target.value)}
+                  placeholder="https://your-project.supabase.co"
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Supabase Anon Key</Label>
+                <Input
+                  value={syncKey}
+                  onChange={(e) => setSyncKey(e.target.value)}
+                  placeholder="sb_publishable_xxxxxxxx"
+                  className="h-9 text-sm font-mono"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 flex-1"
+                  disabled={syncSaving}
+                  onClick={() => {
+                    if (syncUrl.trim() && syncKey.trim()) {
+                      setShopSupabaseConfig(syncUrl.trim(), syncKey.trim());
+                      setSyncEnabled(true);
+                      setShowSyncEdit(false);
+                      toast.success("Online sync enabled!");
+                    } else {
+                      toast.error("Both fields are required");
+                    }
+                  }}
+                >
+                  {syncSaving ? "Saving…" : "Save & Enable Sync"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowSyncEdit(false)}>
+                  Cancel
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                These credentials connect your POS to the online portal. Get them from your software provider.
+              </p>
+            </div>
+          )}
+        </div>
 
         <Separator />
 
