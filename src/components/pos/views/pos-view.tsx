@@ -724,6 +724,28 @@ export function PosView({ settings }: PosViewProps) {
       setPaidAmount("");
       toast.success("Sale completed!");
       loadProducts();
+      // v2.10.20: Sync sale to shop's Supabase (for online portal)
+      try {
+        const { syncSale } = await import("@/lib/supabase-sync");
+        await syncSale({
+          invoiceNo: data.sale.invoiceNo,
+          cardId: scannedCard?.id || null,
+          cardNumber: scannedCard?.cardNumber || null,
+          customerName: cart.customerName || null,
+          subtotal: data.sale.subtotal,
+          discount: data.sale.discount,
+          taxTotal: data.sale.taxTotal,
+          total: data.sale.total,
+          paidAmount: data.sale.paidAmount,
+          change: data.sale.change,
+          balanceDue: data.sale.balanceDue,
+          paymentMethod: data.sale.paymentMethod,
+          saleType: cart.saleType,
+          items: data.sale.items,
+        });
+      } catch {
+        // Silent — sync is best-effort
+      }
       // ─── Increment trial daily sale counter ─────────────────────────
       // Only increments if license is trial type. Auto-resets each day.
       try {

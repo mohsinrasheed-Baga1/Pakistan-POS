@@ -13,6 +13,7 @@ import { Branding } from "./branding";
 import { LICENSE_CONFIG } from "@/lib/license/config";
 import { startTrial, activateLicense } from "@/lib/license/client";
 import { saveLicense } from "@/lib/license/storage";
+import { setShopSupabaseConfig } from "@/lib/supabase-sync";
 import { toast } from "sonner";
 
 type Props = {
@@ -27,6 +28,10 @@ export function ActivationScreen({ systemId, systemInfo, onLicenseActivated }: P
   const [customerName, setCustomerName] = useState("");
   const [shopName, setShopName] = useState("");
   const [phone, setPhone] = useState("");
+  // v2.10.20: Optional Supabase credentials for online portal
+  const [shopSupabaseUrl, setShopSupabaseUrl] = useState("");
+  const [shopSupabaseKey, setShopSupabaseKey] = useState("");
+  const [showSupabaseFields, setShowSupabaseFields] = useState(false);
   const [loading, setLoading] = useState<"trial" | "activate" | null>(null);
 
   async function handleStartTrial() {
@@ -86,7 +91,13 @@ export function ActivationScreen({ systemId, systemInfo, onLicenseActivated }: P
           lastVerifiedAt: new Date().toISOString(),
           systemId,
         });
-        toast.success(`License activated! Welcome, ${result.license.customerName}.`);
+        // v2.10.20: If shop Supabase credentials provided, save them for sync
+        if (shopSupabaseUrl.trim() && shopSupabaseKey.trim()) {
+          setShopSupabaseConfig(shopSupabaseUrl.trim(), shopSupabaseKey.trim());
+          toast.success(`License activated! Online portal sync enabled.`);
+        } else {
+          toast.success(`License activated! Welcome, ${result.license.customerName}.`);
+        }
         onLicenseActivated();
       } else {
         toast.error(result.message || "Activation failed");
@@ -234,6 +245,45 @@ export function ActivationScreen({ systemId, systemInfo, onLicenseActivated }: P
                     <br />
                     Don&apos;t have a key? Use WhatsApp to purchase one.
                   </div>
+
+                  {/* v2.10.20: Optional Online Portal Sync */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowSupabaseFields(!showSupabaseFields)}
+                      className="w-full flex items-center justify-between p-2.5 rounded-lg border border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-50 text-xs transition-colors"
+                    >
+                      <span className="font-medium text-blue-700">🌐 Enable Online Portal Sync (Optional)</span>
+                      <span className="text-blue-500">{showSupabaseFields ? "▲ Hide" : "▼ Show"}</span>
+                    </button>
+                    {showSupabaseFields && (
+                      <div className="mt-2 p-3 rounded-lg border border-blue-200 bg-blue-50/30 space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          If your software provider gave you Supabase credentials for online portal access,
+                          enter them below. This enables real-time sync to your online dashboard.
+                        </p>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Supabase URL</Label>
+                          <Input
+                            value={shopSupabaseUrl}
+                            onChange={(e) => setShopSupabaseUrl(e.target.value)}
+                            placeholder="https://your-project.supabase.co"
+                            className="text-xs h-8"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Supabase Anon Key</Label>
+                          <Input
+                            value={shopSupabaseKey}
+                            onChange={(e) => setShopSupabaseKey(e.target.value)}
+                            placeholder="sb_publishable_xxxxxxxx"
+                            className="text-xs h-8 font-mono"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <Button className="w-full" onClick={handleActivate} disabled={loading !== null}>
                     {loading === "activate" ? (
                       <>
