@@ -4,17 +4,12 @@ import { createClient } from "@supabase/supabase-js";
 // This route connects to the CENTRAL admin Supabase to verify the shopkeeper
 // and retrieve their shop-specific Supabase URL + key.
 //
-// v2.10.22: Hardcoded fallback for admin Supabase credentials
-// This ensures the portal always works even if Vercel env vars don't save properly
+// v2.10.22: Admin Supabase credentials from environment variables
+// MUST be set in Vercel: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
 
-const ADMIN_SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "https://yghnbmtuyjzebqrcbavk.supabase.co";
+const ADMIN_SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
-const ADMIN_SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlnaG5ibXR1eWp6ZWJxcmNiYXZrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczMzMwMjQwMCwiZXhwIjoyMDQ4Njc4ODAwfQ.sYVpkSlxslmPpP-7G3X6pQYR2l9pX0qX0x0x0x0x0x0";
-
-// v2.10.22: Check if we have valid credentials
-function hasValidCredentials() {
-  return ADMIN_SUPABASE_URL && ADMIN_SUPABASE_KEY && ADMIN_SUPABASE_KEY.length > 50;
-}
+const ADMIN_SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,9 +22,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!ADMIN_SUPABASE_URL || !ADMIN_SUPABASE_KEY || !hasValidCredentials()) {
+    if (!ADMIN_SUPABASE_URL || !ADMIN_SUPABASE_KEY) {
       return NextResponse.json(
-        { ok: false, error: "Server not configured properly. Contact support with this code: PORTAL_ERR_001" },
+        { ok: false, error: "Server not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel." },
         { status: 500 }
       );
     }
