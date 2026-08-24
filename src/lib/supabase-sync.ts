@@ -2,16 +2,6 @@
  * Supabase Sync Helper
  * =====================================================
  * Syncs POS data to the shop's Supabase database.
- * This enables the online portal to show real-time data.
- *
- * Sync triggers:
- * - After each sale → sales_history + card_transactions
- * - After card create/update → customer_cards
- * - After product create/edit → products
- *
- * Credentials:
- * - Shop's Supabase URL + key stored in localStorage as 'pakpos_shop_supabase'
- * - Set during license activation (if shop has Supabase credentials)
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -26,7 +16,6 @@ type ShopSupabaseClient = ReturnType<typeof createClient> | null;
 let cachedClient: ShopSupabaseClient = null;
 let cachedConfig: ShopSupabaseConfig | null = null;
 
-/** Get shop's Supabase credentials from localStorage */
 export function getShopSupabaseConfig(): ShopSupabaseConfig | null {
   if (cachedConfig) return cachedConfig;
   if (typeof window === "undefined") return null;
@@ -44,17 +33,15 @@ export function getShopSupabaseConfig(): ShopSupabaseConfig | null {
   return null;
 }
 
-/** Set shop's Supabase credentials (called during license activation) */
 export function setShopSupabaseConfig(url: string, key: string) {
   if (typeof window === "undefined") return;
   if (!url || !key) return;
   const config = { url, key };
   localStorage.setItem("pakpos_shop_supabase", JSON.stringify(config));
   cachedConfig = config;
-  cachedClient = null; // reset client
+  cachedClient = null;
 }
 
-/** Get Supabase client for shop's database (lazy initialization) */
 export function getShopSupabase(): ShopSupabaseClient {
   if (cachedClient) return cachedClient;
   const config = getShopSupabaseConfig();
@@ -65,25 +52,28 @@ export function getShopSupabase(): ShopSupabaseClient {
   return cachedClient;
 }
 
-/** Check if shop has Supabase sync enabled */
 export function hasSupabaseSync(): boolean {
   return getShopSupabaseConfig() !== null;
 }
 
 // =====================================================
-// SYNC FUNCTIONS
+// SYNC FUNCTIONS — v2.10.22: Better error logging
 // =====================================================
 
-/** Sync a completed sale to shop's Supabase */
 export async function syncSale(sale: any): Promise<void> {
   const sb = getShopSupabase();
-  if (!sb) return; // No sync configured — silent skip
+  if (!sb) {
+    console.log("[Sync] No Supabase config — skipping sync");
+    return;
+  }
 
   try {
-    // 1) Insert into sales_history
-    await sb.from("sales_history").upsert({
+    console.log("[Sync] Syncing sale:", sale.invoiceNo);
+
+    // 1) Insert into sales_history (use INSERT, not upsert — simpler)
+    const { error: saleError } = await sb.from("sales_history").insert({
       invoice_no: sale.invoiceNo,
-      card_number: sale.cardId || null,
+      card_number: sale.cardNumber || null,
       customer_name: sale.customerName || null,
       subtotal: sale.subtotal || 0,
       discount: sale.discount || 0,
@@ -97,23 +87,31 @@ export async function syncSale(sale: any): Promise<void> {
       items_count: sale.items?.length || 0,
       sale_date: new Date().toISOString(),
       synced_at: new Date().toISOString(),
-    }, { onConflict: "invoice_no" });
+    });
+
+    if (saleError) {
+      console.error("[Sync] sales_history insert error:", saleError);
+    } else {
+      console.log("[Sync] sales_history inserted successfully");
+    }
 
     // 2) If card was used, create card_transaction + update balance
-    if (sale.cardId && sale.cardNumber) {
-      await sb.from("card_transactions").insert({
+    if (sale.cardNumber) {
+      const { error: txnError } = await sb.from("card_transactions").insert({
         card_number: sale.cardNumber,
-        amount: -(sale.total || 0), // negative = sale deducted from balance
+        amount: -(sale.total || 0),
         type: "sale",
         description: `Sale ${sale.invoiceNo}`,
         sale_invoice_no: sale.invoiceNo,
         created_at: new Date().toISOString(),
       });
 
-      // Update card balance (decrement)
-      // Note: card balance is maintained in customer_cards table
-      // We use RPC or direct update
-      const { data: card } = await sb
+      if (txnError) {
+        console.error("[Sync] card_transactions insert error:", txnError);
+      }
+
+      // Update card balance
+      const { data: card, error: cardError } = await sb
         .from("customer_cards")
         .select("balance")
         .eq("card_number", sale.cardNumber)
@@ -121,24 +119,50 @@ export async function syncSale(sale: any): Promise<void> {
 
       if (card) {
         const newBalance = (card.balance || 0) - (sale.total || 0);
-        await sb
+        const { error: updateError } = await sb
           .from("customer_cards")
           .update({ balance: newBalance, updated_at: new Date().toISOString() })
           .eq("card_number", sale.cardNumber);
+
+        if (updateError) {
+          console.error("[Sync] card balance update error:", updateError);
+        }
+      } else if (cardError) {
+        console.error("[Sync] card lookup error:", cardError);
       }
     }
+
+    // 3) Sync products from this sale
+    if (sale.items && Array.isArray(sale.items)) {
+      for (const item of sale.items) {
+        try {
+          await sb.from("products").upsert({
+            product_id: item.productId || item.id,
+            name: item.name || "Unknown",
+            barcode: item.barcode || null,
+            sale_price: item.price || 0,
+            unit: item.unit || "piece",
+            stock: item.stock || 0,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "product_id" });
+        } catch (e) {
+          console.error("[Sync] product sync error:", e);
+        }
+      }
+    }
+
+    console.log("[Sync] Sale sync complete:", sale.invoiceNo);
   } catch (err) {
-    console.error("[Sync] Sale sync error:", err);
+    console.error("[Sync] Sale sync FAILED:", err);
   }
 }
 
-/** Sync a customer card to shop's Supabase */
 export async function syncCard(card: any): Promise<void> {
   const sb = getShopSupabase();
   if (!sb) return;
 
   try {
-    await sb.from("customer_cards").upsert({
+    const { error } = await sb.from("customer_cards").upsert({
       card_number: card.cardNumber,
       customer_name: card.name,
       customer_phone: card.phone || null,
@@ -149,18 +173,21 @@ export async function syncCard(card: any): Promise<void> {
       is_active: card.active !== false,
       updated_at: new Date().toISOString(),
     }, { onConflict: "card_number" });
+
+    if (error) {
+      console.error("[Sync] Card sync error:", error);
+    }
   } catch (err) {
-    console.error("[Sync] Card sync error:", err);
+    console.error("[Sync] Card sync FAILED:", err);
   }
 }
 
-/** Sync a product to shop's Supabase */
 export async function syncProduct(product: any): Promise<void> {
   const sb = getShopSupabase();
   if (!sb) return;
 
   try {
-    await sb.from("products").upsert({
+    const { error } = await sb.from("products").upsert({
       product_id: product.id,
       name: product.name,
       barcode: product.barcode || null,
@@ -171,12 +198,15 @@ export async function syncProduct(product: any): Promise<void> {
       is_active: product.active !== false,
       updated_at: new Date().toISOString(),
     }, { onConflict: "product_id" });
+
+    if (error) {
+      console.error("[Sync] Product sync error:", error);
+    }
   } catch (err) {
-    console.error("[Sync] Product sync error:", err);
+    console.error("[Sync] Product sync FAILED:", err);
   }
 }
 
-/** Sync card payment/topup to shop's Supabase */
 export async function syncCardTransaction(params: {
   cardNumber: string;
   amount: number;
@@ -187,7 +217,7 @@ export async function syncCardTransaction(params: {
   if (!sb) return;
 
   try {
-    await sb.from("card_transactions").insert({
+    const { error: txnError } = await sb.from("card_transactions").insert({
       card_number: params.cardNumber,
       amount: params.amount,
       type: params.type,
@@ -195,7 +225,10 @@ export async function syncCardTransaction(params: {
       created_at: new Date().toISOString(),
     });
 
-    // Update card balance
+    if (txnError) {
+      console.error("[Sync] Card txn sync error:", txnError);
+    }
+
     const { data: card } = await sb
       .from("customer_cards")
       .select("balance")
@@ -210,6 +243,6 @@ export async function syncCardTransaction(params: {
         .eq("card_number", params.cardNumber);
     }
   } catch (err) {
-    console.error("[Sync] Card transaction sync error:", err);
+    console.error("[Sync] Card txn sync FAILED:", err);
   }
 }
