@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html><head><title>Pakistan POS — Portal Password Reset</title>
+<style>
+body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
+.card { background: #f9fafb; border: 1px solid #d1d5db; border-radius: 8px; padding: 24px; }
+input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+button { width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+button:hover { background: #047857; }
+.result { margin-top: 16px; padding: 12px; border-radius: 4px; display: none; }
+.success { background: #d1fae5; color: #065f46; }
+.error { background: #fee2e2; color: #991b1b; }
+h2 { color: #059669; }
+label { font-size: 14px; font-weight: bold; color: #374151; }
+</style></head><body>
+<div class="card">
+<h2>🔑 Portal Password Reset</h2>
+<p style="color:#6b7280;font-size:14px;">Use this to reset your portal login email and password.</p>
+<div>
+<label>License Key</label>
+<input type="text" id="licenseKey" placeholder="PAKPOS-XXXXXXXX-XXXX">
+<label>New Email</label>
+<input type="email" id="email" placeholder="shop@example.com">
+<label>New Password</label>
+<input type="text" id="password" placeholder="Your new password">
+<button onclick="resetPassword()">Reset Password</button>
+</div>
+<div id="result" class="result"></div>
+</div>
+<script>
+async function resetPassword() {
+  const licenseKey = document.getElementById('licenseKey').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value.trim();
+  const resultDiv = document.getElementById('result');
+  if (!licenseKey || !email || !password) {
+    resultDiv.style.display = 'block';
+    resultDiv.className = 'result error';
+    resultDiv.textContent = 'All fields are required';
+    return;
+  }
+  resultDiv.style.display = 'block';
+  resultDiv.className = 'result';
+  resultDiv.textContent = 'Resetting...';
+  try {
+    const res = await fetch('https://yghnbmtuyjzebqrcbavk.supabase.co/functions/v1/portal-reset', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n',
+        'apikey': 'sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n',
+      },
+      body: JSON.stringify({ licenseKey, newEmail: email, newPassword: password }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      resultDiv.className = 'result success';
+      resultDiv.textContent = '✅ Password reset! Login with: ' + email + ' / ' + password;
+    } else {
+      resultDiv.className = 'result error';
+      resultDiv.textContent = '❌ Error: ' + data.error;
+    }
+  } catch (e) {
+    resultDiv.className = 'result error';
+    resultDiv.textContent = '❌ Network error: ' + e.message;
+  }
+}
+</script>
+</body></html>
