@@ -1201,9 +1201,17 @@ function CardPrintDialog({
       return;
     }
     let cancelled = false;
-    QRCode.toDataURL(card.cardNumber, {
-      width: 120,
-      margin: 0,
+    // v2.10.25: Generate QR with actual URL so scanning opens the portal page
+    // Format: https://VERCEL_URL/card/LICENSE_KEY/CARD_NUMBER
+    const vercelUrl = typeof window !== "undefined" ? window.location.origin : "https://pakistanpos.vercel.app";
+    const licenseKey = (typeof window !== "undefined" && localStorage.getItem("pakpos_license_data"))
+      ? JSON.parse(localStorage.getItem("pakpos_license_data") || "{}").licenseKey || "LICENSE"
+      : "LICENSE";
+    const qrUrl = `${vercelUrl}/card/${licenseKey}/${card.cardNumber}`;
+
+    QRCode.toDataURL(qrUrl, {
+      width: 200,
+      margin: 1,
       color: { dark: "#000000", light: "#ffffff" },
       errorCorrectionLevel: "M",
     })
@@ -1234,13 +1242,10 @@ function CardPrintDialog({
     }
     const cardTypeLabel = card.type === "WHOLESALE" ? "Wholesale" : card.type === "SHOP_KEEPER" ? "Shop Keeper" : "Regular";
     const qrImg = qrDataUrl
-      ? `<img src="${qrDataUrl}" style="width:12mm;height:12mm;" alt="QR" />`
+      ? `<img src="${qrDataUrl}" style="width:18mm;height:18mm;" alt="QR" />`
       : "";
 
-    // Build a single card HTML — this will be rendered TWICE on an A4
-    // portrait page: one at the top corner, one at the bottom corner.
-    // Both copies are identical so the shopkeeper can give one to the
-    // customer and keep one for records.
+    // v2.10.25: Landscape card — barcode on LEFT, QR on RIGHT (bigger)
     const cardHtml = `
       <div class="card">
         <div class="header">
@@ -1260,44 +1265,40 @@ function CardPrintDialog({
             <span class="type-badge">${escapeHtml(cardTypeLabel)}</span>
           </div>
           ${card.phone ? `<div class="phone-row">Ph: ${escapeHtml(card.phone)}</div>` : ""}
-          <div class="barcode">
-            <svg class="barcode-svg"></svg>
-          </div>
-          <div class="qr">
-            <div style="display:flex;justify-content:center;align-items:flex-end;margin-top:0.5mm;">
-              <div style="width:10mm;height:10mm;">${qrImg}</div>
-              ${card.customerId ? `<div style="margin-left:1mm;font-size:6px;font-family:monospace;color:#555;line-height:1.2;"><span style="font-weight:bold;color:#333;font-size:6.5px;">${escapeHtml(card.customerId)}</span></div>` : ""}
+          <div class="content-row">
+            <div class="barcode-side">
+              <svg class="barcode-svg"></svg>
             </div>
-            <div style="text-align:center;font-size:5.5px;color:#666;margin-top:0.3mm;font-family:Arial,sans-serif;font-weight:bold;">
-              Scan QR &amp; Check Balance
+            <div class="qr-side">
+              ${qrImg}
+              <div class="qr-label">Scan QR &amp; Check Balance</div>
             </div>
           </div>
         </div>
       </div>`;
 
-    // A4 portrait = 210mm × 297mm
-    // Card = 85.6mm × 54mm
-    // Two cards stacked vertically with a cut line between them
+    // v2.10.25: A4 LANDSCAPE = 297mm × 210mm
+    // Card = 85.6mm × 54mm (landscape = wider)
+    // Two cards side by side with a cut line between them
     win.document.write(`
       <html dir="ltr"><head><title>Shop Card ${card.cardNumber}</title>
       <style>
-        @page { size: A4 portrait; margin: 5mm; }
+        @page { size: A4 landscape; margin: 5mm; }
         html, body { margin: 0; padding: 0; }
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         body {
-          width: 200mm;
           display: flex;
-          flex-direction: column;
+          flex-direction: row;
           align-items: center;
-          justify-content: flex-start;
+          justify-content: center;
           gap: 5mm;
-          padding-top: 5mm;
+          padding: 5mm;
           font-family: Tahoma, Arial, sans-serif;
         }
         .card {
-          width: 85.6mm;
-          height: 54mm;
-          border: 1px solid #000;
+          width: 120mm;
+          height: 75mm;
+          border: 1.5px solid #000;
           display: flex;
           flex-direction: column;
           overflow: hidden;
@@ -1307,41 +1308,43 @@ function CardPrintDialog({
         }
         .header {
           border-bottom: 1px solid #000;
-          padding: 1.5mm 2mm 0.5mm;
+          padding: 2mm 3mm 1mm;
           text-align: center;
         }
-        .shop-name { font-weight: bold; font-size: 14px; line-height: 1.15; color: #000; letter-spacing: 0.3px; }
-        .shop-meta { font-weight: 700; font-size: 9px; line-height: 1.15; color: #333; }
-        .body { flex: 1; padding: 1mm 2mm; display: flex; flex-direction: column; gap: 0.5mm; }
-        .holder-row { display: flex; align-items: center; justify-content: space-between; gap: 1mm; }
-        .holder-name { font-size: 11px; font-weight: bold; color: #000; text-transform: uppercase; }
-        .phone-row { font-size: 9px; font-weight: bold; color: #333; margin-top: 0.5mm; }
-        .type-badge { border: 1px solid #000; padding: 0.3mm 1.5mm; font-size: 7px; font-weight: bold; color: #000; background: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
-        .barcode { display: flex; justify-content: center; overflow: hidden; margin-top: 0.5mm; }
-        .qr { display: flex; justify-content: center; margin-top: 0.5mm; }
-        .cut-line {
-          width: 200mm;
-          border-top: 1px dashed #999;
-          margin: 2mm 0;
+        .shop-name { font-weight: bold; font-size: 16px; line-height: 1.2; color: #000; letter-spacing: 0.3px; }
+        .shop-meta { font-weight: 700; font-size: 10px; line-height: 1.2; color: #333; }
+        .body { flex: 1; padding: 2mm 3mm; display: flex; flex-direction: column; gap: 1mm; }
+        .holder-row { display: flex; align-items: center; justify-content: space-between; gap: 2mm; }
+        .holder-name { font-size: 13px; font-weight: bold; color: #000; text-transform: uppercase; }
+        .phone-row { font-size: 11px; font-weight: bold; color: #333; margin-top: 0.5mm; }
+        .type-badge { border: 1px solid #000; padding: 0.5mm 2mm; font-size: 8px; font-weight: bold; color: #000; background: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
+        .content-row { display: flex; justify-content: space-between; align-items: center; flex: 1; gap: 3mm; margin-top: 1mm; }
+        .barcode-side { display: flex; justify-content: center; align-items: center; flex: 1; }
+        .qr-side { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1mm; }
+        .qr-label { font-size: 7px; font-weight: bold; color: #333; text-align: center; font-family: Arial, sans-serif; }
+        .cut-line-v {
+          width: 1px;
+          height: 70mm;
+          border-left: 1px dashed #999;
           position: relative;
         }
-        .cut-line::after {
-          content: "✂ ---";
+        .cut-line-v::after {
+          content: "✂";
           position: absolute;
           left: 50%;
-          top: -8px;
-          transform: translateX(-50%);
+          top: 50%;
+          transform: translate(-50%, -50%);
           background: #fff;
-          padding: 0 5px;
-          font-size: 10px;
+          padding: 2px;
+          font-size: 14px;
           color: #999;
         }
       </style></head>
       <body>
-        <!-- Copy 1 — top corner -->
+        <!-- Copy 1 -->
         ${cardHtml}
-        <div class="cut-line"></div>
-        <!-- Copy 2 — bottom corner (identical) -->
+        <div class="cut-line-v"></div>
+        <!-- Copy 2 (identical) -->
         ${cardHtml}
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         <script>
