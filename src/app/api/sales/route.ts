@@ -341,9 +341,8 @@ async function processSale(userId: string, body: any, items: any[]) {
       }
     } else {
       // ─── PIECE SALE (regular) ─────────────────────────────────────────────
-      // For MAIN_STORE loose products: ONLY deduct from Main Store (storeStock),
-      // NOT from shop stock (stock field).
-      // For regular SHOP products: deduct from shop stock as normal.
+      // v2.10.25: Loose products (MAIN_STORE) should ONLY deduct from Main Store
+      // Regular SHOP products deduct from shop stock as normal
       const isMainStoreProduct = product.inventorySource === "MAIN_STORE";
 
       if (!isMainStoreProduct) {

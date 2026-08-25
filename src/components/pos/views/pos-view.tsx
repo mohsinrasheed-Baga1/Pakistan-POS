@@ -781,10 +781,10 @@ export function PosView({ settings }: PosViewProps) {
     }
   }
 
-  const change = Math.max(
-    0,
-    (Number(paidAmount) || 0) - totals.total
-  );
+  // v2.10.25: Show negative balance if customer paid less than total
+  const paidNum = Number(paidAmount) || 0;
+  const change = paidNum - totals.total; // Can be negative (customer owes money)
+  const balanceDue = change < 0 ? Math.abs(change) : 0;
 
   return (
     <div className="space-y-4">
@@ -1481,11 +1481,19 @@ export function PosView({ settings }: PosViewProps) {
               />
             </div>
 
-            {Number(paidAmount) > 0 && (
-              <div className="flex justify-between items-center bg-amber-50 rounded-lg p-3">
+            {Number(paidAmount) > 0 && change >= 0 && (
+              <div className="flex justify-between items-center bg-emerald-50 rounded-lg p-3">
                 <span className="text-sm font-medium">Change</span>
-                <span className="text-xl font-bold text-amber-700">
+                <span className="text-xl font-bold text-emerald-700">
                   {formatMoney(change, currency)}
+                </span>
+              </div>
+            )}
+            {Number(paidAmount) > 0 && change < 0 && (
+              <div className="flex justify-between items-center bg-red-50 rounded-lg p-3 border border-red-200">
+                <span className="text-sm font-medium text-red-700">Balance Due (Customer owes)</span>
+                <span className="text-xl font-bold text-red-700">
+                  {formatMoney(balanceDue, currency)}
                 </span>
               </div>
             )}

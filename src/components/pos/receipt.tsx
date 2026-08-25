@@ -282,7 +282,7 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
             <span>{formatMoney(sale.total, currency)}</span>
           </div>
 
-          {/* Payment */}
+          {/* v2.10.25: Payment section — clear Received + Change + Balance Due */}
           {rs.showPaymentMethod && (
             <div className="row" style={{ fontSize: tableFontSize }}>
               <span className="payment-label">Payment:</span>
@@ -294,18 +294,22 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
                   : sale.paymentMethod === "SHOP_CARD"
                   ? "Shop Card"
                   : "Mobile"}
-                {" "}({formatMoney(sale.paidAmount, currency)})
               </span>
             </div>
           )}
-          {/* v2.10.15: Show change (when customer paid more than total) */}
+          {/* Received amount (how much customer paid) */}
+          <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
+            <span>Recd:</span>
+            <span>{formatMoney(sale.paidAmount, currency)}</span>
+          </div>
+          {/* Change (when customer paid more) */}
           {rs.showChange && sale.change > 0 && (
-            <div className="row" style={{ fontSize: tableFontSize }}>
+            <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
               <span>Change:</span>
               <span>{formatMoney(sale.change, currency)}</span>
             </div>
           )}
-          {/* v2.10.15: Show balance due (when customer paid less than total) */}
+          {/* Balance Due (when customer paid less — RED) */}
           {(sale.balanceDue || 0) > 0 && (
             <div className="row bold" style={{ fontSize: tableFontSize, fontWeight: "bold", color: "#dc2626" }}>
               <span>Balance Due:</span>
