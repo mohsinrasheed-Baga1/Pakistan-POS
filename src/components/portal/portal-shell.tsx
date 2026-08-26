@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
-import { Store, Package, Receipt, CreditCard, BarChart3, Settings, LogOut, ShieldCheck, MessageCircle } from "lucide-react";
+import { Store, Package, Receipt, CreditCard, BarChart3, Settings, LogOut, ShieldCheck, MessageCircle, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LICENSE_CONFIG } from "@/lib/license/config";
@@ -19,6 +19,7 @@ type ShopData = {
 
 const NAV = [
   { id: "/portal/dashboard", label: "Dashboard", icon: BarChart3 },
+  { id: "/portal/pos", label: "Online POS", icon: ShoppingCart },
   { id: "/portal/products", label: "Products", icon: Package },
   { id: "/portal/sales", label: "Sales History", icon: Receipt },
   { id: "/portal/cards", label: "Shop Cards", icon: CreditCard },

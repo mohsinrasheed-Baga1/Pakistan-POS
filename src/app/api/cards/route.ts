@@ -89,5 +89,21 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  // v2.10.25: Sync card to Supabase (for online portal)
+  try {
+    const { syncCard } = await import("@/lib/supabase-sync");
+    await syncCard({
+      cardNumber,
+      name,
+      phone: body.phone ? String(body.phone).trim() : null,
+      address: body.address ? String(body.address).trim() : null,
+      type: body.type === "WHOLESALE" ? "WHOLESALE" : body.type === "SHOP_KEEPER" ? "SHOP_KEEPER" : "REGULAR",
+      balance: Number(body.balance) || 0,
+      active: body.active !== false,
+    });
+  } catch {
+    // Silent — sync is best-effort
+  }
+
   return NextResponse.json({ card });
 }
