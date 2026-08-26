@@ -1,67 +1,112 @@
 <!DOCTYPE html>
-<html><head><title>Pakistan POS — Portal Password Reset</title>
+<html><head><title>Pakistan POS — Fix Login</title>
 <style>
 body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
 .card { background: #f9fafb; border: 1px solid #d1d5db; border-radius: 8px; padding: 24px; }
 input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-button { width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+button { width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 8px; }
 button:hover { background: #047857; }
-.result { margin-top: 16px; padding: 12px; border-radius: 4px; display: none; }
+.result { margin-top: 16px; padding: 12px; border-radius: 4px; display: none; font-size: 14px; }
 .success { background: #d1fae5; color: #065f46; }
 .error { background: #fee2e2; color: #991b1b; }
 h2 { color: #059669; }
-label { font-size: 14px; font-weight: bold; color: #374151; }
+label { font-size: 14px; font-weight: bold; color: #374151; display: block; margin-top: 12px; }
+.note { font-size: 12px; color: #6b7280; margin-top: 4px; }
 </style></head><body>
 <div class="card">
-<h2>🔑 Portal Password Reset</h2>
-<p style="color:#6b7280;font-size:14px;">Use this to reset your portal login email and password.</p>
-<div>
+<h2>🔧 Pakistan POS — Fix Login</h2>
+<p style="color:#6b7280;font-size:14px;">Fix portal login credentials for a license.</p>
+
 <label>License Key</label>
 <input type="text" id="licenseKey" placeholder="PAKPOS-XXXXXXXX-XXXX">
-<label>New Email</label>
+
+<label>Email (for portal login)</label>
 <input type="email" id="email" placeholder="shop@example.com">
-<label>New Password</label>
-<input type="text" id="password" placeholder="Your new password">
-<button onclick="resetPassword()">Reset Password</button>
-</div>
+
+<label>Password (for portal login)</label>
+<input type="text" id="password" placeholder="Your password">
+
+<label>Supabase URL</label>
+<input type="text" id="supabaseUrl" placeholder="https://your-project.supabase.co">
+
+<label>Supabase Anon Key</label>
+<input type="text" id="supabaseKey" placeholder="sb_publishable_xxxxxxxx" style="font-family:monospace;font-size:12px;">
+
+<button onclick="fixAll()">Fix Everything</button>
 <div id="result" class="result"></div>
 </div>
 <script>
-async function resetPassword() {
+async function fixAll() {
   const licenseKey = document.getElementById('licenseKey').value.trim();
   const email = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value.trim();
+  const supabaseUrl = document.getElementById('supabaseUrl').value.trim();
+  const supabaseKey = document.getElementById('supabaseKey').value.trim();
   const resultDiv = document.getElementById('result');
+  
   if (!licenseKey || !email || !password) {
     resultDiv.style.display = 'block';
     resultDiv.className = 'result error';
-    resultDiv.textContent = 'All fields are required';
+    resultDiv.textContent = 'License Key, Email, and Password are required';
     return;
   }
+  
   resultDiv.style.display = 'block';
   resultDiv.className = 'result';
-  resultDiv.textContent = 'Resetting...';
+  resultDiv.textContent = 'Fixing...';
+  
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n',
+    'apikey': 'sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n',
+  };
+  
   try {
-    const res = await fetch('https://yghnbmtuyjzebqrcbavk.supabase.co/functions/v1/portal-reset', {
+    // Step 1: Reset email + password
+    const resetRes = await fetch('https://yghnbmtuyjzebqrcbavk.supabase.co/functions/v1/portal-reset', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n',
-        'apikey': 'sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n',
-      },
+      headers,
       body: JSON.stringify({ licenseKey, newEmail: email, newPassword: password }),
     });
-    const data = await res.json();
-    if (data.ok) {
-      resultDiv.className = 'result success';
-      resultDiv.textContent = '✅ Password reset! Login with: ' + email + ' / ' + password;
-    } else {
-      resultDiv.className = 'result error';
-      resultDiv.textContent = '❌ Error: ' + data.error;
+    const resetData = await resetRes.json();
+    if (!resetData.ok) throw new Error('Password reset failed: ' + resetData.error);
+    
+    let msg = '✅ Email + Password fixed!';
+    
+    // Step 2: Fix Supabase URL + Key (if provided)
+    if (supabaseUrl && supabaseKey) {
+      const fixRes = await fetch('https://yghnbmtuyjzebqrcbavk.supabase.co/functions/v1/fix-credentials', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ licenseKey, supabaseUrl, supabaseKey }),
+      });
+      const fixData = await fixRes.json();
+      if (fixData.ok) {
+        msg += '\n✅ Supabase URL + Key fixed!';
+      } else {
+        msg += '\n⚠️ Supabase fix failed: ' + fixData.error;
+      }
     }
+    
+    // Step 3: Verify login works
+    const verifyRes = await fetch('https://yghnbmtuyjzebqrcbavk.supabase.co/functions/v1/portal-auth', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ licenseKey, email, password }),
+    });
+    const verifyData = await verifyRes.json();
+    if (verifyData.ok) {
+      msg += '\n✅ Login verified! Shop: ' + verifyData.shop.shopName;
+    } else {
+      msg += '\n⚠️ Login verification failed: ' + verifyData.error;
+    }
+    
+    resultDiv.className = 'result success';
+    resultDiv.style.whiteSpace = 'pre-line';
+    resultDiv.textContent = msg;
   } catch (e) {
     resultDiv.className = 'result error';
-    resultDiv.textContent = '❌ Network error: ' + e.message;
+    resultDiv.textContent = '❌ Error: ' + e.message;
   }
 }
 </script>
