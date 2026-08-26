@@ -1304,8 +1304,12 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
       };
 
       // ─── Build BOX product body (only if box) ──────────────────────────────
+      // v2.10.25: Strip existing "(Box)" suffix to prevent duplication
+      // e.g. "Rice (Box)" → "Rice", then add "(Box)" → "Rice (Box)"
+      // Without this, editing saves "Rice (Box) (Box)" then "(Box) (Box) (Box)"
+      const cleanName = name.replace(/\s*\(Box\)\s*$/i, "").trim();
       const boxBody = isBox ? {
-        name: `${name} (Box)`, barcode: finalBoxBarcode, categoryId: categoryId || null,
+        name: `${cleanName} (Box)`, barcode: finalBoxBarcode, categoryId: categoryId || null,
         costPrice: Number(boxCostPrice) || 0, salePrice: Number(boxSalePrice) || 0,
         wholesalePrice: Number(boxWholesalePrice) || 0, shopkeeperPrice: Number(boxShopkeeperPrice) || 0,
         unit: "piece", stock: Number(boxQty) || 0,
