@@ -1,57 +1,59 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 
-// This route verifies the shopkeeper login by calling a Supabase Edge Function
-// which uses service_role internally. This avoids needing service_role key in Vercel env vars.
-//
-// v2.10.22: Uses Supabase Edge Function 'portal-auth' which is deployed separately
+// v2.10.25: Direct Edge Function call with full debug logging
 
-const ADMIN_SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "https://yghnbmtuyjzebqrcbavk.supabase.co";
-const ADMIN_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n";
+const ADMIN_SUPABASE_URL = "https://yghnbmtuyjzebqrcbavk.supabase.co";
+const ADMIN_ANON_KEY = "sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n";
 
 export async function POST(req: NextRequest) {
   try {
-    const { licenseKey, email, password } = await req.json();
+    const body = await req.json();
+    const { licenseKey, email, password } = body;
 
     if (!licenseKey || !email || !password) {
       return NextResponse.json(
-        { ok: false, error: "License Key, Email, and Password are required" },
+        { ok: false, error: "All fields required" },
         { status: 400 }
       );
     }
 
-    // Call the portal-auth Edge Function (uses service_role internally)
-    const res = await fetch(`${ADMIN_SUPABASE_URL}/functions/v1/portal-auth`, {
+    console.log("[Portal Login] Attempting:", { licenseKey, email });
+
+    // Call Edge Function
+    const edgeRes = await fetch(`${ADMIN_SUPABASE_URL}/functions/v1/portal-auth`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${ADMIN_ANON_KEY}`,
-        apikey: ADMIN_ANON_KEY,
+        "Authorization": `Bearer ${ADMIN_ANON_KEY}`,
+        "apikey": ADMIN_ANON_KEY,
       },
       body: JSON.stringify({
         licenseKey: licenseKey.toUpperCase().trim(),
         email: email.toLowerCase().trim(),
-        password,
+        password: password,
       }),
     });
 
-    const data = await res.json();
+    console.log("[Portal Login] Edge status:", edgeRes.status);
 
-    if (!res.ok || !data.ok) {
+    const edgeData = await edgeRes.json();
+    console.log("[Portal Login] Edge response:", JSON.stringify(edgeData));
+
+    if (edgeData.ok && edgeData.shop) {
+      return NextResponse.json({
+        ok: true,
+        shop: edgeData.shop,
+      });
+    } else {
       return NextResponse.json(
-        { ok: false, error: data.error || "Login failed" },
-        { status: res.status }
+        { ok: false, error: edgeData.error || "Login failed" },
+        { status: 401 }
       );
     }
-
-    return NextResponse.json({
-      ok: true,
-      shop: data.shop,
-    });
   } catch (err: any) {
-    console.error("Portal login error:", err);
+    console.error("[Portal Login] Error:", err.message);
     return NextResponse.json(
-      { ok: false, error: "Server error. Please try again." },
+      { ok: false, error: err.message || "Server error" },
       { status: 500 }
     );
   }
