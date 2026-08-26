@@ -1,20 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// v2.10.29 FIX: Card lookup for QR scan
+// v2.10.29: Card lookup for QR scan
 // QR contains: /card/[licenseKey]/[cardNumber]
 // The client page calls: /api/portal/card?licenseKey=...&cardNumber=...
 //
-// BUG FIXED: Previous version used `params` (dynamic route segments) but the client
-// sends QUERY STRING params. `params` was undefined → destructure threw → 500 "Server error".
-// Now we read from `req.nextUrl.searchParams` which is the correct way for query strings.
-//
 // No login required — customer just scans QR and sees their balance.
 
-// Admin Supabase config — try service role first (bypasses RLS), fall back to anon.
-// NOTE: For production, SUPABASE_SERVICE_ROLE_KEY must be set as a Vercel env var.
-// If only anon key is available, the licenses table query will fail due to RLS —
-// in that case we return a clear error telling user to add the env var.
 const ADMIN_SUPABASE_URL =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -26,9 +18,21 @@ const ADMIN_SUPABASE_ANON_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
   "sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n";
 
+// Default shop names that should be replaced by the actual license shop name.
+// These are the seed/default values the POS app uses before user customization.
+const DEFAULT_SHOP_NAMES = new Set([
+  "my shop",
+  "myshop",
+  "",
+]);
+
+function isDefaultShopName(name: string | null | undefined): boolean {
+  if (!name) return true;
+  return DEFAULT_SHOP_NAMES.has(name.trim().toLowerCase());
+}
+
 export async function GET(req: NextRequest) {
   try {
-    // FIX: Read from query string (the actual way the client sends data)
     const { searchParams } = new URL(req.url);
     const licenseKey = (searchParams.get("licenseKey") || "").trim();
     const cardNumber = (searchParams.get("cardNumber") || "").trim();
@@ -40,8 +44,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Choose the best key we have. Service role bypasses RLS — preferred.
-    // Anon key only works if RLS policy allows public read on licenses (not recommended).
     const adminKey = ADMIN_SUPABASE_SERVICE_KEY || ADMIN_SUPABASE_ANON_KEY;
     if (!adminKey) {
       console.error(
@@ -56,7 +58,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Step 1: Find the shop's Supabase credentials from admin Supabase
+    // ─── Step 1: Find the shop's Supabase credentials from admin Supabase ──────────────
     const adminSb = createClient(ADMIN_SUPABASE_URL, adminKey, {
       auth: { persistSession: false },
     });
@@ -64,14 +66,13 @@ export async function GET(req: NextRequest) {
     const { data: license, error: licError } = await adminSb
       .from("licenses")
       .select(
-        "shop_name, shop_address, shop_supabase_url, shop_supabase_key, is_active, is_revoked"
+        "shop_name, shop_address, shop_phone, shop_supabase_url, shop_supabase_key, is_active, is_revoked"
       )
       .eq("license_key", licenseKey.toUpperCase().trim())
       .maybeSingle();
 
     if (licError) {
       console.error("[portal/card] License query error:", licError.message);
-      // If using anon key and RLS blocks the read, licError will mention RLS
       if (
         licError.message.includes("permission") ||
         licError.message.includes("RLS") ||
@@ -101,10 +102,7 @@ export async function GET(req: NextRequest) {
 
     if (license.is_revoked || !license.is_active) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "This shop's service is currently unavailable.",
-        },
+        { ok: false, error: "This shop's service is currently unavailable." },
         { status: 403 }
       );
     }
@@ -120,14 +118,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Step 2: Connect to shop's Supabase and fetch card data
+    // ─── Step 2: Connect to shop's Supabase and fetch card data ─────────────────────────
     const shopSb = createClient(
       license.shop_supabase_url,
       license.shop_supabase_key,
       { auth: { persistSession: false } }
     );
 
-    // Get card info — try exact match first (case-insensitive normalized)
     const cardLookup = cardNumber.toUpperCase().trim();
     const { data: card, error: cardError } = await shopSb
       .from("customer_cards")
@@ -158,32 +155,101 @@ export async function GET(req: NextRequest) {
 
     if (card.is_active === false) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "This card is inactive. Please contact the shopkeeper.",
-        },
+        { ok: false, error: "This card is inactive. Please contact the shopkeeper." },
         { status: 403 }
       );
     }
 
-    // Get recent transactions (last 10)
-    const { data: transactions, error: txnError } = await shopSb
+    // ─── Step 3: Fetch transactions ─────────────────────────────────────────────────────
+    // Primary source: card_transactions (topups, refunds, sale entries).
+    // Fallback / merge: sales_history WHERE card_number matches (all card-paid purchases).
+    const transactions: any[] = [];
+
+    // 3a) Card transactions (explicit top-ups/refunds/sale payment records)
+    const { data: cardTxns, error: txnError } = await shopSb
       .from("card_transactions")
-      .select("amount, type, description, created_at")
+      .select("amount, type, description, sale_invoice_no, created_at")
       .eq("card_number", cardLookup)
       .order("created_at", { ascending: false })
-      .limit(10);
-
+      .limit(20);
     if (txnError) {
-      console.warn("[portal/card] Txn query error (non-fatal):", txnError.message);
+      console.warn("[portal/card] card_transactions query error:", txnError.message);
+    }
+    if (cardTxns && cardTxns.length > 0) {
+      for (const t of cardTxns) {
+        transactions.push({
+          amount: Number(t.amount) || 0,
+          type: t.type || "transaction",
+          description: t.description || (t.type === "sale" ? "Purchase" : t.type),
+          invoice_no: t.sale_invoice_no || null,
+          created_at: t.created_at,
+          source: "card_txn",
+        });
+      }
     }
 
-    // Get shop info
+    // 3b) Sales history (all purchases paid with this card)
+    // This catches historical sales that may not have a card_transaction record yet,
+    // e.g. sales that happened before the v2.10.29 sync fix was deployed.
+    const { data: salesTxns, error: salesErr } = await shopSb
+      .from("sales_history")
+      .select("invoice_no, total, sale_date, payment_method, items_count")
+      .eq("card_number", cardLookup)
+      .order("sale_date", { ascending: false })
+      .limit(20);
+    if (salesErr) {
+      console.warn("[portal/card] sales_history query error:", salesErr.message);
+    }
+    if (salesTxns && salesTxns.length > 0) {
+      // Track invoice numbers we already added from card_transactions to avoid duplicates
+      const existingInvoices = new Set(
+        transactions
+          .filter((t) => t.invoice_no)
+          .map((t) => t.invoice_no)
+      );
+      for (const s of salesTxns) {
+        if (s.invoice_no && existingInvoices.has(s.invoice_no)) continue;
+        transactions.push({
+          amount: -Number(s.total || 0),  // Negative because it's a purchase (debit from card)
+          type: "sale",
+          description: `Purchase · ${s.items_count || 0} items · ${s.payment_method || "CASH"}`,
+          invoice_no: s.invoice_no,
+          created_at: s.sale_date,
+          source: "sales_history",
+        });
+      }
+    }
+
+    // Sort all transactions by date (newest first) and limit to 10
+    transactions.sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const finalTxns = transactions.slice(0, 10);
+
+    // ─── Step 4: Get shop info — fall back to license if shop_info is "My Shop"/empty ────
     const { data: shopInfo } = await shopSb
       .from("shop_info")
       .select("shop_name, shop_address, shop_phone")
       .eq("id", "shop")
       .maybeSingle();
+
+    // Pick the best shop name: license.shop_name beats "My Shop" default
+    const licenseShopName = (license as any).shop_name || "";
+    const licenseShopAddr = (license as any).shop_address || "";
+    const licenseShopPhone = (license as any).shop_phone || "";
+
+    const finalShopName =
+      !isDefaultShopName(shopInfo?.shop_name) && shopInfo?.shop_name
+        ? shopInfo.shop_name
+        : !isDefaultShopName(licenseShopName)
+          ? licenseShopName
+          : shopInfo?.shop_name || licenseShopName || "Shop";
+
+    const finalShopAddress =
+      shopInfo?.shop_address || licenseShopAddr || "";
+
+    const finalShopPhone =
+      shopInfo?.shop_phone || licenseShopPhone || "";
 
     return NextResponse.json({
       ok: true,
@@ -195,11 +261,11 @@ export async function GET(req: NextRequest) {
         cardType: card.card_type || "REGULAR",
       },
       shop: {
-        shopName: shopInfo?.shop_name || license.shop_name,
-        shopAddress: shopInfo?.shop_address || license.shop_address || "",
-        shopPhone: shopInfo?.shop_phone || "",
+        shopName: finalShopName,
+        shopAddress: finalShopAddress,
+        shopPhone: finalShopPhone,
       },
-      transactions: transactions || [],
+      transactions: finalTxns,
     });
   } catch (err: any) {
     console.error("[portal/card] Unhandled error:", err?.message || err);

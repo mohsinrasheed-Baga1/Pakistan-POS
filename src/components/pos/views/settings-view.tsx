@@ -3590,7 +3590,7 @@ function CloudBackupCard() {
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              Cloud backup is available in the desktop application. Please use the Shop POS System desktop app to connect Google Drive.
+              Cloud backup is available in the desktop application. Please use the Pakistan POS desktop app to connect Google Drive.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -3871,7 +3871,7 @@ function CloudBackupCard() {
               <div className="text-xs text-muted-foreground space-y-2">
                 <p>Agar aapka computer kharab ho jaye ya format ho jaye, aapka data Google Drive par safe hai. Naye computer par data wapas lane ke liye:</p>
                 <ol className="list-decimal list-inside space-y-1 pl-2">
-                  <li><strong>Software install karein</strong> — Naye computer par Shop POS System download aur install karein</li>
+                  <li><strong>Software install karein</strong> — Naye computer par Pakistan POS download aur install karein</li>
                   <li><strong>Settings &rarr; Google Drive</strong> jayein</li>
                   <li><strong>Client ID aur Client Secret</strong> daalein (jo pehle use kiya tha) &rarr; <strong>Save &amp; Connect</strong> dabayein</li>
                   <li><strong>Google sign-in</strong> &mdash; Google ka page khulega, <strong>usi Gmail</strong> se login karein jo pehle backup lene ke liye use ki thi</li>
@@ -4037,7 +4037,7 @@ function DataMigrationCard() {
           <ol className="list-decimal list-inside space-y-1 text-emerald-700 text-xs">
             <li>Click Export Data — a backup file will download</li>
             <li>Copy the file to your new PC (USB, email, etc.)</li>
-            <li>Install Shop POS System on the new PC</li>
+            <li>Install Pakistan POS on the new PC</li>
             <li>Open Settings → Data Migration → Import Data</li>
             <li>Select the backup file → restart the app</li>
           </ol>

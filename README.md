@@ -1,4 +1,4 @@
-# Shop POS System
+# Pakistan POS
 
 A complete Point of Sale (POS) desktop application for shops, built with Next.js + Electron.
 

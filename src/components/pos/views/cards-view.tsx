@@ -1202,7 +1202,10 @@ function CardPrintDialog({
     }
     let cancelled = false;
     // v2.10.25: Generate QR with Vercel URL so scanning opens the portal page
-    // The POS desktop app uses the hardcoded Vercel URL (not localhost)
+    // v2.10.29: Brand renamed to Pakistan POS. URL stays as shop-pos-system.vercel.app
+    // until the Vercel project is renamed — then update this single constant.
+    // (Existing printed QR cards point to shop-pos-system.vercel.app, so do NOT
+    //  change this until you've also set up a redirect from the old URL.)
     const vercelUrl = "https://shop-pos-system.vercel.app";
     const licenseKey = (typeof window !== "undefined" && localStorage.getItem("pakpos_license_data"))
       ? JSON.parse(localStorage.getItem("pakpos_license_data") || "{}").licenseKey || "LICENSE"

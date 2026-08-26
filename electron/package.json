@@ -1,7 +1,7 @@
 {
-  "name": "shop-pos-system",
+  "name": "pakistan-pos-electron",
   "version": "1.0.0",
-  "description": "Shop POS System - Point of Sale with barcode scanner, products and sales management",
+  "description": "Pakistan POS - Point of Sale with barcode scanner, products and sales management",
   "main": "main.cjs",
   "author": "Mohsin Rasheed",
   "license": "MIT",

@@ -86,7 +86,7 @@ export async function POST() {
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `shop-pos-backup-${ts}.db`;
     const boundary = "shop_pos_" + Math.random().toString(36).slice(2);
-    const metadata = JSON.stringify({ name: fileName, description: "Shop POS System backup" });
+    const metadata = JSON.stringify({ name: fileName, description: "Pakistan POS backup" });
 
     // Build the multipart body as a single Buffer. multipart/related parts
     // are separated by --<boundary> and the body is closed by --<boundary>--.

@@ -143,7 +143,7 @@ export function LoginScreen() {
           <div className="mx-auto w-16 h-16 rounded-2xl bg-emerald-600 flex items-center justify-center shadow-lg">
             <Store className="w-9 h-9 text-white" />
           </div>
-          <CardTitle className="text-2xl font-bold">Shop POS System</CardTitle>
+          <CardTitle className="text-2xl font-bold">Pakistan POS</CardTitle>
           <CardDescription className="text-base">
             {mode === "login"
               ? "Sign in to your account to continue"

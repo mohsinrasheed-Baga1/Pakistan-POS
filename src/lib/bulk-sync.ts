@@ -1,11 +1,17 @@
 /**
  * Bulk Sync — Syncs ALL existing POS data to Supabase
  * Called from the POS desktop app (has access to both SQLite via API + localStorage)
+ *
+ * v2.10.29 FIXES:
+ *   - Shop info now synced (was missing — caused "My Shop" to appear on customer card page)
+ *   - Sales now include card_number (was hard-coded to null — caused customer card
+ *     transactions to be empty)
+ *   - Card transactions now synced for historical sales (was only created for new sales)
  */
 
 import { getShopSupabaseConfig } from "./supabase-sync";
 
-export async function bulkSyncAll(): Promise<{ products: number; cards: number; sales: number; errors: number }> {
+export async function bulkSyncAll(): Promise<{ products: number; cards: number; sales: number; transactions: number; shopInfo: boolean; errors: number }> {
   const config = getShopSupabaseConfig();
   if (!config) {
     throw new Error("Online sync not configured. Go to Settings > License Info > Enable Online Sync.");
@@ -17,9 +23,39 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
   let productCount = 0;
   let cardCount = 0;
   let saleCount = 0;
+  let txnCount = 0;
+  let shopInfoSynced = false;
   let errors = 0;
 
-  // 1. Sync ALL products
+  // ─── 0. Sync shop info (so customer card page shows correct shop name/address/phone) ─────
+  try {
+    const shopRes = await fetch("/api/store");
+    if (shopRes.ok) {
+      const shopData = await shopRes.json();
+      const shop = shopData.shop || shopData;
+      if (shop && (shop.shopName || shop.name)) {
+        const { error: shopInfoError } = await sb.from("shop_info").upsert({
+          id: "shop",
+          shop_name: shop.shopName || shop.name || "My Shop",
+          shop_address: shop.shopAddress || shop.address || null,
+          shop_phone: shop.shopPhone || shop.phone || null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "id" });
+        if (shopInfoError) {
+          console.error("[BulkSync] shop_info upsert error:", shopInfoError);
+          errors++;
+        } else {
+          shopInfoSynced = true;
+          console.log("[BulkSync] shop_info synced:", shop.shopName || shop.name);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[BulkSync] shop_info sync error:", e);
+    errors++;
+  }
+
+  // ─── 1. Sync ALL products ───────────────────────────────────────────────────────────────
   try {
     const res = await fetch("/api/products?limit=1000");
     const data = await res.json();
@@ -47,7 +83,9 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
     console.error("Product bulk sync error:", e);
   }
 
-  // 2. Sync ALL cards
+  // ─── 2. Sync ALL cards ──────────────────────────────────────────────────────────────────
+  // Build a cardId → cardNumber map so we can attach card_number to sales
+  const cardIdToNumber = new Map<string, string>();
   try {
     const res = await fetch("/api/cards?limit=1000");
     const data = await res.json();
@@ -66,6 +104,7 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
           updated_at: new Date().toISOString(),
         }, { onConflict: "card_number" });
         cardCount++;
+        if (c.id) cardIdToNumber.set(c.id, c.cardNumber);
       } catch (e) {
         errors++;
       }
@@ -74,7 +113,7 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
     console.error("Card bulk sync error:", e);
   }
 
-  // 3. Sync ALL sales
+  // ─── 3. Sync ALL sales (now with proper card_number) ────────────────────────────────────
   try {
     const res = await fetch("/api/sales?limit=1000");
     const data = await res.json();
@@ -82,10 +121,12 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
 
     for (const s of sales) {
       try {
-      // v2.10.26: Use upsert to prevent duplicates on re-sync
+        // Look up card_number from cardId (was missing before — caused null card_number)
+        const cardNumber = s.cardId ? (cardIdToNumber.get(s.cardId) || null) : null;
+
         await sb.from("sales_history").upsert({
           invoice_no: s.invoiceNo,
-          card_number: null,
+          card_number: cardNumber,  // ← FIX: was hard-coded to null
           customer_name: s.customerName || null,
           subtotal: s.subtotal || 0,
           discount: s.discount || 0,
@@ -101,13 +142,32 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
           synced_at: new Date().toISOString(),
         }, { onConflict: "invoice_no" });
         saleCount++;
+
+        // ─── FIX: Also create a card_transaction record for historical sales paid by card ───
+        if (cardNumber) {
+          try {
+            await sb.from("card_transactions").upsert({
+              card_number: cardNumber,
+              amount: -(s.total || 0),
+              type: "sale",
+              description: `Sale ${s.invoiceNo}`,
+              sale_invoice_no: s.invoiceNo,
+              created_at: new Date(s.createdAt).toISOString(),
+            }, { onConflict: "sale_invoice_no" });
+            txnCount++;
+          } catch (txnErr) {
+            // Non-fatal — sale was synced but txn failed (maybe table missing column)
+            console.warn("[BulkSync] card_txn upsert failed for", s.invoiceNo, txnErr);
+          }
+        }
       } catch (e) {
         // Duplicate sales will fail (already synced) — ignore
+        errors++;
       }
     }
   } catch (e) {
     console.error("Sales bulk sync error:", e);
   }
 
-  return { products: productCount, cards: cardCount, sales: saleCount, errors };
+  return { products: productCount, cards: cardCount, sales: saleCount, transactions: txnCount, shopInfo: shopInfoSynced, errors };
 }

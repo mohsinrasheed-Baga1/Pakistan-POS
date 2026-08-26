@@ -1,6 +1,6 @@
 {
   "name": "pakistan-pos",
-  "version": "2.10.29",
+  "version": "2.10.30",
   "description": "Pakistan POS - Point of Sale System with barcode scanner, products and sales management",
   "author": "Mohsin Rasheed",
   "license": "MIT",
@@ -23,7 +23,7 @@
   },
   "build": {
     "appId": "com.mohsinrasheed.shoppos",
-    "productName": "Shop POS System",
+    "productName": "Pakistan POS",
     "directories": {
       "output": "release"
     },
@@ -84,8 +84,8 @@
       "installerHeaderIcon": "build/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Shop POS System",
-      "artifactName": "Shop-POS-System-Setup-${version}.exe",
+      "shortcutName": "Pakistan POS",
+      "artifactName": "Pakistan-POS-Setup-${version}.exe",
       "include": "build/installer.nsh"
     },
     "toolsets": {
