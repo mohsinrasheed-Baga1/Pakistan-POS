@@ -1201,9 +1201,9 @@ function CardPrintDialog({
       return;
     }
     let cancelled = false;
-    // v2.10.25: Generate QR with actual URL so scanning opens the portal page
-    // Format: https://VERCEL_URL/card/LICENSE_KEY/CARD_NUMBER
-    const vercelUrl = typeof window !== "undefined" ? window.location.origin : "https://pakistanpos.vercel.app";
+    // v2.10.25: Generate QR with Vercel URL so scanning opens the portal page
+    // The POS desktop app uses the hardcoded Vercel URL (not localhost)
+    const vercelUrl = "https://shop-pos-system.vercel.app";
     const licenseKey = (typeof window !== "undefined" && localStorage.getItem("pakpos_license_data"))
       ? JSON.parse(localStorage.getItem("pakpos_license_data") || "{}").licenseKey || "LICENSE"
       : "LICENSE";

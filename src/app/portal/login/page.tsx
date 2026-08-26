@@ -61,18 +61,6 @@ export default function ShopkeeperLoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5">
-                <KeyRound className="w-3.5 h-3.5" /> License Key
-              </Label>
-              <Input
-                value={form.licenseKey}
-                onChange={(e) => setForm({ ...form, licenseKey: e.target.value.toUpperCase() })}
-                placeholder="PAKPOS-XXXXXXXX-XXXX"
-                className="font-mono"
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5" /> Email
               </Label>
               <Input
@@ -81,6 +69,7 @@ export default function ShopkeeperLoginPage() {
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 placeholder="shop@example.com"
                 required
+                autoFocus
               />
             </div>
             <div className="space-y-1.5">
@@ -93,6 +82,17 @@ export default function ShopkeeperLoginPage() {
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 placeholder="••••••••"
                 required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5 text-muted-foreground">
+                <KeyRound className="w-3.5 h-3.5" /> License Key (optional)
+              </Label>
+              <Input
+                value={form.licenseKey}
+                onChange={(e) => setForm({ ...form, licenseKey: e.target.value.toUpperCase() })}
+                placeholder="Leave empty to login with email only"
+                className="font-mono"
               />
             </div>
             <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={loading}>

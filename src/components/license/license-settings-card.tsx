@@ -400,6 +400,30 @@ export function LicenseSettingsCard() {
                   Cancel
                 </Button>
               </div>
+
+              {/* v2.10.25: Bulk Sync Button */}
+              {syncEnabled && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+                  onClick={async () => {
+                    setSyncSaving(true);
+                    try {
+                      const { bulkSyncAll } = await import("@/lib/bulk-sync");
+                      const result = await bulkSyncAll();
+                      toast.success(`Sync complete! ${result.products} products, ${result.cards} cards, ${result.sales} sales`);
+                    } catch (err: any) {
+                      toast.error(err.message || "Bulk sync failed");
+                    } finally {
+                      setSyncSaving(false);
+                    }
+                  }}
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-2" /> Sync All Existing Data
+                </Button>
+              )}
+
               <p className="text-xs text-muted-foreground">
                 These credentials connect your POS to the online portal. Get them from your software provider.
               </p>

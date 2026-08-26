@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// v2.10.25: Direct Edge Function call with full debug logging
-
+// v2.10.25: Login with email/password OR license key + email/password
 const ADMIN_SUPABASE_URL = "https://yghnbmtuyjzebqrcbavk.supabase.co";
 const ADMIN_ANON_KEY = "sb_publishable_SNwoIutQIT-gky8PoCDiRg_BerVDD8n";
 
@@ -10,14 +9,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { licenseKey, email, password } = body;
 
-    if (!licenseKey || !email || !password) {
+    if (!email || !password) {
       return NextResponse.json(
-        { ok: false, error: "All fields required" },
+        { ok: false, error: "Email and Password are required" },
         { status: 400 }
       );
     }
 
-    console.log("[Portal Login] Attempting:", { licenseKey, email });
+    console.log("[Portal Login] Attempting:", { email, hasLicenseKey: !!licenseKey });
 
     // Call Edge Function
     const edgeRes = await fetch(`${ADMIN_SUPABASE_URL}/functions/v1/portal-auth`, {
@@ -28,7 +27,7 @@ export async function POST(req: NextRequest) {
         "apikey": ADMIN_ANON_KEY,
       },
       body: JSON.stringify({
-        licenseKey: licenseKey.toUpperCase().trim(),
+        licenseKey: (licenseKey || "").toUpperCase().trim() || null,
         email: email.toLowerCase().trim(),
         password: password,
       }),
@@ -37,7 +36,7 @@ export async function POST(req: NextRequest) {
     console.log("[Portal Login] Edge status:", edgeRes.status);
 
     const edgeData = await edgeRes.json();
-    console.log("[Portal Login] Edge response:", JSON.stringify(edgeData));
+    console.log("[Portal Login] Edge response:", JSON.stringify(edgeData).substring(0, 200));
 
     if (edgeData.ok && edgeData.shop) {
       return NextResponse.json({
