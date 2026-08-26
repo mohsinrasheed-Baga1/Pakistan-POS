@@ -23,6 +23,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Pakistan POS — Shop Management System",
   description: "Pakistan POS — Point of Sale system with barcode scanner, products and sales management",
+  viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
 };
 
 export default function RootLayout({

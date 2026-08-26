@@ -6,22 +6,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ShieldCheck, Loader2, Store, KeyRound, Mail, Lock, ArrowRight } from "lucide-react";
+import { ShieldCheck, Loader2, Mail, Lock } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ShopkeeperLoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    licenseKey: "",
     email: "",
     password: "",
   });
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.licenseKey || !form.email || !form.password) {
-      toast.error("All fields are required");
+    if (!form.email || !form.password) {
+      toast.error("Email and Password are required");
       return;
     }
     setLoading(true);
@@ -33,7 +32,6 @@ export default function ShopkeeperLoginPage() {
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        // Store shop info + Supabase credentials in sessionStorage
         sessionStorage.setItem("pakpos_shop", JSON.stringify(data.shop));
         toast.success(`Welcome, ${data.shop.customerName}!`);
         router.push("/portal/dashboard");
@@ -70,6 +68,7 @@ export default function ShopkeeperLoginPage() {
                 placeholder="shop@example.com"
                 required
                 autoFocus
+                className="h-12 text-base"
               />
             </div>
             <div className="space-y-1.5">
@@ -82,31 +81,20 @@ export default function ShopkeeperLoginPage() {
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 placeholder="••••••••"
                 required
+                className="h-12 text-base"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5 text-muted-foreground">
-                <KeyRound className="w-3.5 h-3.5" /> License Key (optional)
-              </Label>
-              <Input
-                value={form.licenseKey}
-                onChange={(e) => setForm({ ...form, licenseKey: e.target.value.toUpperCase() })}
-                placeholder="Leave empty to login with email only"
-                className="font-mono"
-              />
-            </div>
-            <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={loading}>
+            <Button type="submit" className="w-full h-12 text-base bg-emerald-600 hover:bg-emerald-700" disabled={loading}>
               {loading ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Verifying…</>
               ) : (
-                <>Login <ArrowRight className="w-4 h-4 ml-2" /></>
+                <>Login</>
               )}
             </Button>
           </form>
           <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700">
             <p className="font-semibold mb-1">📋 How to login:</p>
-            <p>1. Enter your License Key (PAKPOS-XXXX-XXXX)</p>
-            <p>2. Enter the email and password provided by your software provider</p>
+            <p>Enter the email and password provided by your software provider.</p>
           </div>
           <p className="text-xs text-center text-muted-foreground mt-4">
             Developed by Mohsin Rasheed Baga · +923000088482
