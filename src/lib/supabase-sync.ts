@@ -70,8 +70,10 @@ export async function syncSale(sale: any): Promise<void> {
   try {
     console.log("[Sync] Syncing sale:", sale.invoiceNo);
 
-    // 1) Insert into sales_history (use INSERT, not upsert — simpler)
-    const { error: saleError } = await sb.from("sales_history").insert({
+    // 1) Upsert into sales_history (prevents duplicates on re-sync)
+    // v2.10.26: Changed from INSERT to UPSERT with onConflict: invoice_no
+    // This prevents duplicate sales when bulk sync runs multiple times
+    const { error: saleError } = await sb.from("sales_history").upsert({
       invoice_no: sale.invoiceNo,
       card_number: sale.cardNumber || null,
       customer_name: sale.customerName || null,
@@ -87,7 +89,7 @@ export async function syncSale(sale: any): Promise<void> {
       items_count: sale.items?.length || 0,
       sale_date: new Date().toISOString(),
       synced_at: new Date().toISOString(),
-    });
+    }, { onConflict: "invoice_no" });
 
     if (saleError) {
       console.error("[Sync] sales_history insert error:", saleError);
@@ -95,16 +97,16 @@ export async function syncSale(sale: any): Promise<void> {
       console.log("[Sync] sales_history inserted successfully");
     }
 
-    // 2) If card was used, create card_transaction + update balance
+    // 2) If card was used, upsert card_transaction (prevents duplicates)
     if (sale.cardNumber) {
-      const { error: txnError } = await sb.from("card_transactions").insert({
+      const { error: txnError } = await sb.from("card_transactions").upsert({
         card_number: sale.cardNumber,
         amount: -(sale.total || 0),
         type: "sale",
         description: `Sale ${sale.invoiceNo}`,
         sale_invoice_no: sale.invoiceNo,
         created_at: new Date().toISOString(),
-      });
+      }, { onConflict: "sale_invoice_no" });
 
       if (txnError) {
         console.error("[Sync] card_transactions insert error:", txnError);

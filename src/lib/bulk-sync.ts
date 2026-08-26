@@ -82,7 +82,8 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
 
     for (const s of sales) {
       try {
-        await sb.from("sales_history").insert({
+      // v2.10.26: Use upsert to prevent duplicates on re-sync
+        await sb.from("sales_history").upsert({
           invoice_no: s.invoiceNo,
           card_number: null,
           customer_name: s.customerName || null,
@@ -98,7 +99,7 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
           items_count: s.items?.length || 0,
           sale_date: new Date(s.createdAt).toISOString(),
           synced_at: new Date().toISOString(),
-        });
+        }, { onConflict: "invoice_no" });
         saleCount++;
       } catch (e) {
         // Duplicate sales will fail (already synced) — ignore
