@@ -47,11 +47,10 @@
   DetailPrint "Setting write permissions on data folder..."
   nsExec::ExecToLog 'icacls "$INSTDIR\data" /grant:r Users:(OI)(CI)F /T /C'
 
-  ; 8. v2.10.35: Migrate existing DB from AppData if it exists (for users upgrading
-  ;    from older versions where DB was in AppData)
-  DetailPrint "Checking for existing database in AppData to migrate..."
-  nsExec::ExecToLog 'powershell -Command "if (Test-Path \"$env:APPDATA\Pakistan POS\pos.db\") { if (!(Test-Path \"$INSTDIR\data\pos.db\")) { Copy-Item \"$env:APPDATA\Pakistan POS\pos.db\" \"$INSTDIR\data\pos.db\" -Force; Write-Host \"Migrated DB from AppData to install folder\" } else { Write-Host \"Install folder already has a DB, skipping migration\" } } else { Write-Host \"No AppData DB found, fresh install\" }"'
-  nsExec::ExecToLog 'powershell -Command "if (Test-Path \"$env:APPDATA\Shop POS System\pos.db\") { if (!(Test-Path \"$INSTDIR\data\pos.db\")) { Copy-Item \"$env:APPDATA\Shop POS System\pos.db\" \"$INSTDIR\data\pos.db\" -Force; Write-Host \"Migrated DB from old Shop POS System AppData\" } }"'
+  ; v2.10.35: DB migration from old AppData location is handled by the
+  ; Electron app on first launch (see main.cjs migrateDbFromAppData function).
+  ; We don't do it here because NSIS quoting of paths with spaces (e.g.
+  ; "Pakistan POS") is error-prone.
 
   DetailPrint "=== Pakistan POS Network Configuration Complete ==="
 !macroend
