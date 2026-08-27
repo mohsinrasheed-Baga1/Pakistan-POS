@@ -71,5 +71,19 @@ export async function PUT(req: NextRequest) {
     update: data,
     create: { id: "shop", ...data },
   });
+
+  // v2.10.40: Auto-sync shop_info to Supabase when settings change
+  // This ensures the customer card page always shows the right shop name/address
+  // (no "My Shop" default). Settings PUT is called when the user saves their
+  // shop name in Settings → Shop Info.
+  try {
+    const { forceSyncShopInfo } = await import("@/lib/supabase-sync");
+    // forceSync bypasses the rate limit so it always syncs immediately
+    // on settings change
+    await forceSyncShopInfo();
+  } catch (e: any) {
+    console.warn("[Settings PUT] shop_info sync failed (non-fatal):", e?.message);
+  }
+
   return NextResponse.json({ settings });
 }

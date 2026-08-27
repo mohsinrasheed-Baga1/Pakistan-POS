@@ -89,7 +89,13 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // v2.10.25: Sync card to Supabase (for online portal)
+  // v2.10.40: AWAIT syncCard before returning response
+  // Previous code ran syncCard async but returned the response immediately,
+  // causing race conditions where the user scanned the QR before sync finished.
+  // Now we WAIT for sync to complete, then return.
+  // If sync fails, we still return success (the local save succeeded) but
+  // include a warning so the UI can tell the user.
+  let syncWarning: string | null = null;
   try {
     const { syncCard } = await import("@/lib/supabase-sync");
     await syncCard({
@@ -101,9 +107,11 @@ export async function POST(req: NextRequest) {
       balance: Number(body.balance) || 0,
       active: body.active !== false,
     });
-  } catch {
-    // Silent — sync is best-effort
+    console.log("[Cards POST] Card synced to cloud:", cardNumber);
+  } catch (e: any) {
+    console.error("[Cards POST] Sync failed (local save OK):", e?.message);
+    syncWarning = "Card saved locally but cloud sync failed. Will retry on next sync.";
   }
 
-  return NextResponse.json({ card });
+  return NextResponse.json({ card, syncWarning });
 }

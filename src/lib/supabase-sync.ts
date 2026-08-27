@@ -138,6 +138,73 @@ export async function getShopSupabaseAsync(): Promise<ShopSupabaseClient> {
 }
 
 // =====================================================
+// v2.10.40: syncShopInfo — sync shop name/address/phone to shop_info table
+// =====================================================
+// This is called from EVERY sync operation (syncCard, syncSale, etc.)
+// to keep the shop_info table always in sync with the local Settings.
+// Why: the customer-facing card page (pakistanpos.vercel.app/card/...)
+// reads shop_info to display the shop's name/address/phone. If shop_info
+// is empty or shows "My Shop" (the default), customers see the wrong info.
+//
+// Without this, every shop would need to run Bulk Sync to push shop_info.
+// With this, shop_info is pushed every time ANY sync happens, so it's
+// always up-to-date automatically.
+
+let lastShopInfoSync = 0;  // rate limit: don't sync more than once per 30s
+
+// v2.10.40: Force sync (bypass rate limit) — used by Settings PUT
+export async function forceSyncShopInfo(): Promise<void> {
+  lastShopInfoSync = 0;  // reset so syncShopInfo actually runs
+  await syncShopInfo();
+}
+
+export async function syncShopInfo(): Promise<void> {
+  // Rate limit: only sync shop_info at most once every 30 seconds
+  // (it's called from every syncSale/syncCard, but it rarely changes)
+  // Use forceSyncShopInfo() to bypass this (e.g. when user saves Settings)
+  const now = Date.now();
+  if (now - lastShopInfoSync < 30_000) {
+    return;
+  }
+  lastShopInfoSync = now;
+
+  const sb = await getShopSupabaseAsync();
+  if (!sb) return;
+
+  try {
+    // Fetch local shop settings from POS app's own API
+    const res = await fetch("/api/settings", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    const settings = data.settings;
+    if (!settings) return;
+
+    // Don't sync if it's the default "My Shop" with no other info
+    // (we still want to sync if shopName is empty — that's fine)
+    const shopName = settings.shopName || "";
+    const shopAddress = settings.shopAddress || "";
+    const shopPhone = settings.shopPhone || "";
+
+    const { error } = await sb.from("shop_info").upsert({
+      id: "shop",
+      shop_name: shopName,
+      shop_address: shopAddress,
+      shop_phone: shopPhone,
+      currency: settings.currency || "Rs",
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "id" });
+
+    if (error) {
+      console.warn("[Sync] shop_info sync error:", error.message);
+    } else {
+      console.log("[Sync] shop_info synced:", shopName);
+    }
+  } catch (e: any) {
+    console.warn("[Sync] shop_info sync failed:", e?.message || e);
+  }
+}
+
+// =====================================================
 // SYNC FUNCTIONS — v2.10.22: Better error logging
 // =====================================================
 
@@ -148,6 +215,10 @@ export async function syncSale(sale: any): Promise<void> {
     console.log("[Sync] No Supabase config — skipping sync");
     return;
   }
+
+  // v2.10.40: Always sync shop_info first (no-op if synced recently)
+  // This ensures the customer card page always shows the right shop name
+  await syncShopInfo();
 
   try {
     console.log("[Sync] Syncing sale:", sale.invoiceNo);
@@ -248,6 +319,9 @@ export async function syncCard(card: any): Promise<void> {
     console.log("[Sync] No Supabase config — skipping card sync for", card.cardNumber);
     return;
   }
+
+  // v2.10.40: Always sync shop_info first (no-op if synced recently)
+  await syncShopInfo();
 
   try {
     const { error } = await sb.from("customer_cards").upsert({

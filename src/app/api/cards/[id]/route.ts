@@ -47,7 +47,27 @@ export async function PUT(
   };
 
   const card = await db.customerCard.update({ where: { id }, data });
-  return NextResponse.json({ card });
+
+  // v2.10.40: Sync updated card to Supabase (await — same as POST route)
+  let syncWarning: string | null = null;
+  try {
+    const { syncCard } = await import("@/lib/supabase-sync");
+    await syncCard({
+      cardNumber: card.cardNumber,
+      name: card.name,
+      phone: card.phone || null,
+      address: card.address || null,
+      type: card.type,
+      balance: card.balance,
+      active: card.active,
+    });
+    console.log("[Cards PUT] Card synced to cloud:", card.cardNumber);
+  } catch (e: any) {
+    console.error("[Cards PUT] Sync failed (local save OK):", e?.message);
+    syncWarning = "Card saved locally but cloud sync failed.";
+  }
+
+  return NextResponse.json({ card, syncWarning });
 }
 
 export async function DELETE(
