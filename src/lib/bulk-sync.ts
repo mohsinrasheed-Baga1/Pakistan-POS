@@ -7,14 +7,22 @@
  *   - Sales now include card_number (was hard-coded to null — caused customer card
  *     transactions to be empty)
  *   - Card transactions now synced for historical sales (was only created for new sales)
+ *
+ * v2.10.38: Auto-fetches shop Supabase config from admin Supabase if missing
+ * from localStorage. User no longer needs to manually enter Supabase URL/key.
  */
 
-import { getShopSupabaseConfig } from "./supabase-sync";
+import { getShopSupabaseConfig, fetchAndCacheShopConfig } from "./supabase-sync";
 
 export async function bulkSyncAll(): Promise<{ products: number; cards: number; sales: number; transactions: number; shopInfo: boolean; errors: number }> {
-  const config = getShopSupabaseConfig();
+  // v2.10.38: Auto-fetch config from admin Supabase if localStorage is missing
+  let config = getShopSupabaseConfig();
   if (!config) {
-    throw new Error("Online sync not configured. Go to Settings > License Info > Enable Online Sync.");
+    console.log("[BulkSync] No localStorage config — auto-fetching from admin Supabase");
+    config = await fetchAndCacheShopConfig();
+  }
+  if (!config) {
+    throw new Error("Could not auto-configure online sync. Please make sure your license is activated and try again.");
   }
 
   const { createClient } = await import("@supabase/supabase-js");

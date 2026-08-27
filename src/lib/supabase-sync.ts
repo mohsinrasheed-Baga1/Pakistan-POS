@@ -2,6 +2,10 @@
  * Supabase Sync Helper
  * =====================================================
  * Syncs POS data to the shop's Supabase database.
+ *
+ * v2.10.38: Auto-fetch shop Supabase config from admin Supabase
+ * using the license_key, so the user doesn't have to manually
+ * enter Supabase URL/key in Settings.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -15,6 +19,13 @@ type ShopSupabaseClient = ReturnType<typeof createClient> | null;
 
 let cachedClient: ShopSupabaseClient = null;
 let cachedConfig: ShopSupabaseConfig | null = null;
+
+// v2.10.38: Web portal URL for fetching shop config.
+const PORTAL_URL = "https://pakistanpos.vercel.app";
+
+// v2.10.38: In-flight fetch promise so multiple parallel sync calls
+// don't trigger multiple HTTP requests.
+let inflightFetch: Promise<ShopSupabaseConfig | null> | null = null;
 
 export function getShopSupabaseConfig(): ShopSupabaseConfig | null {
   if (cachedConfig) return cachedConfig;
@@ -56,12 +67,83 @@ export function hasSupabaseSync(): boolean {
   return getShopSupabaseConfig() !== null;
 }
 
+// v2.10.38: Get license key from localStorage (stored during activation)
+function getLicenseKey(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("pakpos_license_data");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.licenseKey || null;
+  } catch {
+    return null;
+  }
+}
+
+// v2.10.38: Auto-fetch shop Supabase config from the web portal.
+// Called when localStorage is missing. Uses license_key to look up
+// the shop_supabase_url + shop_supabase_key from admin Supabase.
+export async function fetchAndCacheShopConfig(): Promise<ShopSupabaseConfig | null> {
+  // If already cached or in localStorage, return immediately
+  const existing = getShopSupabaseConfig();
+  if (existing) return existing;
+
+  // If a fetch is already in progress, await it
+  if (inflightFetch) return inflightFetch;
+
+  inflightFetch = (async () => {
+    const licenseKey = getLicenseKey();
+    if (!licenseKey) {
+      console.log("[Sync] No license_key in localStorage — can't auto-fetch shop config");
+      return null;
+    }
+
+    try {
+      console.log("[Sync] Auto-fetching shop Supabase config for", licenseKey);
+      const res = await fetch(
+        `${PORTAL_URL}/api/shop-config?licenseKey=${encodeURIComponent(licenseKey)}`,
+        { cache: "no-store" }
+      );
+      const data = await res.json();
+      if (data.ok && data.url && data.key) {
+        setShopSupabaseConfig(data.url, data.key);
+        console.log("[Sync] ✓ Auto-fetched and cached shop Supabase config");
+        return { url: data.url, key: data.key };
+      } else {
+        console.warn("[Sync] Auto-fetch failed:", data.error);
+        return null;
+      }
+    } catch (e: any) {
+      console.warn("[Sync] Auto-fetch error:", e?.message || e);
+      return null;
+    } finally {
+      inflightFetch = null;
+    }
+  })();
+
+  return inflightFetch;
+}
+
+// v2.10.38: Async version of getShopSupabase — auto-fetches config if missing.
+// Use this in sync functions instead of getShopSupabase().
+export async function getShopSupabaseAsync(): Promise<ShopSupabaseClient> {
+  const config = getShopSupabaseConfig() || (await fetchAndCacheShopConfig());
+  if (!config) return null;
+  if (!cachedClient) {
+    cachedClient = createClient(config.url, config.key, {
+      auth: { persistSession: false },
+    });
+  }
+  return cachedClient;
+}
+
 // =====================================================
 // SYNC FUNCTIONS — v2.10.22: Better error logging
 // =====================================================
 
 export async function syncSale(sale: any): Promise<void> {
-  const sb = getShopSupabase();
+  // v2.10.38: Use async version — auto-fetches config if missing
+  const sb = await getShopSupabaseAsync();
   if (!sb) {
     console.log("[Sync] No Supabase config — skipping sync");
     return;
@@ -160,8 +242,12 @@ export async function syncSale(sale: any): Promise<void> {
 }
 
 export async function syncCard(card: any): Promise<void> {
-  const sb = getShopSupabase();
-  if (!sb) return;
+  // v2.10.38: Use async version — auto-fetches config if missing
+  const sb = await getShopSupabaseAsync();
+  if (!sb) {
+    console.log("[Sync] No Supabase config — skipping card sync for", card.cardNumber);
+    return;
+  }
 
   try {
     const { error } = await sb.from("customer_cards").upsert({
@@ -185,7 +271,8 @@ export async function syncCard(card: any): Promise<void> {
 }
 
 export async function syncProduct(product: any): Promise<void> {
-  const sb = getShopSupabase();
+  // v2.10.38: Use async version — auto-fetches config if missing
+  const sb = await getShopSupabaseAsync();
   if (!sb) return;
 
   try {
@@ -215,7 +302,8 @@ export async function syncCardTransaction(params: {
   type: "topup" | "refund" | "adjustment";
   description?: string;
 }): Promise<void> {
-  const sb = getShopSupabase();
+  // v2.10.38: Use async version — auto-fetches config if missing
+  const sb = await getShopSupabaseAsync();
   if (!sb) return;
 
   try {
