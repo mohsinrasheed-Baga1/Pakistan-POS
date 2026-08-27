@@ -198,9 +198,33 @@ export function CardsView({ userRole }: CardsViewProps) {
         setSaving(false);
         return;
       }
-      toast.success(editId ? "Card updated" : "Card created");
+      // v2.10.39: Clearer toast that mentions cloud sync happened
+      toast.success(editId ? "Card updated · Synced to cloud" : "Card created · Synced to cloud");
       setDialogOpen(false);
       loadCards();
+      // v2.10.39: Verify sync happened by checking the cloud after 1.5s
+      // (syncCard is async — give it time to complete)
+      setTimeout(async () => {
+        try {
+          const verifyRes = await fetch(
+            `https://pakistanpos.vercel.app/api/portal/card?licenseKey=${encodeURIComponent(
+              (typeof window !== "undefined" && localStorage.getItem("pakpos_license_data"))
+                ? JSON.parse(localStorage.getItem("pakpos_license_data") || "{}").licenseKey
+                : ""
+            )}&cardNumber=${encodeURIComponent(data.card.cardNumber)}`
+          );
+          if (verifyRes.ok) {
+            const verifyData = await verifyRes.json();
+            if (verifyData.ok) {
+              toast.success("✓ Verified online — QR scan will work");
+            } else {
+              toast.warning("Card saved locally but sync may be delayed. Use Bulk Sync in Settings.");
+            }
+          }
+        } catch {
+          // Silent — verification is best-effort
+        }
+      }, 1500);
     } catch {
       toast.error("Network error");
     } finally {

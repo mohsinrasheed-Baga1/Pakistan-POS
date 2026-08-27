@@ -146,6 +146,12 @@ export default function CustomerCardPage() {
                   <div key={i} className="flex justify-between items-center py-2 border-b text-sm last:border-0">
                     <div>
                       <div className="font-medium">{tx.description || tx.type}</div>
+                      {/* v2.10.39: Show invoice number if available */}
+                      {tx.invoice_no && (
+                        <div className="text-xs text-emerald-700 font-medium font-mono">
+                          Invoice: {tx.invoice_no}
+                        </div>
+                      )}
                       <div className="text-xs text-gray-400">
                         {new Date(tx.created_at).toLocaleDateString()} {new Date(tx.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </div>
