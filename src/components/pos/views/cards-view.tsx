@@ -1202,11 +1202,11 @@ function CardPrintDialog({
     }
     let cancelled = false;
     // v2.10.25: Generate QR with Vercel URL so scanning opens the portal page
-    // v2.10.31: Brand renamed to Pakistan POS. Vercel project renamed to pakistan-pos
-    // (no existing printed QR cards in the wild yet, so safe to switch).
-    // If you rename the Vercel project again, update ONLY this constant —
+    // v2.10.31: Brand renamed to Pakistan POS. Vercel project renamed.
+    // v2.10.32: Final URL = pakistanpos.vercel.app (no hyphen between pakistan & pos).
+    // If you ever rename the Vercel project again, update ONLY this constant —
     // all new QR codes will automatically use the new URL.
-    const vercelUrl = "https://pakistan-pos.vercel.app";
+    const vercelUrl = "https://pakistanpos.vercel.app";
     const licenseKey = (typeof window !== "undefined" && localStorage.getItem("pakpos_license_data"))
       ? JSON.parse(localStorage.getItem("pakpos_license_data") || "{}").licenseKey || "LICENSE"
       : "LICENSE";
