@@ -1244,11 +1244,13 @@ function CardPrintDialog({
       return;
     }
     const cardTypeLabel = card.type === "WHOLESALE" ? "Wholesale" : card.type === "SHOP_KEEPER" ? "Shop Keeper" : "Regular";
+    // QR image — embedded as base64 data URL so it loads instantly without network.
     const qrImg = qrDataUrl
-      ? `<img src="${qrDataUrl}" style="width:16mm;height:16mm;" alt="QR" />`
+      ? `<img src="${qrDataUrl}" class="qr-img" alt="QR" />`
       : "";
 
-    // v2.10.31: Portrait card — CR80 standard (85.6mm × 54mm), centered horizontally, top of page.
+    // v2.10.35: Portrait card with TWO copies (top + bottom), cut line between them.
+    // CR80 size: 85.6mm × 54mm per card.
     const cardHtml = `
       <div class="card">
         <div class="header">
@@ -1280,13 +1282,14 @@ function CardPrintDialog({
         </div>
       </div>`;
 
-    // v2.10.31: A4 PORTRAIT = 210mm × 297mm
-    // Card = CR80 standard: 85.6mm × 54mm (portrait)
-    // Single card per page, horizontally centered, at TOP of page
+    // v2.10.35: A4 PORTRAIT — two cards stacked vertically (top + bottom)
+    // with a horizontal cut line between them.
+    // A4 portrait = 210mm × 297mm; usable area = 200mm × 287mm
+    // Two CR80 cards (54mm each) + cut line + small margins = ~120mm total
     win.document.write(`
       <html dir="ltr"><head><title>Pakistan POS - Shop Card ${card.cardNumber}</title>
       <style>
-        @page { size: A4 portrait; margin: 5mm; }
+        @page { size: A4 portrait; margin: 8mm; }
         html, body { margin: 0; padding: 0; }
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         body {
@@ -1294,7 +1297,7 @@ function CardPrintDialog({
           flex-direction: column;
           align-items: center;
           justify-content: flex-start;
-          padding: 5mm;
+          padding: 4mm 0;
           font-family: Tahoma, Arial, sans-serif;
         }
         .card {
@@ -1321,15 +1324,117 @@ function CardPrintDialog({
         .phone-row { font-size: 8px; font-weight: bold; color: #333; margin-top: 0.3mm; }
         .type-badge { border: 1px solid #000; padding: 0.3mm 1.5mm; font-size: 6px; font-weight: bold; color: #000; background: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
         .content-row { display: flex; justify-content: space-between; align-items: center; flex: 1; gap: 2mm; margin-top: 0.5mm; }
-        .barcode-side { display: flex; justify-content: center; align-items: center; flex: 1; }
+        .barcode-side { display: flex; justify-content: center; align-items: center; flex: 1; min-width: 0; }
+        .barcode-side svg { max-width: 100%; height: auto; }
         .qr-side { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5mm; }
+        .qr-img { width: 16mm; height: 16mm; }
         .qr-label { font-size: 5px; font-weight: bold; color: #333; text-align: center; font-family: Arial, sans-serif; }
+        .cut-line-h {
+          width: 100mm;
+          margin: 6mm 0;
+          border-top: 1px dashed #999;
+          position: relative;
+          text-align: center;
+        }
+        .cut-line-h::after {
+          content: "✂";
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -50%);
+          background: #fff;
+          padding: 2px 6px;
+          font-size: 14px;
+          color: #999;
+        }
       </style></head>
       <body>
+        <!-- Copy 1 (top) -->
+        ${cardHtml}
+        <div class="cut-line-h"></div>
+        <!-- Copy 2 (bottom — identical) -->
         ${cardHtml}
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         <script>
-          function renderBarcodesAndPrint() {
+          // v2.10.35 FIX: Robust print trigger.
+          // Old bug: barcodeScript.onload was attached AFTER the script started
+          // loading. If the script had already loaded by then (cached), onload
+          // never fired, so the barcode SVG never rendered → blank card.
+          // Also the QR <img> was loaded async — print fired before it painted.
+          //
+          // Fix: track 3 readiness flags, only print when ALL are true:
+          //   1. JsBarcode script loaded
+          //   2. All QR images loaded (or errored — count as done)
+          //   3. Barcodes rendered into SVGs
+          // Also add a 2-second safety timeout so we don't wait forever.
+          var ready = { script: false, qr: !document.querySelector('.qr-img'), rendered: false };
+          var printed = false;
+
+          function tryPrint() {
+            if (printed) return;
+            if (ready.script && ready.qr && ready.rendered) {
+              printed = true;
+              // Wait two RAFs so the SVG render commits to the DOM
+              requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                  window.print();
+                  setTimeout(function () { window.close(); }, 600);
+                });
+              });
+            }
+          }
+
+          // Safety timeout — print whatever we have after 3 seconds
+          setTimeout(function() {
+            if (!printed) {
+              console.warn('Print timeout reached — printing with whatever rendered');
+              printed = true;
+              window.print();
+              setTimeout(function () { window.close(); }, 600);
+            }
+          }, 3000);
+
+          // 1. Wait for QR images to load
+          var qrImgs = document.querySelectorAll('.qr-img');
+          var qrLoaded = 0;
+          var qrTotal = qrImgs.length;
+          if (qrTotal === 0) {
+            ready.qr = true;
+            tryPrint();
+          } else {
+            qrImgs.forEach(function(img) {
+              if (img.complete) {
+                qrLoaded++;
+                if (qrLoaded === qrTotal) { ready.qr = true; tryPrint(); }
+              } else {
+                img.addEventListener('load', function() {
+                  qrLoaded++;
+                  if (qrLoaded === qrTotal) { ready.qr = true; tryPrint(); }
+                });
+                img.addEventListener('error', function() {
+                  qrLoaded++;
+                  if (qrLoaded === qrTotal) { ready.qr = true; tryPrint(); }
+                });
+              }
+            });
+          }
+
+          // 2. Load and wait for JsBarcode script
+          function loadBarcodeScript() {
+            var s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js';
+            s.onload = renderBarcodes;
+            s.onerror = function() {
+              console.warn('JsBarcode CDN failed; printing without barcode');
+              ready.script = true;
+              ready.rendered = true;  // nothing to render
+              tryPrint();
+            };
+            document.body.appendChild(s);
+          }
+
+          function renderBarcodes() {
+            ready.script = true;
             try {
               var svgs = document.querySelectorAll('.barcode-svg');
               svgs.forEach(function(svg) {
@@ -1343,32 +1448,16 @@ function CardPrintDialog({
                   margin: 0,
                 });
               });
+              ready.rendered = true;
             } catch (e) {
-              console.error('barcode error', e);
+              console.error('barcode render error', e);
+              ready.rendered = true;  // proceed anyway
             }
-            // Wait one more frame for the SVG render to commit, then print
-            requestAnimationFrame(function() {
-              requestAnimationFrame(function() {
-                window.print();
-                setTimeout(function () { window.close(); }, 500);
-              });
-            });
+            tryPrint();
           }
-          // Wait for JsBarcode script to load BEFORE printing
-          var barcodeScript = document.querySelector('script[src*="jsbarcode"]');
-          if (barcodeScript) {
-            barcodeScript.onload = renderBarcodesAndPrint;
-            barcodeScript.onerror = function() {
-              // Script failed to load — print anyway without barcode
-              console.warn('JsBarcode CDN failed; printing without barcode');
-              requestAnimationFrame(function() {
-                window.print();
-                setTimeout(function () { window.close(); }, 500);
-              });
-            };
-          } else {
-            window.onload = renderBarcodesAndPrint;
-          }
+
+          // Start loading script immediately (don't wait for window.onload)
+          loadBarcodeScript();
         </script>
       </body></html>
     `);

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Printer, CheckCircle2 } from "lucide-react";
+import { Printer, CheckCircle2, Pencil } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,9 +20,12 @@ interface ReceiptProps {
   settings: any;
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  // v2.10.35: Optional edit callback — when provided, shows an "Edit Sale"
+  // button that returns all items and loads them back into the cart for editing.
+  onEdit?: (sale: any) => void;
 }
 
-export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
+export function Receipt({ sale, settings, open, onOpenChange, onEdit }: ReceiptProps) {
   const printRef = React.useRef<HTMLDivElement>(null);
   const { settings: receiptSettings, loading: receiptLoading } = useReceiptSettings();
 
@@ -359,6 +362,20 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
           >
             Close
           </Button>
+          {/* v2.10.35: Edit Sale button — loads items back into cart for editing */}
+          {onEdit && (
+            <Button
+              variant="outline"
+              className="flex-1 border-amber-500 text-amber-700 hover:bg-amber-50"
+              onClick={() => {
+                if (confirm("Edit this sale? All items will be loaded back into the cart and the original sale will be returned. You can then modify the cart and checkout again.")) {
+                  onEdit(sale);
+                }
+              }}
+            >
+              <Pencil className="w-4 h-4 mr-2" /> Edit
+            </Button>
+          )}
           <Button
             className="flex-1 bg-emerald-600 hover:bg-emerald-700"
             onClick={handlePrint}

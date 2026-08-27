@@ -73,9 +73,70 @@ const serverDir = isDev
   ? path.join(__dirname, "..", ".next", "standalone")
   : path.join(process.resourcesPath, "server");
 
-// Database lives in userData (writable, persists across versions)
+// v2.10.35: Database lives in the INSTALL FOLDER (next to the EXE), NOT in
+// Windows AppData. This way:
+//   - If Windows crashes / user profile corrupts, the DB is safe (it's in
+//     the install folder, e.g. C:\Pakistan POS\data\pos.db).
+//   - Reinstalling preserves the DB automatically (NSIS doesn't overwrite
+//     the data subfolder).
+//   - Backups just need to copy the install folder.
+//
+// In production, `process.execPath` is `C:\Program Files\Pakistan POS\Pakistan POS.exe`
+// (or wherever the user installed). The parent dir = install dir.
+// We create a `data` subfolder there and use it for the DB.
+//
+// In dev, fall back to userData (so dev DBs don't pollute the repo).
+let installDir;
+if (isDev) {
+  installDir = app.getPath("userData");
+} else {
+  // Production: install folder = parent of EXE
+  installDir = path.dirname(process.execPath);
+}
+
+// Create data subfolder if missing
+const dataDir = path.join(installDir, "data");
+try {
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+    console.log("[POS] Created data directory:", dataDir);
+  }
+} catch (e) {
+  console.warn("[POS] Could not create data directory, falling back to userData:", e?.message);
+  // Fall back to userData if install dir is not writable
+  installDir = app.getPath("userData");
+}
+
+// v2.10.35: Migrate existing DB from old AppData location if present.
+// If user upgrades from v2.10.34 or earlier, their DB is still in AppData.
+// Move it to the new install-folder location so data isn't lost.
+(function migrateDbFromAppData() {
+  const newDbPath = path.join(dataDir, "pos.db");
+  if (fs.existsSync(newDbPath)) {
+    // Already migrated — nothing to do.
+    return;
+  }
+  // Try old locations (depends on which productName was active when installed)
+  const oldPaths = [
+    path.join(app.getPath("userData"), "pos.db"),
+    // On Windows, userData might be "%APPDATA%\Pakistan POS" or "%APPDATA%\Shop POS System"
+  ];
+  for (const old of oldPaths) {
+    try {
+      if (fs.existsSync(old)) {
+        // Copy, don't move — keep the original as a backup
+        fs.copyFileSync(old, newDbPath);
+        console.log("[POS] Migrated DB from", old, "to", newDbPath);
+        return;
+      }
+    } catch (e) {
+      console.warn("[POS] Migration attempt failed for", old, ":", e?.message);
+    }
+  }
+})();
+
 const userData = app.getPath("userData");
-const localDbPath = path.join(userData, "pos.db");
+const localDbPath = path.join(dataDir, "pos.db");
 
 // Path to a small config file the Next.js API writes when the user changes
 // the multi-computer sharing mode in Settings. Read BEFORE ensureDatabase()
@@ -170,7 +231,7 @@ function ensureDatabase(dbPath, mode) {
 
 let mainWindow = null;
 let serverProcess = null;
-let dbPath = path.join(userData, "pos.db"); // module-level, used by gdrive handlers
+let dbPath = localDbPath; // module-level, used by gdrive handlers (v2.10.35: install folder)
 
 function startServer() {
   const resolved = resolveDbPath();

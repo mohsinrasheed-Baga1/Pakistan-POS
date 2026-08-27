@@ -1237,6 +1237,43 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   // that caused auto-calc to stop updating when piecesPerBox changed).
   const userEdited = React.useRef({ cost: false, sale: false, ws: false, sk: false });
 
+  // v2.10.35: Auto-adjust other prices proportionally when one price changes.
+  // When the user manually edits ONE piece price field, the OTHER prices
+  // auto-adjust to maintain their previous ratio. This preserves the
+  // percentage relationships between prices (e.g. if sale was 120% of cost,
+  // changing cost to 200 makes sale = 240, keeping the 120% ratio).
+  //
+  // Example before edit:
+  //   cost=100, sale=120 (120% of cost), wholesale=110 (110% of cost),
+  //   shopkeeper=115 (115% of cost)
+  // User changes cost to 200:
+  //   cost=200, sale=240 (auto: 120%), wholesale=220 (auto: 110%),
+  //   shopkeeper=230 (auto: 115%)
+  //
+  // We use cost price as the "base" — all other prices scale with it.
+  // If cost is 0 or empty, we use sale price as the base instead.
+  const lastCostRef = React.useRef(0);  // last cost price for ratio calc
+  const lastSaleRef = React.useRef(0);  // last sale price (fallback base)
+
+  // Track ratios whenever all 4 prices are non-empty
+  const ratiosRef = React.useRef({ wsVsCost: 1, skVsCost: 1, saleVsCost: 1 });
+
+  React.useEffect(() => {
+    const cost = Number(pieceCostPrice) || 0;
+    const sale = Number(pieceSalePrice) || 0;
+    const ws = Number(pieceWholesalePrice) || 0;
+    const sk = Number(pieceShopkeeperPrice) || 0;
+    if (cost > 0) {
+      ratiosRef.current = {
+        wsVsCost: ws > 0 ? ws / cost : ratiosRef.current.wsVsCost,
+        skVsCost: sk > 0 ? sk / cost : ratiosRef.current.skVsCost,
+        saleVsCost: sale > 0 ? sale / cost : ratiosRef.current.saleVsCost,
+      };
+    }
+    lastCostRef.current = cost;
+    lastSaleRef.current = sale;
+  }, [pieceCostPrice, pieceSalePrice, pieceWholesalePrice, pieceShopkeeperPrice]);
+
   // Reset userEdited flags when the wizard opens fresh (not editing)
   React.useEffect(() => {
     if (open && !editProduct) {
@@ -1261,6 +1298,91 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
       }
     }
   }, [boxSalePrice, boxCostPrice, boxWholesalePrice, boxShopkeeperPrice, piecesPerBoxNum, hasBox, autoPieceCost, autoPieceSale, autoPieceWholesale, autoPieceShopkeeper]);
+
+  // v2.10.35: Auto-adjust other prices proportionally when ONE price changes.
+  // Called from each price input's onChange handler.
+  function handlePiecePriceChange(field: "cost" | "sale" | "ws" | "sk", value: string) {
+    userEdited.current[field] = true;
+    const newVal = Number(value) || 0;
+
+    // Set the edited field
+    if (field === "cost") setPieceCostPrice(value);
+    if (field === "sale") setPieceSalePrice(value);
+    if (field === "ws") setPieceWholesalePrice(value);
+    if (field === "sk") setPieceShopkeeperPrice(value);
+
+    // Only auto-adjust OTHERS if user hasn't manually edited them
+    // AND the ratiosRef has meaningful values (i.e. there were existing prices)
+    const r = ratiosRef.current;
+    const hasRatios = r.wsVsCost > 0 || r.skVsCost > 0 || r.saleVsCost > 0;
+    if (!hasRatios) return;
+
+    // Determine which price is the "base" for ratio calculations
+    // Default: cost price is the base. If user is editing cost, we use the
+    // previous cost-to-current-cost ratio to scale others.
+    if (field === "cost") {
+      // User changed cost. Scale others proportionally based on the change.
+      const oldCost = lastCostRef.current;
+      if (oldCost > 0 && newVal > 0) {
+        const scale = newVal / oldCost;
+        if (!userEdited.current.sale && r.saleVsCost > 0) {
+          setPieceSalePrice((newVal * r.saleVsCost).toFixed(2));
+        }
+        if (!userEdited.current.ws && r.wsVsCost > 0) {
+          setPieceWholesalePrice((newVal * r.wsVsCost).toFixed(2));
+        }
+        if (!userEdited.current.sk && r.skVsCost > 0) {
+          setPieceShopkeeperPrice((newVal * r.skVsCost).toFixed(2));
+        }
+      }
+    } else if (field === "sale") {
+      // User changed sale. Scale others based on sale/cost ratio (use cost as base).
+      const cost = Number(pieceCostPrice) || 0;
+      if (cost > 0 && r.saleVsCost > 0) {
+        // Sale changed → cost scales by sale_new/sale_old
+        const saleScale = lastSaleRef.current > 0 ? newVal / lastSaleRef.current : 0;
+        if (saleScale > 0) {
+          if (!userEdited.current.cost) {
+            setPieceCostPrice((cost * saleScale).toFixed(2));
+          }
+          if (!userEdited.current.ws && r.wsVsCost > 0) {
+            setPieceWholesalePrice((cost * saleScale * r.wsVsCost).toFixed(2));
+          }
+          if (!userEdited.current.sk && r.skVsCost > 0) {
+            setPieceShopkeeperPrice((cost * saleScale * r.skVsCost).toFixed(2));
+          }
+        }
+      }
+    } else if (field === "ws") {
+      // User changed wholesale. Use cost as base, calculate new cost from ws/wsVsCost ratio.
+      if (r.wsVsCost > 0) {
+        const newCost = newVal / r.wsVsCost;
+        if (!userEdited.current.cost) {
+          setPieceCostPrice(newCost.toFixed(2));
+        }
+        if (!userEdited.current.sale && r.saleVsCost > 0) {
+          setPieceSalePrice((newCost * r.saleVsCost).toFixed(2));
+        }
+        if (!userEdited.current.sk && r.skVsCost > 0) {
+          setPieceShopkeeperPrice((newCost * r.skVsCost).toFixed(2));
+        }
+      }
+    } else if (field === "sk") {
+      // User changed shopkeeper. Use cost as base.
+      if (r.skVsCost > 0) {
+        const newCost = newVal / r.skVsCost;
+        if (!userEdited.current.cost) {
+          setPieceCostPrice(newCost.toFixed(2));
+        }
+        if (!userEdited.current.sale && r.saleVsCost > 0) {
+          setPieceSalePrice((newCost * r.saleVsCost).toFixed(2));
+        }
+        if (!userEdited.current.ws && r.wsVsCost > 0) {
+          setPieceWholesalePrice((newCost * r.wsVsCost).toFixed(2));
+        }
+      }
+    }
+  }
 
   async function saveProducts() {
     setSaving(true);
@@ -1647,21 +1769,21 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-2">
                 <Label>Cost Price / Piece</Label>
-                <Input type="number" value={pieceCostPrice} onChange={(e) => { userEdited.current.cost = true; setPieceCostPrice(e.target.value); }} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
+                <Input type="number" value={pieceCostPrice} onChange={(e) => handlePiecePriceChange("cost", e.target.value)} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
               </div>
               <div className="space-y-2">
                 <Label>Sale Price (Regular) / Piece *</Label>
-                <Input type="number" value={pieceSalePrice} onChange={(e) => { userEdited.current.sale = true; setPieceSalePrice(e.target.value); }} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
+                <Input type="number" value={pieceSalePrice} onChange={(e) => handlePiecePriceChange("sale", e.target.value)} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-2">
                 <Label>Wholesale Price / Piece</Label>
-                <Input type="number" value={pieceWholesalePrice} onChange={(e) => { userEdited.current.ws = true; setPieceWholesalePrice(e.target.value); }} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
+                <Input type="number" value={pieceWholesalePrice} onChange={(e) => handlePiecePriceChange("ws", e.target.value)} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
               </div>
               <div className="space-y-2">
                 <Label>Shopkeeper Price / Piece</Label>
-                <Input type="number" value={pieceShopkeeperPrice} onChange={(e) => { userEdited.current.sk = true; setPieceShopkeeperPrice(e.target.value); }} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
+                <Input type="number" value={pieceShopkeeperPrice} onChange={(e) => handlePiecePriceChange("sk", e.target.value)} placeholder="0" className="text-left bg-emerald-100/70 font-medium" />
               </div>
             </div>
 

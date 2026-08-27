@@ -589,6 +589,115 @@ export function PosView({ settings }: PosViewProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cart.saleType, returnOpen, calcOpen, checkoutOpen, receiptOpen, products, highlightedIndex, q, cart.items.length, scannedCard]);
 
+  // v2.10.35: Edit Sale — load sale items back into cart for editing.
+  // Flow: return all items from the original sale → load items into cart →
+  // close receipt → user can edit the cart → checkout creates a NEW sale.
+  // The original sale remains in history with status=RETURNED.
+  async function handleEditSale(sale: any) {
+    if (!sale?.id) {
+      toast.error("Cannot edit this sale (missing sale ID)");
+      return;
+    }
+    try {
+      toast.info("Returning original sale and loading items into cart...");
+
+      // 1. Return all items from the original sale
+      const returnRes = await fetch(`/api/sales/${sale.id}/return`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Editing sale — returned for re-checkout", itemIds: [] }),
+      });
+      const returnData = await returnRes.json();
+      if (!returnRes.ok) {
+        toast.error(returnData.error || "Failed to return original sale");
+        return;
+      }
+
+      // 2. Clear current cart
+      cart.clear();
+      if (cart.setCustomerName) cart.setCustomerName("");
+      if (cart.setCustomerPhone) cart.setCustomerPhone("");
+
+      // 3. Fetch the sale with full item details (need productId + price)
+      // We use sale.items directly if present, otherwise fetch from API
+      let items = sale.items || [];
+      if (items.length === 0) {
+        const res = await fetch(`/api/sales?limit=1`);
+        const data = await res.json();
+        const found = (data.sales || []).find((s: any) => s.id === sale.id);
+        if (found) items = found.items || [];
+      }
+
+      // 4. Load each item into the cart
+      // We need the full Product object — fetch by ID if we only have SaleItem
+      let loaded = 0;
+      for (const it of items) {
+        try {
+          // Try fetching product by ID (gets full Product with stock, barcode, etc.)
+          const pRes = await fetch(`/api/products?barcode=${encodeURIComponent(it.barcode || it.name || "")}`, { cache: "no-store" });
+          if (pRes.ok) {
+            const pData = await pRes.json();
+            const product = (pData.products || [])[0];
+            if (product) {
+              cart.addItem(product, it.quantity);
+              loaded++;
+              continue;
+            }
+          }
+          // Fallback: if we can't find the product, build a minimal one from the sale item
+          cart.addItem({
+            id: it.productId || it.id,
+            name: it.name || "Unknown",
+            barcode: it.barcode || "",
+            salePrice: it.price || 0,
+            stock: 9999,  // don't block checkout
+            unit: it.unit || "piece",
+            costPrice: 0,
+            wholesalePrice: 0,
+            shopkeeperPrice: 0,
+            taxRate: 0,
+            active: true,
+            hasBarcode: false,
+            barcodeType: "CODE128",
+            minStock: 0,
+            categoryId: null,
+            vendorId: null,
+            storeStock: 0,
+            image: null,
+            expiryDate: null,
+            manufacturingDate: null,
+            packBarcode: null,
+            packQuantity: 0,
+            packPrice: 0,
+            productCode: null,
+            barcodeSvg: null,
+            barcodePng: null,
+            barcodeVerified: false,
+            stickerSize: "50x30",
+            packingDate: null,
+            inventorySource: "SHOP",
+            linkedStoreProductId: null,
+          } as any, it.quantity);
+          loaded++;
+        } catch (e) {
+          console.warn("Failed to load sale item into cart:", it, e);
+        }
+      }
+
+      // 5. Set customer info if present
+      if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
+      if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
+
+      // 6. Close the receipt
+      setReceiptOpen(false);
+      setLastSale(null);
+
+      toast.success(`Loaded ${loaded} item(s) into cart. Original sale marked as RETURNED.`);
+    } catch (e: any) {
+      toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
+    }
+  }
+
   async function handleCheckout() {
     if (cart.items.length === 0) {
       toast.error("Cart is empty");
@@ -1536,6 +1645,7 @@ export function PosView({ settings }: PosViewProps) {
         settings={settings}
         open={receiptOpen}
         onOpenChange={setReceiptOpen}
+        onEdit={handleEditSale}
       />
 
       {/* Return / Refund dialog */}
