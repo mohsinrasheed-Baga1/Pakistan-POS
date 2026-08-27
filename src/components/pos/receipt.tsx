@@ -302,13 +302,24 @@ export function Receipt({ sale, settings, open, onOpenChange }: ReceiptProps) {
             <span>Recd:</span>
             <span>{formatMoney(sale.paidAmount, currency)}</span>
           </div>
-          {/* Change (when customer paid more) */}
-          {rs.showChange && sale.change > 0 && (
-            <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
-              <span>Change:</span>
-              <span>{formatMoney(sale.change, currency)}</span>
-            </div>
-          )}
+          {/* v2.10.31: Always show Change when customer paid >= total
+              (was gated behind rs.showChange toggle + sale.change > 0,
+              which caused it to be missing on receipts when toggle was off
+              or sale.change wasn't populated for older sales).
+              Now: calculate dynamically as max(0, paidAmount - total). */}
+          {(() => {
+            const paid = Number(sale.paidAmount) || 0;
+            const total = Number(sale.total) || 0;
+            const change = paid > total ? Math.max(0, paid - total) : (Number(sale.change) || 0);
+            if (paid <= 0) return null; // no payment recorded
+            if (paid < total) return null; // underpayment — show "Balance Due" below instead
+            return (
+              <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
+                <span>Change:</span>
+                <span>{formatMoney(change, currency)}</span>
+              </div>
+            );
+          })()}
           {/* Balance Due (when customer paid less — RED) */}
           {(sale.balanceDue || 0) > 0 && (
             <div className="row bold" style={{ fontSize: tableFontSize, fontWeight: "bold", color: "#dc2626" }}>

@@ -3018,19 +3018,119 @@ type SoftwareUpdateStatus =
   | "downloaded"
   | "error";
 
+// v2.10.31: Module-level state so the download survives component unmount.
+// When the user navigates away from Settings to POS page, the React component
+// unmounts — but the download keeps running in the Electron main process.
+// We persist state here so when the user comes back to Settings, the UI
+// reflects the in-progress download (rather than resetting to "idle").
+const LS_KEY = "pakpos_update_state_v1";
+type PersistedState = {
+  status: SoftwareUpdateStatus;
+  progress: number;
+  version?: string;
+  downloadUrl?: string | null;
+  downloadSize?: number | null;
+  releaseNotes?: string;
+  errorMsg?: string;
+  startedAt?: number;
+};
+
+function loadPersistedState(): PersistedState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedState;
+    // Expire after 1 hour of inactivity
+    if (parsed.startedAt && Date.now() - parsed.startedAt > 60 * 60 * 1000) {
+      localStorage.removeItem(LS_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedState(state: PersistedState | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!state || state.status === "idle" || state.status === "error") {
+      localStorage.removeItem(LS_KEY);
+    } else {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Singleton listeners — only attach once, fire on every state change
+const updateStateListeners = new Set<(s: PersistedState) => void>();
+let currentUpdateState: PersistedState | null = loadPersistedState();
+let progressListenerAttached = false;
+
+function setUpdateState(next: PersistedState | null) {
+  currentUpdateState = next;
+  savePersistedState(next);
+  for (const l of updateStateListeners) {
+    if (next) l(next);
+  }
+}
+
+function attachProgressListener() {
+  if (progressListenerAttached) return;
+  if (typeof window === "undefined" || !window.posElectron?.updater?.onProgress) return;
+  progressListenerAttached = true;
+  window.posElectron.updater.onProgress((pct: number) => {
+    if (currentUpdateState && currentUpdateState.status === "downloading") {
+      setUpdateState({ ...currentUpdateState, progress: Math.round(pct) });
+    }
+  });
+}
+
 function SoftwareUpdatesCard() {
-  const [status, setStatus] = React.useState<SoftwareUpdateStatus>("idle");
-  const [updateInfo, setUpdateInfo] = React.useState<UpdateInfo | null>(null);
-  const [progress, setProgress] = React.useState(0);
-  const [errorMsg, setErrorMsg] = React.useState("");
-  // Get current version — try multiple sources in priority order:
-  // 1. NEXT_PUBLIC_APP_VERSION (build-time env, always available)
-  // 2. Electron preload (window.posElectron.version)
-  // 3. /api/version endpoint (server-side)
-  // 4. Hardcoded fallback
+  // Hydrate from module-level state if we have an in-progress download
+  const initial = currentUpdateState;
+  const [status, setStatus] = React.useState<SoftwareUpdateStatus>(initial?.status || "idle");
+  const [updateInfo, setUpdateInfo] = React.useState<UpdateInfo | null>(
+    initial && initial.version
+      ? {
+          version: initial.version,
+          releaseNotes: initial.releaseNotes || "",
+          downloadUrl: initial.downloadUrl || null,
+          downloadSize: initial.downloadSize || null,
+        }
+      : null
+  );
+  const [progress, setProgress] = React.useState(initial?.progress || 0);
+  const [errorMsg, setErrorMsg] = React.useState(initial?.errorMsg || "");
   const [currentVersion, setCurrentVersion] = React.useState(
     process.env.NEXT_PUBLIC_APP_VERSION || ""
   );
+
+  // Keep local React state in sync with module-level state changes
+  // (e.g., progress updates arriving while user is on another page)
+  React.useEffect(() => {
+    const listener = (s: PersistedState) => {
+      setStatus(s.status);
+      setProgress(s.progress);
+      if (s.errorMsg) setErrorMsg(s.errorMsg);
+      if (s.version) {
+        setUpdateInfo({
+          version: s.version,
+          releaseNotes: s.releaseNotes || "",
+          downloadUrl: s.downloadUrl || null,
+          downloadSize: s.downloadSize || null,
+        });
+      }
+    };
+    updateStateListeners.add(listener);
+    attachProgressListener();
+    return () => {
+      updateStateListeners.delete(listener);
+    };
+  }, []);
 
   React.useEffect(() => {
     // If we already have the version from build-time env, use it
@@ -3130,6 +3230,18 @@ function SoftwareUpdatesCard() {
     setStatus("downloading");
     setProgress(0);
     setErrorMsg("");
+    // v2.10.31: Persist to module-level + localStorage so the download state
+    // survives navigating away from the Settings page. The Electron main
+    // process keeps downloading regardless; we just need to remember it.
+    setUpdateState({
+      status: "downloading",
+      progress: 0,
+      version: (updateInfo as any)?.version,
+      downloadUrl: (updateInfo as any)?.downloadUrl,
+      downloadSize: (updateInfo as any)?.downloadSize,
+      releaseNotes: (updateInfo as any)?.releaseNotes,
+      startedAt: Date.now(),
+    });
 
     try {
       const downloadUrl = (updateInfo as any)?.downloadUrl;
@@ -3138,23 +3250,62 @@ function SoftwareUpdatesCard() {
         // ALWAYS pass downloadUrl to the main process.
         // If downloadUrl is null/undefined, the main process will
         // fetch it from GitHub API as a fallback.
-        await window.posElectron.updater.download(downloadUrl || undefined);
-        setStatus("downloaded");
-        toast.success("Update downloaded! Click Install to apply.");
+        //
+        // v2.10.31: DO NOT await — fire and forget. The download runs in the
+        // main process. Awaiting here blocks the renderer and ties the UI
+        // state to the renderer lifecycle (which dies when navigating away).
+        window.posElectron.updater.download(downloadUrl || undefined)
+          .then(() => {
+            setUpdateState({
+              status: "downloaded",
+              progress: 100,
+              version: (updateInfo as any)?.version,
+              downloadUrl: (updateInfo as any)?.downloadUrl,
+              downloadSize: (updateInfo as any)?.downloadSize,
+              releaseNotes: (updateInfo as any)?.releaseNotes,
+              startedAt: Date.now(),
+            });
+            setStatus("downloaded");
+            setProgress(100);
+            toast.success("Update downloaded! Click Install to apply.");
+          })
+          .catch((err: any) => {
+            const msg = err?.message || "Download failed";
+            setUpdateState({
+              status: "error",
+              progress: 0,
+              version: (updateInfo as any)?.version,
+              errorMsg: msg,
+              startedAt: Date.now(),
+            });
+            setErrorMsg(msg);
+            setStatus("error");
+            toast.error(msg);
+          });
+        // Show "downloading" toast so user knows they can navigate away
+        toast.info("Update is downloading in the background. You can continue using the app.");
       } else if (downloadUrl) {
         // Browser — open download URL directly
         window.open(downloadUrl, "_blank");
         setStatus("idle");
+        setUpdateState(null);
         toast.info("Downloading update in your browser...");
       } else {
         // Fallback — open GitHub releases page
         window.open("https://github.com/mohsinrasheed-Baga1/shop-pos-system/releases/latest", "_blank");
         setStatus("idle");
+        setUpdateState(null);
         toast.info("Opening GitHub releases page in your browser...");
       }
     } catch (err: any) {
       setErrorMsg(err?.message || "Download failed");
       setStatus("error");
+      setUpdateState({
+        status: "error",
+        progress: 0,
+        errorMsg: err?.message || "Download failed",
+        startedAt: Date.now(),
+      });
       toast.error(err?.message || "Download failed");
     }
   }
@@ -3163,6 +3314,7 @@ function SoftwareUpdatesCard() {
     try {
       if (isElectronUpdater) {
         await window.posElectron.updater.install();
+        setUpdateState(null);
         // App will restart automatically
       }
     } catch (err: any) {
@@ -3175,6 +3327,7 @@ function SoftwareUpdatesCard() {
     setUpdateInfo(null);
     setProgress(0);
     setErrorMsg("");
+    setUpdateState(null);
   }
 
   const displayVersion = currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || "2.7.60";

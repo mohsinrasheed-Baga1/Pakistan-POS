@@ -1202,11 +1202,11 @@ function CardPrintDialog({
     }
     let cancelled = false;
     // v2.10.25: Generate QR with Vercel URL so scanning opens the portal page
-    // v2.10.29: Brand renamed to Pakistan POS. URL stays as shop-pos-system.vercel.app
-    // until the Vercel project is renamed — then update this single constant.
-    // (Existing printed QR cards point to shop-pos-system.vercel.app, so do NOT
-    //  change this until you've also set up a redirect from the old URL.)
-    const vercelUrl = "https://shop-pos-system.vercel.app";
+    // v2.10.31: Brand renamed to Pakistan POS. Vercel project renamed to pakistan-pos
+    // (no existing printed QR cards in the wild yet, so safe to switch).
+    // If you rename the Vercel project again, update ONLY this constant —
+    // all new QR codes will automatically use the new URL.
+    const vercelUrl = "https://pakistan-pos.vercel.app";
     const licenseKey = (typeof window !== "undefined" && localStorage.getItem("pakpos_license_data"))
       ? JSON.parse(localStorage.getItem("pakpos_license_data") || "{}").licenseKey || "LICENSE"
       : "LICENSE";
@@ -1245,10 +1245,10 @@ function CardPrintDialog({
     }
     const cardTypeLabel = card.type === "WHOLESALE" ? "Wholesale" : card.type === "SHOP_KEEPER" ? "Shop Keeper" : "Regular";
     const qrImg = qrDataUrl
-      ? `<img src="${qrDataUrl}" style="width:18mm;height:18mm;" alt="QR" />`
+      ? `<img src="${qrDataUrl}" style="width:16mm;height:16mm;" alt="QR" />`
       : "";
 
-    // v2.10.25: Landscape card — barcode on LEFT, QR on RIGHT (bigger)
+    // v2.10.31: Portrait card — CR80 standard (85.6mm × 54mm), centered horizontally, top of page.
     const cardHtml = `
       <div class="card">
         <div class="header">
@@ -1262,7 +1262,7 @@ function CardPrintDialog({
         <div class="body">
           <div class="holder-row">
             <div style="display:flex;align-items:center;gap:0.5mm;">
-              <span style="font-size:10px;">&#9635;</span>
+              <span style="font-size:9px;">&#9635;</span>
               <span class="holder-name">${escapeHtml(card.name)}</span>
             </div>
             <span class="type-badge">${escapeHtml(cardTypeLabel)}</span>
@@ -1280,27 +1280,26 @@ function CardPrintDialog({
         </div>
       </div>`;
 
-    // v2.10.25: A4 LANDSCAPE = 297mm × 210mm
-    // Card = 85.6mm × 54mm (landscape = wider)
-    // Two cards side by side with a cut line between them
+    // v2.10.31: A4 PORTRAIT = 210mm × 297mm
+    // Card = CR80 standard: 85.6mm × 54mm (portrait)
+    // Single card per page, horizontally centered, at TOP of page
     win.document.write(`
-      <html dir="ltr"><head><title>Shop Card ${card.cardNumber}</title>
+      <html dir="ltr"><head><title>Pakistan POS - Shop Card ${card.cardNumber}</title>
       <style>
-        @page { size: A4 landscape; margin: 5mm; }
+        @page { size: A4 portrait; margin: 5mm; }
         html, body { margin: 0; padding: 0; }
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         body {
           display: flex;
-          flex-direction: row;
+          flex-direction: column;
           align-items: center;
-          justify-content: center;
-          gap: 5mm;
+          justify-content: flex-start;
           padding: 5mm;
           font-family: Tahoma, Arial, sans-serif;
         }
         .card {
-          width: 120mm;
-          height: 75mm;
+          width: 85.6mm;
+          height: 54mm;
           border: 1.5px solid #000;
           display: flex;
           flex-direction: column;
@@ -1311,67 +1310,65 @@ function CardPrintDialog({
         }
         .header {
           border-bottom: 1px solid #000;
-          padding: 2mm 3mm 1mm;
+          padding: 1.5mm 2.5mm 0.5mm;
           text-align: center;
         }
-        .shop-name { font-weight: bold; font-size: 16px; line-height: 1.2; color: #000; letter-spacing: 0.3px; }
-        .shop-meta { font-weight: 700; font-size: 10px; line-height: 1.2; color: #333; }
-        .body { flex: 1; padding: 2mm 3mm; display: flex; flex-direction: column; gap: 1mm; }
+        .shop-name { font-weight: bold; font-size: 12px; line-height: 1.2; color: #000; letter-spacing: 0.3px; }
+        .shop-meta { font-weight: 700; font-size: 7px; line-height: 1.2; color: #333; margin-top: 0.5mm; }
+        .body { flex: 1; padding: 1.5mm 2.5mm; display: flex; flex-direction: column; gap: 0.5mm; }
         .holder-row { display: flex; align-items: center; justify-content: space-between; gap: 2mm; }
-        .holder-name { font-size: 13px; font-weight: bold; color: #000; text-transform: uppercase; }
-        .phone-row { font-size: 11px; font-weight: bold; color: #333; margin-top: 0.5mm; }
-        .type-badge { border: 1px solid #000; padding: 0.5mm 2mm; font-size: 8px; font-weight: bold; color: #000; background: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
-        .content-row { display: flex; justify-content: space-between; align-items: center; flex: 1; gap: 3mm; margin-top: 1mm; }
+        .holder-name { font-size: 10px; font-weight: bold; color: #000; text-transform: uppercase; }
+        .phone-row { font-size: 8px; font-weight: bold; color: #333; margin-top: 0.3mm; }
+        .type-badge { border: 1px solid #000; padding: 0.3mm 1.5mm; font-size: 6px; font-weight: bold; color: #000; background: #fff; text-transform: uppercase; letter-spacing: 0.5px; }
+        .content-row { display: flex; justify-content: space-between; align-items: center; flex: 1; gap: 2mm; margin-top: 0.5mm; }
         .barcode-side { display: flex; justify-content: center; align-items: center; flex: 1; }
-        .qr-side { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1mm; }
-        .qr-label { font-size: 7px; font-weight: bold; color: #333; text-align: center; font-family: Arial, sans-serif; }
-        .cut-line-v {
-          width: 1px;
-          height: 70mm;
-          border-left: 1px dashed #999;
-          position: relative;
-        }
-        .cut-line-v::after {
-          content: "✂";
-          position: absolute;
-          left: 50%;
-          top: 50%;
-          transform: translate(-50%, -50%);
-          background: #fff;
-          padding: 2px;
-          font-size: 14px;
-          color: #999;
-        }
+        .qr-side { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5mm; }
+        .qr-label { font-size: 5px; font-weight: bold; color: #333; text-align: center; font-family: Arial, sans-serif; }
       </style></head>
       <body>
-        <!-- Copy 1 -->
-        ${cardHtml}
-        <div class="cut-line-v"></div>
-        <!-- Copy 2 (identical) -->
         ${cardHtml}
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         <script>
-          try {
-            var svgs = document.querySelectorAll('.barcode-svg');
-            svgs.forEach(function(svg) {
-              JsBarcode(svg, '${escapeHtml(card.cardNumber)}', {
-                format: 'CODE128',
-                width: 1.2,
-                height: 38,
-                displayValue: true,
-                fontSize: 10,
-                textMargin: 1,
+          function renderBarcodesAndPrint() {
+            try {
+              var svgs = document.querySelectorAll('.barcode-svg');
+              svgs.forEach(function(svg) {
+                JsBarcode(svg, '${escapeHtml(card.cardNumber)}', {
+                  format: 'CODE128',
+                  width: 1.0,
+                  height: 22,
+                  displayValue: true,
+                  fontSize: 7,
+                  textMargin: 0,
+                  margin: 0,
+                });
+              });
+            } catch (e) {
+              console.error('barcode error', e);
+            }
+            // Wait one more frame for the SVG render to commit, then print
+            requestAnimationFrame(function() {
+              requestAnimationFrame(function() {
+                window.print();
+                setTimeout(function () { window.close(); }, 500);
               });
             });
-          } catch (e) {
-            console.error('barcode error', e);
           }
-          window.onload = function () {
-            setTimeout(function () {
-              window.print();
-              setTimeout(function () { window.close(); }, 250);
-            }, 400);
-          };
+          // Wait for JsBarcode script to load BEFORE printing
+          var barcodeScript = document.querySelector('script[src*="jsbarcode"]');
+          if (barcodeScript) {
+            barcodeScript.onload = renderBarcodesAndPrint;
+            barcodeScript.onerror = function() {
+              // Script failed to load — print anyway without barcode
+              console.warn('JsBarcode CDN failed; printing without barcode');
+              requestAnimationFrame(function() {
+                window.print();
+                setTimeout(function () { window.close(); }, 500);
+              });
+            };
+          } else {
+            window.onload = renderBarcodesAndPrint;
+          }
         </script>
       </body></html>
     `);
