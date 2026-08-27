@@ -63,10 +63,13 @@ export async function GET(req: NextRequest) {
       auth: { persistSession: false },
     });
 
+    // v2.10.32 FIX: shop_phone column doesn't exist on licenses table — only
+    // shop_name and shop_address are populated during license activation.
+    // shop_phone comes from the shop's own shop_info table (Step 4).
     const { data: license, error: licError } = await adminSb
       .from("licenses")
       .select(
-        "shop_name, shop_address, shop_phone, shop_supabase_url, shop_supabase_key, is_active, is_revoked"
+        "shop_name, shop_address, shop_supabase_url, shop_supabase_key, is_active, is_revoked"
       )
       .eq("license_key", licenseKey.toUpperCase().trim())
       .maybeSingle();
@@ -236,7 +239,8 @@ export async function GET(req: NextRequest) {
     // Pick the best shop name: license.shop_name beats "My Shop" default
     const licenseShopName = (license as any).shop_name || "";
     const licenseShopAddr = (license as any).shop_address || "";
-    const licenseShopPhone = (license as any).shop_phone || "";
+    // v2.10.32: shop_phone is not on the licenses table — only on shop_info.
+    const licenseShopPhone = "";
 
     const finalShopName =
       !isDefaultShopName(shopInfo?.shop_name) && shopInfo?.shop_name
