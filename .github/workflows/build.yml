@@ -94,10 +94,22 @@ jobs:
           TAG: ${{ steps.tag.outputs.TAG }}
         run: |
           echo "=== Creating release and uploading EXE for $TAG ==="
-          EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+          # v2.10.33: artifactName changed to Pakistan-POS-Setup-${version}.exe
+          # Try the new name first, fall back to the old name for backwards compatibility
+          EXE_FILE=$(find release/ -name "Pakistan-POS-Setup-*.exe" -type f | head -1)
+          if [ -z "$EXE_FILE" ]; then
+            EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+          fi
+          if [ -z "$EXE_FILE" ]; then
+            # Last resort: any .exe file
+            EXE_FILE=$(find release/ -name "*.exe" -type f | head -1)
+          fi
           BLOCKMAP_FILE=$(find release/ -name "*.exe.blockmap" -type f | head -1)
           if [ -z "$EXE_FILE" ]; then
             echo "ERROR: No .exe file found in release/"
+            echo "=== Files in release/ ==="
+            ls -la release/ || true
+            find release/ -type f 2>/dev/null | head -20
             exit 1
           fi
           EXE_SIZE=$(stat -c%s "$EXE_FILE" 2>/dev/null || wc -c < "$EXE_FILE")
@@ -126,8 +138,14 @@ jobs:
           echo "=== Looking for .exe ==="
           find release/ -name "*.exe" -type f 2>/dev/null || true
           echo ""
-          # Verify the .exe exists and has reasonable size (>10MB)
-          EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+          # v2.10.33: Try new name first, fall back to old name
+          EXE_FILE=$(find release/ -name "Pakistan-POS-Setup-*.exe" -type f | head -1)
+          if [ -z "$EXE_FILE" ]; then
+            EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+          fi
+          if [ -z "$EXE_FILE" ]; then
+            EXE_FILE=$(find release/ -name "*.exe" -type f | head -1)
+          fi
           if [ -z "$EXE_FILE" ]; then
             echo "ERROR: No .exe file found in release/"
             echo ""
@@ -158,8 +176,14 @@ jobs:
 
           if [ -z "$RELEASE_IDS" ]; then
             echo "No release found for tag $TAG — creating one now and uploading EXE"
-            # Find the local EXE
-            EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+            # v2.10.33: Try new name first, fall back to old name
+            EXE_FILE=$(find release/ -name "Pakistan-POS-Setup-*.exe" -type f | head -1)
+            if [ -z "$EXE_FILE" ]; then
+              EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+            fi
+            if [ -z "$EXE_FILE" ]; then
+              EXE_FILE=$(find release/ -name "*.exe" -type f | head -1)
+            fi
             if [ -z "$EXE_FILE" ]; then
               echo "ERROR: No .exe file found in release/ directory"
               exit 1
@@ -204,7 +228,14 @@ jobs:
           if [ -z "$GOOD_RELEASE_ID" ]; then
             echo ""
             echo "⚠️  No release has .exe — attempting manual upload..."
-            EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+            # v2.10.33: Try new name first, fall back to old name
+            EXE_FILE=$(find release/ -name "Pakistan-POS-Setup-*.exe" -type f | head -1)
+            if [ -z "$EXE_FILE" ]; then
+              EXE_FILE=$(find release/ -name "Shop-POS-System-Setup-*.exe" -type f | head -1)
+            fi
+            if [ -z "$EXE_FILE" ]; then
+              EXE_FILE=$(find release/ -name "*.exe" -type f | head -1)
+            fi
             if [ -n "$EXE_FILE" ]; then
               FIRST_ID=$(echo "$RELEASE_IDS" | head -n 1)
               echo "Uploading $EXE_FILE to release $FIRST_ID..."
