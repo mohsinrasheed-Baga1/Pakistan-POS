@@ -89,29 +89,122 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // v2.10.40: AWAIT syncCard before returning response
-  // Previous code ran syncCard async but returned the response immediately,
-  // causing race conditions where the user scanned the QR before sync finished.
-  // Now we WAIT for sync to complete, then return.
-  // If sync fails, we still return success (the local save succeeded) but
-  // include a warning so the UI can tell the user.
-  let syncWarning: string | null = null;
-  try {
-    const { syncCard } = await import("@/lib/supabase-sync");
-    await syncCard({
-      cardNumber,
-      name,
-      phone: body.phone ? String(body.phone).trim() : null,
-      address: body.address ? String(body.address).trim() : null,
-      type: body.type === "WHOLESALE" ? "WHOLESALE" : body.type === "SHOP_KEEPER" ? "SHOP_KEEPER" : "REGULAR",
-      balance: Number(body.balance) || 0,
-      active: body.active !== false,
-    });
-    console.log("[Cards POST] Card synced to cloud:", cardNumber);
-  } catch (e: any) {
-    console.error("[Cards POST] Sync failed (local save OK):", e?.message);
-    syncWarning = "Card saved locally but cloud sync failed. Will retry on next sync.";
+  // v2.10.44: Detailed sync diagnostic — log every step so we can see
+  // exactly where sync fails. Returns a syncReport object with full details
+  // for the UI to display.
+  const syncReport: any = {
+    startedAt: new Date().toISOString(),
+    steps: [] as Array<{ step: string; ok: boolean; message: string; duration_ms?: number }>,
+    cardNumber,
+  };
+
+  function logStep(step: string, ok: boolean, message: string, duration_ms?: number) {
+    syncReport.steps.push({ step, ok, message, duration_ms });
+    console.log(`[Cards POST sync] ${step}: ${ok ? "✓" : "✗"} ${message}${duration_ms ? ` (${duration_ms}ms)` : ""}`);
   }
 
-  return NextResponse.json({ card, syncWarning });
+  let syncWarning: string | null = null;
+  let syncSuccess = false;
+
+  try {
+    // STEP 1: Load syncCard module
+    const t0 = Date.now();
+    const { syncCard, getShopSupabaseAsync, fetchAndCacheShopConfig, getShopSupabaseConfig, getLicenseKey } = await import("@/lib/supabase-sync");
+    logStep("load_module", true, "syncCard module loaded", Date.now() - t0);
+
+    // STEP 2: Check localStorage state (diagnostic only — runs server-side
+    // but getLicenseKey is no-op on server, so just log)
+    const t1 = Date.now();
+    const cachedConfig = getShopSupabaseConfig();
+    if (cachedConfig) {
+      logStep("check_localStorage", true, `Supabase config found in localStorage: url=${cachedConfig.url.substring(0, 40)}...`, Date.now() - t1);
+    } else {
+      logStep("check_localStorage", false, "No Supabase config in localStorage — will auto-fetch", Date.now() - t1);
+    }
+
+    // STEP 3: Auto-fetch config if missing (this calls /api/license/key
+    // and /api/shop-config)
+    if (!cachedConfig) {
+      const t2 = Date.now();
+      try {
+        const fetchedConfig = await fetchAndCacheShopConfig();
+        if (fetchedConfig) {
+          logStep("auto_fetch_config", true, `Fetched Supabase config: ${fetchedConfig.url.substring(0, 40)}...`, Date.now() - t2);
+        } else {
+          logStep("auto_fetch_config", false, "fetchAndCacheShopConfig returned null — see console for details", Date.now() - t2);
+          syncWarning = "Cloud sync failed: Could not fetch Supabase config. Check network connection.";
+          return NextResponse.json({ card, syncWarning, syncReport });
+        }
+      } catch (e: any) {
+        logStep("auto_fetch_config", false, `Exception: ${e?.message || e}`, Date.now() - t2);
+        syncWarning = `Cloud sync failed: ${e?.message || "Could not fetch config"}`;
+        return NextResponse.json({ card, syncWarning, syncReport });
+      }
+    }
+
+    // STEP 4: Get Supabase client
+    const t3 = Date.now();
+    const sb = await getShopSupabaseAsync();
+    if (!sb) {
+      logStep("get_supabase_client", false, "getShopSupabaseAsync returned null", Date.now() - t3);
+      syncWarning = "Cloud sync failed: Supabase client could not be created.";
+      return NextResponse.json({ card, syncWarning, syncReport });
+    }
+    logStep("get_supabase_client", true, "Supabase client ready", Date.now() - t3);
+
+    // STEP 5: Upsert card to customer_cards table
+    const t4 = Date.now();
+    const cardData = {
+      card_number: cardNumber,
+      customer_name: name,
+      customer_phone: body.phone ? String(body.phone).trim() : null,
+      customer_address: body.address ? String(body.address).trim() : null,
+      balance: Number(body.balance) || 0,
+      card_type: body.type === "WHOLESALE" ? "WHOLESALE" : body.type === "SHOP_KEEPER" ? "SHOP_KEEPER" : "REGULAR",
+      is_active: body.active !== false,
+      updated_at: new Date().toISOString(),
+    };
+    const { error: upsertError } = await sb.from("customer_cards").upsert(cardData, { onConflict: "card_number" });
+    if (upsertError) {
+      logStep("upsert_card", false, `Supabase error: ${upsertError.message} (code: ${upsertError.code})`, Date.now() - t4);
+      syncWarning = `Cloud sync failed: ${upsertError.message}`;
+      return NextResponse.json({ card, syncWarning, syncReport });
+    }
+    logStep("upsert_card", true, `Card upserted to customer_cards (card_number=${cardNumber})`, Date.now() - t4);
+
+    // STEP 6: Verify the card is actually readable (sanity check)
+    const t5 = Date.now();
+    const { data: verifyData, error: verifyError } = await sb
+      .from("customer_cards")
+      .select("card_number, customer_name")
+      .eq("card_number", cardNumber)
+      .maybeSingle();
+    if (verifyError || !verifyData) {
+      logStep("verify_card", false, `Could not read back: ${verifyError?.message || "row not found"}`, Date.now() - t5);
+    } else {
+      logStep("verify_card", true, `Verified readable: customer_name="${verifyData.customer_name}"`, Date.now() - t5);
+    }
+
+    // STEP 7: Also sync shop_info (best-effort, don't fail if it errors)
+    const t6 = Date.now();
+    try {
+      const { syncShopInfo } = await import("@/lib/supabase-sync");
+      await syncShopInfo();
+      logStep("sync_shop_info", true, "shop_info synced", Date.now() - t6);
+    } catch (e: any) {
+      logStep("sync_shop_info", false, `Non-fatal: ${e?.message || e}`, Date.now() - t6);
+    }
+
+    syncSuccess = true;
+    syncReport.completedAt = new Date().toISOString();
+    syncReport.success = true;
+    console.log("[Cards POST] ✓ Card synced to cloud:", cardNumber);
+  } catch (e: any) {
+    logStep("unexpected_error", false, `${e?.message || e}\nStack: ${e?.stack || ""}`);
+    syncWarning = `Cloud sync failed (unexpected): ${e?.message || "Unknown error"}`;
+    syncReport.success = false;
+    syncReport.errorMessage = e?.message || String(e);
+  }
+
+  return NextResponse.json({ card, syncWarning, syncReport, syncSuccess });
 }

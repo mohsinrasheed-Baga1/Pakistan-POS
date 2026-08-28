@@ -198,8 +198,33 @@ export function CardsView({ userRole }: CardsViewProps) {
         setSaving(false);
         return;
       }
-      // v2.10.39: Clearer toast that mentions cloud sync happened
-      toast.success(editId ? "Card updated · Synced to cloud" : "Card created · Synced to cloud");
+
+      // v2.10.44: Show detailed sync diagnostic report
+      if (data.syncReport) {
+        const report = data.syncReport;
+        if (report.success) {
+          // Success — find any failed steps (non-fatal)
+          const failedSteps = report.steps?.filter((s: any) => !s.ok) || [];
+          if (failedSteps.length === 0) {
+            toast.success(`✓ Card created · Synced to cloud (card: ${data.card.cardNumber})`);
+          } else {
+            toast.success(`Card created · Synced to cloud with ${failedSteps.length} warning(s)`);
+          }
+        } else {
+          // Sync failed — show detailed error
+          const failedStep = report.steps?.find((s: any) => !s.ok);
+          const errMsg = failedStep?.message || data.syncWarning || "Unknown sync error";
+          toast.error(`Card saved locally. CLOUD SYNC FAILED: ${errMsg}`, { duration: 8000 });
+          // Show a second toast with full diagnostic after a delay
+          setTimeout(() => {
+            toast.error(`Diagnostic: Step "${failedStep?.step || "unknown"}" failed — see console (F12) for full report`, { duration: 10000 });
+          }, 500);
+          console.error("[Card Save] Sync diagnostic report:", report);
+        }
+      } else {
+        // No report (old server) — fall back to simple toast
+        toast.success(editId ? "Card updated" : "Card created");
+      }
       setDialogOpen(false);
       loadCards();
       // v2.10.39: Verify sync happened by checking the cloud after 1.5s
