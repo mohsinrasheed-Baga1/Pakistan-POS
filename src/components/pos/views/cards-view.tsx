@@ -203,22 +203,50 @@ export function CardsView({ userRole }: CardsViewProps) {
       setDialogOpen(false);
       loadCards();
       // v2.10.39: Verify sync happened by checking the cloud after 1.5s
-      // (syncCard is async — give it time to complete)
+      // v2.10.42: Use /api/license/key as fallback if localStorage is missing
       setTimeout(async () => {
         try {
+          // Get license key — try localStorage first, then server-side fallback
+          let verifyLicenseKey = "LICENSE";
+          if (typeof window !== "undefined") {
+            const sources = ["pakpos_license_data", "pakpos_license", "license_key"];
+            for (const key of sources) {
+              const raw = localStorage.getItem(key);
+              if (!raw) continue;
+              try {
+                const parsed = JSON.parse(raw);
+                if (parsed?.licenseKey && typeof parsed.licenseKey === "string" && parsed.licenseKey.startsWith("PAKPOS-")) {
+                  verifyLicenseKey = parsed.licenseKey;
+                  break;
+                }
+              } catch {
+                if (typeof raw === "string" && raw.startsWith("PAKPOS-")) {
+                  verifyLicenseKey = raw;
+                  break;
+                }
+              }
+            }
+          }
+          if (verifyLicenseKey === "LICENSE") {
+            // Fallback to server-side endpoint
+            try {
+              const lkRes = await fetch("/api/license/key", { cache: "no-store" });
+              if (lkRes.ok) {
+                const lkData = await lkRes.json();
+                if (lkData.licenseKey) verifyLicenseKey = lkData.licenseKey;
+              }
+            } catch {}
+          }
+
           const verifyRes = await fetch(
-            `https://pakistanpos.vercel.app/api/portal/card?licenseKey=${encodeURIComponent(
-              (typeof window !== "undefined" && localStorage.getItem("pakpos_license_data"))
-                ? JSON.parse(localStorage.getItem("pakpos_license_data") || "{}").licenseKey
-                : ""
-            )}&cardNumber=${encodeURIComponent(data.card.cardNumber)}`
+            `https://pakistanpos.vercel.app/api/portal/card?licenseKey=${encodeURIComponent(verifyLicenseKey)}&cardNumber=${encodeURIComponent(data.card.cardNumber)}`
           );
           if (verifyRes.ok) {
             const verifyData = await verifyRes.json();
             if (verifyData.ok) {
               toast.success("✓ Verified online — QR scan will work");
             } else {
-              toast.warning("Card saved locally but sync may be delayed. Use Bulk Sync in Settings.");
+              toast.warning(`Sync check: ${verifyData.error || 'Card not synced'}. Try Bulk Sync in Settings.`);
             }
           }
         } catch {
@@ -1228,12 +1256,62 @@ function CardPrintDialog({
     // v2.10.25: Generate QR with Vercel URL so scanning opens the portal page
     // v2.10.31: Brand renamed to Pakistan POS. Vercel project renamed.
     // v2.10.32: Final URL = pakistanpos.vercel.app (no hyphen between pakistan & pos).
-    // If you ever rename the Vercel project again, update ONLY this constant —
-    // all new QR codes will automatically use the new URL.
+    // v2.10.42: Added fallback chain for license key retrieval.
     const vercelUrl = "https://pakistanpos.vercel.app";
-    const licenseKey = (typeof window !== "undefined" && localStorage.getItem("pakpos_license_data"))
-      ? JSON.parse(localStorage.getItem("pakpos_license_data") || "{}").licenseKey || "LICENSE"
-      : "LICENSE";
+    let licenseKey = "LICENSE";
+
+    // v2.10.42: Try multiple ways to get the license key
+    // 1. Try localStorage 'pakpos_license_data' (set by activation-screen.tsx)
+    // 2. Try localStorage 'pakpos_license' (legacy key)
+    // 3. Try localStorage 'license_key' (alternate legacy key)
+    if (typeof window !== "undefined") {
+      const sources = ["pakpos_license_data", "pakpos_license", "license_key"];
+      for (const key of sources) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed?.licenseKey && typeof parsed.licenseKey === "string" && parsed.licenseKey.startsWith("PAKPOS-")) {
+            licenseKey = parsed.licenseKey;
+            break;
+          }
+          // Some legacy formats store licenseKey directly
+          if (typeof parsed === "string" && parsed.startsWith("PAKPOS-")) {
+            licenseKey = parsed;
+            break;
+          }
+        } catch {
+          // Maybe it's stored as a plain string
+          if (typeof raw === "string" && raw.startsWith("PAKPOS-")) {
+            licenseKey = raw;
+            break;
+          }
+        }
+      }
+    }
+
+    // v2.10.42: CRITICAL — if licenseKey is still "LICENSE", the QR will
+    // generate an invalid URL. Log a warning so we can diagnose.
+    if (licenseKey === "LICENSE") {
+      console.error("[QR Generation] Could not find licenseKey in localStorage!");
+      console.error("[QR Generation] localStorage keys:", typeof window !== "undefined" ? Object.keys(localStorage) : []);
+      // Fallback: call /api/license/key (a new endpoint we'll add)
+      // This makes a synchronous request to get the license key from the
+      // server-side session or admin Supabase.
+      try {
+        const res = await fetch("/api/license/key", { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.licenseKey && data.licenseKey.startsWith("PAKPOS-")) {
+            licenseKey = data.licenseKey;
+            console.log("[QR Generation] Got licenseKey from /api/license/key:", licenseKey);
+          }
+        }
+      } catch (e) {
+        console.warn("[QR Generation] /api/license/key failed:", e);
+      }
+    }
+
     const qrUrl = `${vercelUrl}/card/${licenseKey}/${card.cardNumber}`;
 
     QRCode.toDataURL(qrUrl, {

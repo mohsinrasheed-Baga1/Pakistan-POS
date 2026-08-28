@@ -67,17 +67,30 @@ export function hasSupabaseSync(): boolean {
   return getShopSupabaseConfig() !== null;
 }
 
-// v2.10.38: Get license key from localStorage (stored during activation)
+// v2.10.42: Get license key from localStorage (stored during activation)
+// Tries multiple keys for backwards compatibility, then falls back to null
+// (which means fetchAndCacheShopConfig will skip and use server-side fallback)
 function getLicenseKey(): string | null {
   if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem("pakpos_license_data");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed?.licenseKey || null;
-  } catch {
-    return null;
+  const sources = ["pakpos_license_data", "pakpos_license", "license_key"];
+  for (const key of sources) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.licenseKey && typeof parsed.licenseKey === "string" && parsed.licenseKey.startsWith("PAKPOS-")) {
+        return parsed.licenseKey;
+      }
+      if (typeof parsed === "string" && parsed.startsWith("PAKPOS-")) {
+        return parsed;
+      }
+    } catch {
+      if (typeof raw === "string" && raw.startsWith("PAKPOS-")) {
+        return raw;
+      }
+    }
   }
+  return null;
 }
 
 // v2.10.38: Auto-fetch shop Supabase config from the web portal.
@@ -92,9 +105,29 @@ export async function fetchAndCacheShopConfig(): Promise<ShopSupabaseConfig | nu
   if (inflightFetch) return inflightFetch;
 
   inflightFetch = (async () => {
-    const licenseKey = getLicenseKey();
+    let licenseKey = getLicenseKey();
+
+    // v2.10.42: If no license_key in localStorage, try server-side fallback.
+    // This handles the case where the user's localStorage was cleared but
+    // their license is still activated in the admin Supabase.
     if (!licenseKey) {
-      console.log("[Sync] No license_key in localStorage — can't auto-fetch shop config");
+      console.log("[Sync] No license_key in localStorage — trying /api/license/key fallback");
+      try {
+        const res = await fetch("/api/license/key", { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.licenseKey && data.licenseKey.startsWith("PAKPOS-")) {
+            licenseKey = data.licenseKey;
+            console.log("[Sync] ✓ Got licenseKey from /api/license/key:", licenseKey);
+          }
+        }
+      } catch (e: any) {
+        console.warn("[Sync] /api/license/key fallback failed:", e?.message);
+      }
+    }
+
+    if (!licenseKey) {
+      console.log("[Sync] No license_key found — can't auto-fetch shop config");
       return null;
     }
 
