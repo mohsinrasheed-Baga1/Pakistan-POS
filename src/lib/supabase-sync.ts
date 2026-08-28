@@ -126,6 +126,25 @@ export async function fetchAndCacheShopConfig(): Promise<ShopSupabaseConfig | nu
       }
     }
 
+    // v2.10.45: If STILL no licenseKey (local /api/license/key failed because
+    // SUPABASE_SERVICE_ROLE_KEY env var is missing on POS desktop), try the
+    // live portal endpoint DIRECTLY.
+    if (!licenseKey) {
+      console.log("[Sync] Local /api/license/key returned nothing — trying live portal direct");
+      try {
+        const res = await fetch(`${PORTAL_URL}/api/license/key`, { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.licenseKey && data.licenseKey.startsWith("PAKPOS-")) {
+            licenseKey = data.licenseKey;
+            console.log("[Sync] ✓ Got licenseKey from live portal direct:", licenseKey);
+          }
+        }
+      } catch (e: any) {
+        console.warn("[Sync] Live portal /api/license/key failed:", e?.message);
+      }
+    }
+
     if (!licenseKey) {
       console.log("[Sync] No license_key found — can't auto-fetch shop config");
       return null;
