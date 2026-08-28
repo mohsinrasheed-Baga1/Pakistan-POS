@@ -1,28 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// v2.10.41: CORS headers — allow the POS desktop app (running on
+// http://127.0.0.1:4783) to fetch this endpoint from the renderer process.
+// Without these headers, Chromium blocks the response due to CORS policy,
+// and the auto-fetch of shop Supabase config silently fails → new cards
+// never sync to Supabase → customer sees "Card not found" on QR scan.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  });
+}
+
 // v2.10.38: Public endpoint that lets the POS desktop app fetch its own
 // shop's Supabase URL + key using just its license_key.
 //
-// Why this exists:
-//   - The admin stores shop_supabase_url + shop_supabase_key in the
-//     `licenses` table when creating a license.
-//   - The POS app needs these to sync data to the shop's Supabase.
-//   - Previously the user had to manually enter these in
-//     Settings → License Info → Enable Online Sync. Most users skipped
-//     this step → cards created in POS never got synced to Supabase →
-//     QR scan on customer cards returned "Card not found".
-//
-// With this endpoint, the POS app auto-fetches its shop Supabase config
-// on first launch (and after license activation) and caches it in
-// localStorage. Sync then works automatically.
-//
-// Security: the license_key is the only auth. Anyone with the license_key
-// (which is printed on every customer card's QR code) can fetch the shop's
-// Supabase URL + anon key. This is acceptable because:
-//   - The anon key is already PUBLIC (it's in NEXT_PUBLIC_SUPABASE_ANON_KEY)
-//   - The shop's Supabase URL is not secret (it's in the customer card URL)
-//   - Real auth is enforced by RLS on the shop's Supabase tables
+// Security: the license_key is the only auth. The shop Supabase URL is
+// already public (it's in the QR code on every customer card). The shop
+// Supabase anon key is already public (RLS protects sensitive ops).
 
 const ADMIN_SUPABASE_URL =
   process.env.SUPABASE_URL ||
@@ -43,7 +45,7 @@ export async function GET(req: NextRequest) {
     if (!licenseKey) {
       return NextResponse.json(
         { ok: false, error: "licenseKey is required" },
-        { status: 400 }
+        { status: 400, headers: CORS_HEADERS }
       );
     }
 
@@ -51,7 +53,7 @@ export async function GET(req: NextRequest) {
     if (!adminKey) {
       return NextResponse.json(
         { ok: false, error: "Server not configured" },
-        { status: 500 }
+        { status: 500, headers: CORS_HEADERS }
       );
     }
 
@@ -69,21 +71,21 @@ export async function GET(req: NextRequest) {
       console.error("[shop-config] query error:", error.message);
       return NextResponse.json(
         { ok: false, error: "Lookup failed" },
-        { status: 500 }
+        { status: 500, headers: CORS_HEADERS }
       );
     }
 
     if (!license) {
       return NextResponse.json(
         { ok: false, error: "License not found" },
-        { status: 404 }
+        { status: 404, headers: CORS_HEADERS }
       );
     }
 
     if (license.is_revoked || !license.is_active) {
       return NextResponse.json(
         { ok: false, error: "License inactive or revoked" },
-        { status: 403 }
+        { status: 403, headers: CORS_HEADERS }
       );
     }
 
@@ -93,20 +95,23 @@ export async function GET(req: NextRequest) {
           ok: false,
           error: "Shop Supabase not configured. Please contact the admin to set up online sync.",
         },
-        { status: 500 }
+        { status: 500, headers: CORS_HEADERS }
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      url: license.shop_supabase_url,
-      key: license.shop_supabase_key,
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        url: license.shop_supabase_url,
+        key: license.shop_supabase_key,
+      },
+      { headers: CORS_HEADERS }
+    );
   } catch (err: any) {
     console.error("[shop-config] error:", err?.message || err);
     return NextResponse.json(
       { ok: false, error: "Server error" },
-      { status: 500 }
+      { status: 500, headers: CORS_HEADERS }
     );
   }
 }

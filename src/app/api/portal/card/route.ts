@@ -6,6 +6,23 @@ import { createClient } from "@supabase/supabase-js";
 // The client page calls: /api/portal/card?licenseKey=...&cardNumber=...
 //
 // No login required — customer just scans QR and sees their balance.
+//
+// v2.10.41: Added CORS headers + OPTIONS handler so the POS desktop app
+// (running on http://127.0.0.1:4783) can call this endpoint to verify
+// sync after card creation.
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  });
+}
 
 const ADMIN_SUPABASE_URL =
   process.env.SUPABASE_URL ||
@@ -31,6 +48,14 @@ function isDefaultShopName(name: string | null | undefined): boolean {
   return DEFAULT_SHOP_NAMES.has(name.trim().toLowerCase());
 }
 
+function jsonWithCors(data: any, opts?: any) {
+  // Accept both signatures:
+  //   jsonWithCors(data)                  → 200 OK
+  //   jsonWithCors(data, { status: 404 }) → custom status
+  const status = (opts && typeof opts === "object" && "status" in opts) ? opts.status : (typeof opts === "number" ? opts : 200);
+  return NextResponse.json(data, { status, headers: CORS_HEADERS });
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -38,7 +63,7 @@ export async function GET(req: NextRequest) {
     const cardNumber = (searchParams.get("cardNumber") || "").trim();
 
     if (!licenseKey || !cardNumber) {
-      return NextResponse.json(
+      return jsonWithCors(
         { ok: false, error: "Invalid QR code" },
         { status: 400 }
       );
@@ -49,7 +74,7 @@ export async function GET(req: NextRequest) {
       console.error(
         "[portal/card] No Supabase key configured. Set SUPABASE_SERVICE_ROLE_KEY on Vercel."
       );
-      return NextResponse.json(
+      return jsonWithCors(
         {
           ok: false,
           error: "Server not configured. Please contact the shopkeeper.",
@@ -81,7 +106,7 @@ export async function GET(req: NextRequest) {
         licError.message.includes("RLS") ||
         licError.message.includes("policy")
       ) {
-        return NextResponse.json(
+        return jsonWithCors(
           {
             ok: false,
             error:
@@ -90,28 +115,28 @@ export async function GET(req: NextRequest) {
           { status: 500 }
         );
       }
-      return NextResponse.json(
+      return jsonWithCors(
         { ok: false, error: "Shop lookup failed. Please try again later." },
         { status: 500 }
       );
     }
 
     if (!license) {
-      return NextResponse.json(
+      return jsonWithCors(
         { ok: false, error: "Shop not found. Please contact the shopkeeper." },
         { status: 404 }
       );
     }
 
     if (license.is_revoked || !license.is_active) {
-      return NextResponse.json(
+      return jsonWithCors(
         { ok: false, error: "This shop's service is currently unavailable." },
         { status: 403 }
       );
     }
 
     if (!license.shop_supabase_url || !license.shop_supabase_key) {
-      return NextResponse.json(
+      return jsonWithCors(
         {
           ok: false,
           error:
@@ -139,14 +164,14 @@ export async function GET(req: NextRequest) {
 
     if (cardError) {
       console.error("[portal/card] Card query error:", cardError.message);
-      return NextResponse.json(
+      return jsonWithCors(
         { ok: false, error: "Could not load card data. Please try again." },
         { status: 500 }
       );
     }
 
     if (!card) {
-      return NextResponse.json(
+      return jsonWithCors(
         {
           ok: false,
           error:
@@ -157,7 +182,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (card.is_active === false) {
-      return NextResponse.json(
+      return jsonWithCors(
         { ok: false, error: "This card is inactive. Please contact the shopkeeper." },
         { status: 403 }
       );
@@ -255,7 +280,7 @@ export async function GET(req: NextRequest) {
     const finalShopPhone =
       shopInfo?.shop_phone || licenseShopPhone || "";
 
-    return NextResponse.json({
+    return jsonWithCors({
       ok: true,
       card: {
         cardNumber: card.card_number,
@@ -273,7 +298,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("[portal/card] Unhandled error:", err?.message || err);
-    return NextResponse.json(
+    return jsonWithCors(
       { ok: false, error: "Server error. Please try again." },
       { status: 500 }
     );

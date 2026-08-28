@@ -81,6 +81,35 @@ export async function DELETE(
   }
   const { id } = await params;
 
+  // Fetch the card BEFORE deleting (we need cardNumber for Supabase sync)
+  const card = await db.customerCard.findUnique({ where: { id } }).catch(() => null);
+
+  // Delete from local DB
   await db.customerCard.delete({ where: { id } }).catch(() => null);
+
+  // v2.10.41: Also delete (or block) from Supabase
+  // We don't actually DELETE the row in Supabase (to preserve history for
+  // old sales that reference this card_number). Instead, we mark it
+  // is_active=false so the customer card page shows "card inactive".
+  if (card?.cardNumber) {
+    try {
+      const { getShopSupabaseAsync } = await import("@/lib/supabase-sync");
+      const sb = await getShopSupabaseAsync();
+      if (sb) {
+        const { error } = await sb
+          .from("customer_cards")
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq("card_number", card.cardNumber);
+        if (error) {
+          console.warn("[Cards DELETE] Supabase block failed:", error.message);
+        } else {
+          console.log("[Cards DELETE] Card blocked in Supabase:", card.cardNumber);
+        }
+      }
+    } catch (e: any) {
+      console.warn("[Cards DELETE] Sync error (non-fatal):", e?.message);
+    }
+  }
+
   return NextResponse.json({ ok: true });
 }
