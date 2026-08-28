@@ -1253,6 +1253,8 @@ function CardPrintDialog({
       return;
     }
     let cancelled = false;
+    // v2.10.42: Made async to allow /api/license/key fallback
+    (async () => {
     // v2.10.25: Generate QR with Vercel URL so scanning opens the portal page
     // v2.10.31: Brand renamed to Pakistan POS. Vercel project renamed.
     // v2.10.32: Final URL = pakistanpos.vercel.app (no hyphen between pakistan & pos).
@@ -1326,6 +1328,7 @@ function CardPrintDialog({
       .catch(() => {
         if (!cancelled) setQrDataUrl("");
       });
+    })(); // close async IIFE
     return () => {
       cancelled = true;
     };
