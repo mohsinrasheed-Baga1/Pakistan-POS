@@ -132,9 +132,17 @@ function saveMaxClockSeen(ts: number): void {
 export function isClockRolledBack(): boolean {
   const now = Date.now();
   const max = getMaxClockSeen();
-  // If we've seen a time more than 1 hour in the future of current time,
-  // the clock was rolled back.
-  if (max > 0 && now < max - 60 * 60 * 1000) {
+  // v2.10.46: Made detection more tolerant — only flag rollback if
+  // clock was rolled back by MORE THAN 1 DAY. Previous threshold of
+  // 1 hour caused false positives when:
+  //   - User's PC clock was slightly off (BIOS time drift)
+  //   - Daylight Saving Time changes
+  //   - User changed timezones
+  //   - Windows sync adjusted time by a few minutes/hours
+  //
+  // 1 day threshold still catches intentional date-rollback (users trying
+  // to extend trial) but ignores normal time adjustments.
+  if (max > 0 && now < max - 24 * 60 * 60 * 1000) {
     return true;
   }
   // Otherwise update the max

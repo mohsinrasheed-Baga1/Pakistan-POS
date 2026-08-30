@@ -49,20 +49,13 @@ export function LicenseGate({ children, showBanner = true }: Props) {
         // ANTI-DATE-CHANGE CHECK:
         // If user has rolled back their PC clock to extend trial/license,
         // detect it and lock the app immediately.
+        // v2.10.46: Don't lock for clock rollback — just log a warning and
+        // proceed with verification. Previous behavior locked the user out
+        // immediately, which was too aggressive (caused re-activation
+        // prompts on legitimate time changes).
         if (isClockRolledBack()) {
-          clearLicense();
-          if (mounted) {
-            setStatus({
-              kind: "locked",
-              reason: "verification_failed",
-              systemId,
-              systemInfo,
-              message:
-                "System clock tampering detected. Please set the correct date and time, then try again.",
-              oldLicenseKey: stored.licenseKey,
-            });
-          }
-          return;
+          console.warn("[LicenseGate] Clock appears rolled back — proceeding with verification anyway");
+          // Don't clearLicense() or lock — just continue to verification
         }
 
         // Stored license exists → check if expired locally first
@@ -194,12 +187,28 @@ export function LicenseGate({ children, showBanner = true }: Props) {
       } catch (err) {
         console.error("License gate error:", err);
         if (mounted) {
-          // Fail closed — show activation screen
-          setStatus({
-            kind: "needs_activation",
-            systemId: "ERROR-LOADING",
-            systemInfo: null,
-          });
+          // v2.10.46: CRITICAL FIX — never show activation screen if a
+          // stored license exists. Previous code would fall to
+          // "needs_activation" on ANY exception (network error, code bug,
+          // unexpected response shape, etc.), which made the user re-enter
+          // their license key after every error.
+          //
+          // Now: if we have a stored license, ALWAYS let the user in.
+          // The license was already activated on this machine — that's
+          // sufficient proof. If there's a real problem (revoked, expired),
+          // the next successful verify will catch it.
+          const storedForFallback = getStoredLicense();
+          if (storedForFallback) {
+            console.log("[LicenseGate] Error during verification, but stored license exists — letting user in (offline mode)");
+            setStatus({ kind: "active", systemId });
+          } else {
+            // Only show activation screen if there's truly no stored license
+            setStatus({
+              kind: "needs_activation",
+              systemId: systemId || "ERROR-LOADING",
+              systemInfo,
+            });
+          }
         }
       }
     })();

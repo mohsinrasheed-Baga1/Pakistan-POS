@@ -1885,7 +1885,14 @@ function ReturnDialog({
             <div className="flex gap-2">
               <Input
                 id="return-invoice"
-                data-barcode-input="true"
+                // v2.10.46: Removed data-barcode-input="true" — it was
+                // preventing manual typing into this field. The barcode
+                // scanner hook uses this attribute to decide "always capture
+                // scanner input here", which calls preventDefault on every
+                // character → user can't type.
+                // Scanner input still works because the hook detects fast
+                // input sequences automatically (see use-barcode-scanner.ts
+                // — when 4+ chars arrive within 400ms, it triggers a scan).
                 placeholder="e.g. INV-20250115-0001"
                 value={invoiceNo}
                 onChange={(e) => setInvoiceNo(e.target.value)}
