@@ -35,7 +35,30 @@ interface WalletAccount {
 export function LoadBillView({ userRole }: LoadBillViewProps) {
   const isAdmin = userRole === "ADMIN" || userRole === "MANAGER";
   const [refresh, setRefresh] = React.useState(0);
+  const [syncing, setSyncing] = React.useState(false);
   const triggerRefresh = () => setRefresh(r => r + 1);
+
+  // v2.10.50: Sync LoadBill entities → POS Products
+  async function syncToPos() {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/load-bill/sync-pos-products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const d = await res.json();
+      if (res.ok && d.ok) {
+        const r = d.results;
+        toast.success(`Synced to POS: ${r.companies} companies, ${r.wallets} wallets, ${r.sims} SIM types`);
+      } else {
+        toast.error(d.error || "Sync failed");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -49,9 +72,21 @@ export function LoadBillView({ userRole }: LoadBillViewProps) {
             SIM Load • Bill Payment • JazzCash/Easypaisa • SIM Sales — ایک جگہ سے سب
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={triggerRefresh}>
-          <RefreshCw className="w-4 h-4 mr-1" /> Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-blue-500 text-blue-700 hover:bg-blue-50"
+            onClick={syncToPos}
+            disabled={syncing}
+          >
+            <ArrowLeftRight className="w-4 h-4 mr-1" />
+            {syncing ? "Syncing..." : "Sync to POS"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={triggerRefresh}>
+            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          </Button>
+        </div>
       </div>
 
       <DashboardSummary refreshKey={refresh} />

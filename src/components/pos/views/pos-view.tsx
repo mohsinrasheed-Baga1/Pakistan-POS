@@ -74,6 +74,17 @@ export function PosView({ settings }: PosViewProps) {
   const [qtyProduct, setQtyProduct] = React.useState<Product | null>(null);
   const [qtyValue, setQtyValue] = React.useState("");
 
+  // v2.10.50: LoadBill product dialogs
+  const [loadDialogOpen, setLoadDialogOpen] = React.useState(false);
+  const [loadDialogProduct, setLoadDialogProduct] = React.useState<Product | null>(null);
+  const [loadAmount, setLoadAmount] = React.useState("");
+  const [loadCharges, setLoadCharges] = React.useState("");
+  const [walletDialogOpen, setWalletDialogOpen] = React.useState(false);
+  const [walletDialogProduct, setWalletDialogProduct] = React.useState<Product | null>(null);
+  const [walletAmount, setWalletAmount] = React.useState("");
+  const [walletCharges, setWalletCharges] = React.useState("");
+  const [walletTxnType, setWalletTxnType] = React.useState<"SEND" | "RECEIVE">("RECEIVE");
+
   const searchRef = React.useRef<HTMLInputElement>(null);
   const productGridRef = React.useRef<HTMLDivElement>(null);
   const qtyInputRef = React.useRef<HTMLInputElement>(null);
@@ -143,6 +154,30 @@ export function PosView({ settings }: PosViewProps) {
       toast.error("This product is inactive");
       return;
     }
+
+    // v2.10.50: LoadBill products (LOAD_COMPANY / WALLET_ACCOUNT) need
+    // special handling — user must enter the amount + extra charges.
+    const invSource = (product as any).inventorySource || "SHOP";
+    if (invSource === "LOAD_COMPANY") {
+      // Check company balance first
+      if ((product.stock || 0) <= 0) {
+        toast.error(`${product.name}: no balance available. Add balance in Load & Bill menu.`);
+        return;
+      }
+      setLoadDialogProduct(product);
+      setLoadAmount("");
+      setLoadCharges("");
+      setLoadDialogOpen(true);
+      return;
+    }
+    if (invSource === "WALLET_ACCOUNT") {
+      setWalletDialogProduct(product);
+      setWalletAmount("");
+      setWalletCharges("");
+      setWalletDialogOpen(true);
+      return;
+    }
+
     const existingItem = cart.items.find((i) => i.product.id === product.id);
     const currentInCart = existingItem ? existingItem.quantity : 0;
 
@@ -217,6 +252,71 @@ export function PosView({ settings }: PosViewProps) {
     setQtyProduct(null);
     setQtyValue("");
     setTimeout(() => searchRef.current?.focus(), 100);
+  }
+
+  // v2.10.50: Confirm load amount + charges → add to cart as virtual product
+  function confirmLoadAdd() {
+    if (!loadDialogProduct) return;
+    const amt = parseFloat(loadAmount) || 0;
+    const charges = parseFloat(loadCharges) || 0;
+    if (amt <= 0) {
+      toast.error("Enter load amount");
+      return;
+    }
+    const total = amt + charges;
+    if (total > (loadDialogProduct.stock || 0)) {
+      toast.error(`Insufficient balance! Only ${formatMoney(loadDialogProduct.stock || 0, currency)} available`);
+      return;
+    }
+
+    // Add as virtual product with the TOTAL as price
+    cart.addItem({
+      ...loadDialogProduct,
+      salePrice: total,
+      name: `${loadDialogProduct.name} — Rs ${amt}${charges > 0 ? ` (+${charges})` : ""}`,
+    } as Product, 1);
+    toast.success(`${loadDialogProduct.name}: Rs ${total} added to cart`);
+
+    setLoadDialogOpen(false);
+    setLoadDialogProduct(null);
+    setLoadAmount("");
+    setLoadCharges("");
+    setQ("");
+    setHighlightedIndex(-1);
+    setTimeout(() => searchRef.current?.focus(), 50);
+  }
+
+  // v2.10.50: Confirm wallet transaction → add to cart as virtual product
+  function confirmWalletAdd() {
+    if (!walletDialogProduct) return;
+    const amt = parseFloat(walletAmount) || 0;
+    const charges = parseFloat(walletCharges) || 0;
+    if (amt <= 0) {
+      toast.error("Enter amount");
+      return;
+    }
+    const total = amt + charges;
+
+    if (walletTxnType === "SEND" && total > (walletDialogProduct.stock || 0)) {
+      toast.error(`Insufficient balance! Only ${formatMoney(walletDialogProduct.stock || 0, currency)} available`);
+      return;
+    }
+
+    // Add as virtual product
+    cart.addItem({
+      ...walletDialogProduct,
+      salePrice: total,
+      name: `${walletDialogProduct.name} ${walletTxnType === "SEND" ? "SEND" : "RECEIVE"} — Rs ${amt}${charges > 0 ? ` (+${charges})` : ""}`,
+    } as Product, 1);
+    toast.success(`${walletDialogProduct.name} ${walletTxnType}: Rs ${total} added to cart`);
+
+    setWalletDialogOpen(false);
+    setWalletDialogProduct(null);
+    setWalletAmount("");
+    setWalletCharges("");
+    setQ("");
+    setHighlightedIndex(-1);
+    setTimeout(() => searchRef.current?.focus(), 50);
   }
 
   // Handle scanned barcode — look up product/card and take action
@@ -1520,6 +1620,185 @@ export function PosView({ settings }: PosViewProps) {
               Press Enter to add • Escape to cancel
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* v2.10.50: Load Amount Dialog — for LOAD_COMPANY products */}
+      <Dialog open={loadDialogOpen} onOpenChange={(v) => { if (!v) { setLoadDialogOpen(false); setLoadDialogProduct(null); setTimeout(() => searchRef.current?.focus(), 100); } }}>
+        <DialogContent className="max-w-sm" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="text-lg flex items-center gap-2">
+              <Smartphone className="w-5 h-5 text-emerald-600" /> Load Amount
+            </DialogTitle>
+            <DialogDescription className="text-sm">
+              {loadDialogProduct?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="bg-emerald-50 rounded-lg p-3 text-center">
+              <div className="text-sm text-muted-foreground">Available Balance</div>
+              <div className="text-2xl font-bold text-emerald-700">
+                {formatMoney(loadDialogProduct?.stock || 0, currency)}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Load Amount *</div>
+                <Input
+                  type="number"
+                  min="0"
+                  value={loadAmount}
+                  onChange={(e) => setLoadAmount(e.target.value)}
+                  placeholder="e.g. 150"
+                  autoFocus
+                  className="h-12 text-xl text-center font-mono"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      confirmLoadAdd();
+                    }
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Extra Charges</div>
+                <Input
+                  type="number"
+                  min="0"
+                  value={loadCharges}
+                  onChange={(e) => setLoadCharges(e.target.value)}
+                  placeholder="0"
+                  className="h-12 text-xl text-center font-mono"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      confirmLoadAdd();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-emerald-700">Total (Load + Charges):</span>
+                <span className="text-xl font-bold text-emerald-700">
+                  {formatMoney((parseFloat(loadAmount) || 0) + (parseFloat(loadCharges) || 0), currency)}
+                </span>
+              </div>
+              <div className="text-xs text-emerald-600 mt-1">
+                Balance after: {formatMoney(Math.max(0, (loadDialogProduct?.stock || 0) - (parseFloat(loadAmount) || 0) - (parseFloat(loadCharges) || 0)), currency)}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setLoadDialogOpen(false); setLoadDialogProduct(null); }}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={confirmLoadAdd}>
+              Add to Cart
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* v2.10.50: Wallet Transaction Dialog — for WALLET_ACCOUNT products */}
+      <Dialog open={walletDialogOpen} onOpenChange={(v) => { if (!v) { setWalletDialogOpen(false); setWalletDialogProduct(null); setTimeout(() => searchRef.current?.focus(), 100); } }}>
+        <DialogContent className="max-w-sm" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="text-lg flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-emerald-600" /> Wallet Transaction
+            </DialogTitle>
+            <DialogDescription className="text-sm">
+              {walletDialogProduct?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="bg-emerald-50 rounded-lg p-3 text-center">
+              <div className="text-sm text-muted-foreground">Current Balance</div>
+              <div className="text-2xl font-bold text-emerald-700">
+                {formatMoney(walletDialogProduct?.stock || 0, currency)}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant={walletTxnType === "RECEIVE" ? "default" : "outline"}
+                className={`h-12 ${walletTxnType === "RECEIVE" ? "bg-emerald-600 hover:bg-emerald-700" : "border-emerald-300 text-emerald-700"}`}
+                onClick={() => setWalletTxnType("RECEIVE")}
+              >
+                ↓ RECEIVE
+              </Button>
+              <Button
+                variant={walletTxnType === "SEND" ? "default" : "outline"}
+                className={`h-12 ${walletTxnType === "SEND" ? "bg-rose-600 hover:bg-rose-700" : "border-rose-300 text-rose-700"}`}
+                onClick={() => setWalletTxnType("SEND")}
+              >
+                ↑ SEND
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Amount *</div>
+                <Input
+                  type="number"
+                  min="0"
+                  value={walletAmount}
+                  onChange={(e) => setWalletAmount(e.target.value)}
+                  placeholder="e.g. 5000"
+                  autoFocus
+                  className="h-12 text-xl text-center font-mono"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      confirmWalletAdd();
+                    }
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Extra Charges</div>
+                <Input
+                  type="number"
+                  min="0"
+                  value={walletCharges}
+                  onChange={(e) => setWalletCharges(e.target.value)}
+                  placeholder="0"
+                  className="h-12 text-xl text-center font-mono"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      confirmWalletAdd();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-emerald-700">Total ({walletTxnType}):</span>
+                <span className="text-xl font-bold text-emerald-700">
+                  {formatMoney((parseFloat(walletAmount) || 0) + (parseFloat(walletCharges) || 0), currency)}
+                </span>
+              </div>
+              <div className="text-xs text-emerald-600 mt-1">
+                {walletTxnType === "RECEIVE"
+                  ? `Balance after: ${formatMoney((walletDialogProduct?.stock || 0) + (parseFloat(walletAmount) || 0) + (parseFloat(walletCharges) || 0), currency)}`
+                  : `Balance after: ${formatMoney((walletDialogProduct?.stock || 0) - (parseFloat(walletAmount) || 0) - (parseFloat(walletCharges) || 0), currency)}`
+                }
+              </div>
+              {walletTxnType === "SEND" && (parseFloat(walletAmount) || 0) > (walletDialogProduct?.stock || 0) && (
+                <div className="text-xs text-rose-600 font-medium mt-1">
+                  ⚠ Insufficient balance! Only {formatMoney(walletDialogProduct?.stock || 0, currency)} available
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setWalletDialogOpen(false); setWalletDialogProduct(null); }}>Cancel</Button>
+            <Button
+              className={walletTxnType === "RECEIVE" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700"}
+              onClick={confirmWalletAdd}
+            >
+              {walletTxnType === "RECEIVE" ? "Add Receive to Cart" : "Add Send to Cart"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

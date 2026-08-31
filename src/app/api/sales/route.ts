@@ -479,5 +479,134 @@ async function processSale(userId: string, body: any, items: any[]) {
     }
   }
 
+  // v2.10.50: LoadBill entity balance deduction
+  // If any sale item is a LOAD_COMPANY / WALLET_ACCOUNT / SIM_STOCK product,
+  // deduct from the ORIGINAL entity's balance (not just Product.stock).
+  for (const it of saleItemsData) {
+    const product = await db.product.findUnique({ where: { id: it.productId } });
+    if (!product) continue;
+
+    // ─── LOAD COMPANY: deduct load amount from company balance ─────────────
+    // For load products, the SALE PRICE is the load amount + extra charges.
+    // We deduct the FULL sale price (load + charges) from the company
+    // balance because that's the money the shopkeeper spent.
+    if (product.inventorySource === "LOAD_COMPANY" && product.linkedStoreProductId) {
+      try {
+        const company = await db.mobileLoadCompany.findUnique({
+          where: { id: product.linkedStoreProductId },
+        });
+        if (company) {
+          const deductAmount = it.price * it.quantity; // total for this line
+          const newBalance = Math.max(0, company.balance - deductAmount);
+          await db.mobileLoadCompany.update({
+            where: { id: company.id },
+            data: {
+              balance: newBalance,
+              totalSold: { increment: deductAmount },
+            },
+          });
+          // Record the transaction as a SALE
+          await db.mobileLoadTxn.create({
+            data: {
+              companyId: company.id,
+              type: "SALE",
+              amount: it.price * it.quantity, // face value approximation
+              salePrice: it.price * it.quantity,
+              profit: 0, // charges are included in salePrice for simplicity
+              due: 0,
+              customerName: body.customerName || null,
+              customerPhone: body.customerPhone || null,
+              note: `POS sale ${invoiceNo}`,
+            },
+          });
+          console.log(`[sales] Load company ${company.name} balance: ${company.balance} → ${newBalance} (deducted ${deductAmount})`);
+        }
+      } catch (e: any) {
+        console.error("[sales] Load company balance deduction error:", e?.message);
+      }
+    }
+
+    // ─── WALLET ACCOUNT: deduct sent amount from wallet balance ────────────
+    if (product.inventorySource === "WALLET_ACCOUNT" && product.linkedStoreProductId) {
+      try {
+        const account = await db.walletAccount.findUnique({
+          where: { id: product.linkedStoreProductId },
+        });
+        if (account) {
+          const txnAmount = it.price * it.quantity;
+          const newBalance = account.balance - txnAmount; // can go negative if SEND
+          await db.walletAccount.update({
+            where: { id: account.id },
+            data: {
+              balance: newBalance,
+              totalSent: { increment: txnAmount },
+            },
+          });
+          await db.walletTxn.create({
+            data: {
+              accountId: account.id,
+              provider: account.provider,
+              type: "SEND",
+              amount: txnAmount,
+              serviceCharge: 0,
+              due: 0,
+              customerName: body.customerName || null,
+              customerPhone: body.customerPhone || null,
+              note: `POS sale ${invoiceNo}`,
+            },
+          });
+          console.log(`[sales] Wallet ${account.name} balance: ${account.balance} → ${newBalance}`);
+        }
+      } catch (e: any) {
+        console.error("[sales] Wallet balance deduction error:", e?.message);
+      }
+    }
+
+    // ─── SIM STOCK: deduct quantity from SimStock rows ─────────────────────
+    if (product.inventorySource === "SIM_STOCK" && product.linkedStoreProductId) {
+      try {
+        // linkedStoreProductId is "company-type" key
+        const [company, type] = product.linkedStoreProductId.split("-");
+        let remaining = it.quantity;
+
+        // Deduct from individual SIM stock rows (FIFO)
+        const sims = await db.simStock.findMany({
+          where: { company, type, status: "IN_STOCK" },
+          orderBy: { createdAt: "asc" },
+        });
+
+        for (const sim of sims) {
+          if (remaining <= 0) break;
+          const available = sim.stockQuantity || 1;
+          const take = Math.min(available, remaining);
+          const newQty = available - take;
+
+          if (newQty <= 0) {
+            // Mark as SOLD
+            await db.simStock.update({
+              where: { id: sim.id },
+              data: {
+                stockQuantity: 0,
+                status: "SOLD",
+                soldAt: new Date(),
+                customerName: body.customerName || null,
+                customerPhone: body.customerPhone || null,
+              },
+            });
+          } else {
+            await db.simStock.update({
+              where: { id: sim.id },
+              data: { stockQuantity: newQty },
+            });
+          }
+          remaining -= take;
+        }
+        console.log(`[sales] SIM stock deducted: ${company} ${type} × ${it.quantity}`);
+      } catch (e: any) {
+        console.error("[sales] SIM stock deduction error:", e?.message);
+      }
+    }
+  }
+
   return NextResponse.json({ sale: saleWithUser });
 }

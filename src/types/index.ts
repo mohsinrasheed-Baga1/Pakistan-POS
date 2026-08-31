@@ -43,7 +43,7 @@ export interface Product {
   stickerSize: string;
   packingDate: string | null;
   // Loose Product Support (v2.9.8)
-  inventorySource: "SHOP" | "MAIN_STORE";
+  inventorySource: "SHOP" | "MAIN_STORE" | "LOAD_COMPANY" | "WALLET_ACCOUNT" | "SIM_STOCK";
   linkedStoreProductId: string | null;
 }
 
