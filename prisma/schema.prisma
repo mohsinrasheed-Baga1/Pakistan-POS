@@ -500,3 +500,23 @@ model ReceiptSettings {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+// v2.10.47: Product Load Requests — created in LoadBill menu, processed in POS
+model ProductLoadRequest {
+  id            String   @id @default(cuid())
+  productName   String                       // e.g. "Jazz Load 100", "Ufone Load 50"
+  customerName  String?
+  customerPhone String?
+  loadAmount    Float    @default(0)          // Face value of the load
+  extraCharges  Float    @default(0)          // Service charge / commission (our income)
+  totalAmount   Float    @default(0)          // loadAmount + extraCharges
+  due           Float    @default(0)          // Remaining unpaid amount
+  status        String   @default("PENDING")  // PENDING | COMPLETED | CANCELLED
+  referenceNo   String?
+  operatorName  String?
+  note          String?
+  processedAt   DateTime?
+  processedBy   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

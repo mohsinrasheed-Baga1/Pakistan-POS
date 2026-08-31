@@ -390,6 +390,31 @@ CREATE TABLE IF NOT EXISTS SimStock (
   updatedAt DATETIME NOT NULL
 );
 
+-- v2.10.47: New ProductLoadRequest table — represents load requests
+-- (e.g. Jazz/Ufone/Telenor load) that can be created from LoadBill menu
+-- and processed from POS sales point.
+CREATE TABLE IF NOT EXISTS ProductLoadRequest (
+  id TEXT PRIMARY KEY NOT NULL,
+  productName TEXT NOT NULL,
+  customerName TEXT,
+  customerPhone TEXT,
+  loadAmount REAL NOT NULL DEFAULT 0,
+  extraCharges REAL NOT NULL DEFAULT 0,
+  totalAmount REAL NOT NULL DEFAULT 0,
+  due REAL NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  -- PENDING = created, not yet processed at POS
+  -- COMPLETED = processed (sold to customer)
+  -- CANCELLED = cancelled by user
+  referenceNo TEXT,
+  operatorName TEXT,
+  note TEXT,
+  processedAt DATETIME,
+  processedBy TEXT,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS BarcodeSettings (
   id TEXT PRIMARY KEY NOT NULL DEFAULT 'default',
   defaultBarcodeType TEXT NOT NULL DEFAULT 'CODE128',

@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   Smartphone, Plus, RefreshCw, Wallet, FileText, ArrowDownLeft, ArrowUpRight,
   TrendingUp, TrendingDown, CreditCard, BarChart3, DollarSign, Search, Phone,
+  PackageOpen, ArrowLeftRight, Banknote, Withdraw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,12 +59,14 @@ export function LoadBillView({ userRole }: LoadBillViewProps) {
       <Tabs defaultValue="load" className="w-full">
         <TabsList className="w-full sm:w-auto flex flex-wrap">
           <TabsTrigger value="load"><Smartphone className="w-4 h-4 mr-1" /> Load</TabsTrigger>
+          <TabsTrigger value="productLoad"><PackageOpen className="w-4 h-4 mr-1" /> Product Load</TabsTrigger>
           <TabsTrigger value="bill"><FileText className="w-4 h-4 mr-1" /> Bill</TabsTrigger>
-          <TabsTrigger value="wallet"><Wallet className="w-4 h-4 mr-1" /> Wallet</TabsTrigger>
+          <TabsTrigger value="wallet"><Wallet className="w-4 h-4 mr-1" /> Cash/Wallet</TabsTrigger>
           <TabsTrigger value="sim"><CreditCard className="w-4 h-4 mr-1" /> SIM</TabsTrigger>
           <TabsTrigger value="reports"><BarChart3 className="w-4 h-4 mr-1" /> Reports</TabsTrigger>
         </TabsList>
         <TabsContent value="load"><LoadTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+        <TabsContent value="productLoad"><ProductLoadTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
         <TabsContent value="bill"><BillTab refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
         <TabsContent value="wallet"><WalletTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
         <TabsContent value="sim"><SimTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
@@ -1299,6 +1302,262 @@ function ReportsTab({ refreshKey }: { refreshKey: number }) {
           </TableBody>
         </Table>
       </CardContent>
+    </Card>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v2.10.47: PRODUCT LOAD TAB
+// Creates load requests (e.g. "Jazz Load 100", "Ufone Load 50") that can be
+// processed from POS sales point. Shows pending + completed + cancelled.
+// ═════════════════════════════════════════════════════════════════════════════
+function ProductLoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refreshKey: number; onRefresh: () => void }) {
+  const [requests, setRequests] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [open, setOpen] = React.useState(false);
+  const [detail, setDetail] = React.useState<any | null>(null);
+
+  // Form state
+  const [productName, setProductName] = React.useState("");
+  const [customerName, setCustomerName] = React.useState("");
+  const [customerPhone, setCustomerPhone] = React.useState("");
+  const [loadAmount, setLoadAmount] = React.useState("");
+  const [extraCharges, setExtraCharges] = React.useState("");
+  const [due, setDue] = React.useState("");
+  const [referenceNo, setReferenceNo] = React.useState("");
+  const [note, setNote] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/load-bill/product-load?limit=100", { cache: "no-store" });
+      if (r.ok) {
+        const d = await r.json();
+        setRequests(d.requests || []);
+      }
+    } catch { toast.error("Failed to load"); }
+    finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { load(); }, [load, refreshKey]);
+
+  const loadNum = parseFloat(loadAmount) || 0;
+  const chargeNum = parseFloat(extraCharges) || 0;
+  const dueNum = parseFloat(due) || 0;
+  const total = loadNum + chargeNum;
+
+  async function handleSave() {
+    if (!productName.trim()) { toast.error("Product name required"); return; }
+    if (loadNum <= 0) { toast.error("Load amount must be > 0"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/load-bill/product-load", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productName: productName.trim(),
+          customerName: customerName.trim() || null,
+          customerPhone: customerPhone.trim() || null,
+          loadAmount: loadNum,
+          extraCharges: chargeNum,
+          totalAmount: total,
+          due: dueNum,
+          referenceNo: referenceNo.trim() || null,
+          note: note.trim() || null,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error); setSaving(false); return; }
+      toast.success(`Load request created: Rs ${total}`);
+      setOpen(false);
+      setProductName(""); setCustomerName(""); setCustomerPhone("");
+      setLoadAmount(""); setExtraCharges(""); setDue(""); setReferenceNo(""); setNote("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setSaving(false); }
+  }
+
+  async function updateStatus(reqId: string, status: string) {
+    try {
+      const res = await fetch(`/api/load-bill/product-load?id=${reqId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status,
+          processedAt: status === "COMPLETED" ? new Date().toISOString() : null,
+        }),
+      });
+      if (res.ok) {
+        toast.success(`Request ${status.toLowerCase()}`);
+        load(); onRefresh();
+        if (detail?.id === reqId) setDetail(null);
+      }
+    } catch { toast.error("Failed to update"); }
+  }
+
+  // Stats
+  const pending = requests.filter(r => r.status === "PENDING");
+  const completed = requests.filter(r => r.status === "COMPLETED");
+  const cancelled = requests.filter(r => r.status === "CANCELLED");
+  const pendingTotal = pending.reduce((s, r) => s + (r.totalAmount || 0), 0);
+  const completedTotal = completed.reduce((s, r) => s + (r.totalAmount || 0), 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2"><PackageOpen className="w-5 h-5 text-emerald-600" /> Product Load Requests</CardTitle>
+          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setOpen(true)}>
+            <Plus className="w-4 h-4 mr-1" /> New Load
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center">
+            <div className="text-xs text-amber-700">Pending ({pending.length})</div>
+            <div className="text-lg font-bold text-amber-700">Rs {pendingTotal.toLocaleString()}</div>
+          </div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center">
+            <div className="text-xs text-emerald-700">Completed ({completed.length})</div>
+            <div className="text-lg font-bold text-emerald-700">Rs {completedTotal.toLocaleString()}</div>
+          </div>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-center">
+            <div className="text-xs text-rose-700">Cancelled ({cancelled.length})</div>
+            <div className="text-lg font-bold text-rose-700">{cancelled.length}</div>
+          </div>
+        </div>
+
+        {/* Hint about POS integration */}
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+          💡 یہ فیچر ابھی تیار ہے۔ آپ load requests بنا سکتے ہیں، اور بعد میں POS سیلز پوائنٹ سے انہیں پروسیس کریں گے۔
+        </div>
+
+        {loading ? <div className="h-20 rounded bg-muted animate-pulse" /> : requests.length === 0 ? (
+          <div className="text-center text-muted-foreground py-4">No load requests yet</div>
+        ) : (
+          <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Date</TableHead><TableHead>Product</TableHead><TableHead>Customer</TableHead>
+                <TableHead className="text-right">Load</TableHead><TableHead className="text-right">Charges</TableHead>
+                <TableHead className="text-right">Total</TableHead><TableHead className="text-right">Due</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {requests.map(r => (
+                  <TableRow key={r.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setDetail(r)}>
+                    <TableCell className="text-xs">{new Date(r.createdAt).toLocaleString("en-PK")}</TableCell>
+                    <TableCell className="font-medium">{r.productName}</TableCell>
+                    <TableCell className="text-xs">{r.customerName || "-"}</TableCell>
+                    <TableCell className="text-right font-mono">Rs {(r.loadAmount || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono text-emerald-700">Rs {(r.extraCharges || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono font-bold">Rs {(r.totalAmount || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono text-rose-600">{(r.due || 0) > 0 ? `Rs ${r.due.toLocaleString()}` : "-"}</TableCell>
+                    <TableCell>
+                      <Badge variant={r.status === "COMPLETED" ? "default" : r.status === "CANCELLED" ? "destructive" : "secondary"}>
+                        {r.status}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+
+      {/* New Load Dialog */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>New Product Load Request</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Product Name *</Label>
+              <Input value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="e.g. Jazz Load 100, Ufone Load 50" autoFocus />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label>Customer Name</Label>
+                <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Optional" />
+              </div>
+              <div className="space-y-1">
+                <Label>Customer Phone</Label>
+                <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Optional" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label>Load Amount *</Label>
+                <Input type="number" value={loadAmount} onChange={(e) => setLoadAmount(e.target.value)} placeholder="0" />
+              </div>
+              <div className="space-y-1">
+                <Label>Extra Charges</Label>
+                <Input type="number" value={extraCharges} onChange={(e) => setExtraCharges(e.target.value)} placeholder="0" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label>Due (بقایا)</Label>
+                <Input type="number" value={due} onChange={(e) => setDue(e.target.value)} placeholder="0" />
+              </div>
+              <div className="space-y-1">
+                <Label>Reference No</Label>
+                <Input value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} placeholder="Optional" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Note</Label>
+              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+              <div className="flex justify-between"><span>Total (Load + Charges):</span><span className="font-bold text-emerald-700">Rs {total.toLocaleString()}</span></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleSave}>
+              {saving ? "Saving..." : "Create Request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Detail Dialog */}
+      <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Load Request Details</DialogTitle></DialogHeader>
+          {detail && (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Product:</span><span className="font-medium">{detail.productName}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Customer:</span><span>{detail.customerName || "-"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Phone:</span><span>{detail.customerPhone || "-"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Load Amount:</span><span className="font-mono">Rs {(detail.loadAmount || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Extra Charges:</span><span className="font-mono text-emerald-700">Rs {(detail.extraCharges || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between border-t pt-2"><span className="font-bold">Total:</span><span className="font-bold font-mono">Rs {(detail.totalAmount || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Due:</span><span className="font-mono text-rose-600">Rs {(detail.due || 0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Status:</span><Badge variant={detail.status === "COMPLETED" ? "default" : detail.status === "CANCELLED" ? "destructive" : "secondary"}>{detail.status}</Badge></div>
+              {detail.referenceNo && <div className="flex justify-between"><span className="text-muted-foreground">Reference:</span><span className="font-mono">{detail.referenceNo}</span></div>}
+              {detail.note && <div className="flex justify-between"><span className="text-muted-foreground">Note:</span><span>{detail.note}</span></div>}
+              <div className="flex justify-between"><span className="text-muted-foreground">Created:</span><span className="text-xs">{new Date(detail.createdAt).toLocaleString("en-PK")}</span></div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            {detail?.status === "PENDING" && (
+              <>
+                <Button variant="outline" className="border-emerald-500 text-emerald-700 hover:bg-emerald-50" onClick={() => updateStatus(detail.id, "COMPLETED")}>
+                  ✓ Mark Completed
+                </Button>
+                <Button variant="outline" className="border-rose-500 text-rose-700 hover:bg-rose-50" onClick={() => updateStatus(detail.id, "CANCELLED")}>
+                  ✗ Cancel
+                </Button>
+              </>
+            )}
+            <Button variant="ghost" onClick={() => setDetail(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
