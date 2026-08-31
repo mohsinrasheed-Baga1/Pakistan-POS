@@ -90,6 +90,22 @@ export async function POST(req: NextRequest) {
       return { transaction, company: updatedCompany };
     });
 
+    // v2.10.53: Auto-sync the company's new balance to its POS Product mirror
+    // so the POS product's stock (which mirrors balance) stays current.
+    try {
+      const barcode = `LOAD-${result.company.name.toUpperCase().replace(/\s+/g, "")}`;
+      const product = await db.product.findUnique({ where: { barcode } });
+      if (product) {
+        await db.product.update({
+          where: { id: product.id },
+          data: { stock: Math.floor(result.company.balance) },
+        });
+        console.log(`[mobile-load] Synced ${result.company.name} balance → POS Product stock: ${result.company.balance}`);
+      }
+    } catch (syncErr: any) {
+      console.warn("[mobile-load] POS Product sync failed (non-fatal):", syncErr?.message);
+    }
+
     return NextResponse.json(result, { status: 201 });
   } catch (error: any) {
     console.error("[mobile-load POST]", error);

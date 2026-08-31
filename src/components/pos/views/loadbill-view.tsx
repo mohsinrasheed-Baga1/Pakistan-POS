@@ -125,6 +125,8 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
         let loads: any[] = [];
         let bills: any[] = [];
         let wallets: any[] = [];
+        let companies: any[] = [];
+        let accounts: any[] = [];
         try {
           const r = await fetch("/api/load-bill/mobile-load?limit=500", { cache: "no-store" });
           if (r.ok) { const d = await r.json(); loads = d.transactions || []; }
@@ -136,6 +138,15 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
         try {
           const r = await fetch("/api/load-bill/wallet?limit=500", { cache: "no-store" });
           if (r.ok) { const d = await r.json(); wallets = d.transactions || []; }
+        } catch {}
+        // v2.10.53: Also fetch companies + accounts to show CURRENT BALANCES
+        try {
+          const r = await fetch("/api/load-bill/companies", { cache: "no-store" });
+          if (r.ok) { const d = await r.json(); companies = d.companies || []; }
+        } catch {}
+        try {
+          const r = await fetch("/api/load-bill/wallet-accounts", { cache: "no-store" });
+          if (r.ok) { const d = await r.json(); accounts = d.accounts || []; }
         } catch {}
 
         const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -157,37 +168,85 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
         const totalDue = [...tLoads, ...tBills, ...tWallets].reduce((s: number, t: any) => s + (t.due || 0), 0);
         const grandTotal = totalLoad + totalBill + totalReceived;
 
-        setData({ totalLoad, totalBill, totalReceived, totalSent, totalCharges, totalDue, grandTotal });
+        // v2.10.53: Current balances — these are the LIVING totals that
+        // update in real-time as transactions happen (incl. POS sales that
+        // deduct from these entities). User wants these prominently visible.
+        const currentLoadBalance = companies.reduce((s: number, c: any) => s + (c.balance || 0), 0);
+        const currentCashBalance = accounts.reduce((s: number, a: any) => s + (a.balance || 0), 0);
+        const totalBillCollected = bills.reduce((s: number, t: any) => s + (t.totalPaid || 0), 0);
+        const totalBillCharges = bills.reduce((s: number, t: any) => s + (t.serviceCharge || 0), 0);
+        const totalSimStock = 0; // Fetched in SimTab — not needed here for now
+
+        // Total collected wallet charges (profit)
+        const totalWalletCharges = accounts.reduce((s: number, a: any) => s + (a.totalCharges || 0), 0);
+        const totalLoadProfit = companies.reduce((s: number, c: any) => s + (c.totalProfit || 0), 0);
+
+        setData({
+          totalLoad, totalBill, totalReceived, totalSent, totalCharges, totalDue, grandTotal,
+          currentLoadBalance, currentCashBalance, totalBillCollected, totalBillCharges,
+          totalWalletCharges, totalLoadProfit,
+        });
       } catch { setData({}); }
       finally { setLoading(false); }
     })();
   }, [refreshKey]);
 
-  const stats = [
+  // v2.10.53: First row — CURRENT BALANCES (big, prominent)
+  const currentBalances = [
+    { label: "موجودہ لوڈ بیلنس", value: data.currentLoadBalance || 0, icon: Smartphone, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-300", big: true, sublabel: "All companies combined" },
+    { label: "موجودہ کیش بیلنس", value: data.currentCashBalance || 0, icon: Wallet, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-300", big: true, sublabel: "All wallet accounts" },
+    { label: "کل بل وصولی", value: data.totalBillCollected || 0, icon: FileText, color: "text-blue-700", bg: "bg-blue-50 border-blue-300", big: true, sublabel: "All-time collected" },
+  ];
+
+  // Second row — Today's transactions
+  const todayStats = [
     { label: "آج کا کل لوڈ", value: data.totalLoad || 0, icon: Smartphone, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
     { label: "آج کے بل", value: data.totalBill || 0, icon: FileText, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
     { label: "وصول (Wallet)", value: data.totalReceived || 0, icon: ArrowDownLeft, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
     { label: "بھیجی (Wallet)", value: data.totalSent || 0, icon: ArrowUpRight, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
-    { label: "کل منافع", value: data.totalCharges || 0, icon: TrendingUp, color: "text-amber-700", bg: "bg-amber-50 border-amber-200" },
     { label: "آج کی کل سیل", value: data.grandTotal || 0, icon: DollarSign, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+    { label: "آج کا منافع", value: data.totalCharges || 0, icon: TrendingUp, color: "text-amber-700", bg: "bg-amber-50 border-amber-200" },
     { label: "بقایا", value: data.totalDue || 0, icon: TrendingDown, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-      {stats.map((s, i) => (
-        <Card key={i} className={s.bg}>
-          <CardContent className="p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <s.icon className={`w-3.5 h-3.5 ${s.color}`} />
-              <span className="text-[10px] font-medium text-muted-foreground">{s.label}</span>
-            </div>
-            <div className={`text-base font-bold ${s.color}`}>
-              {loading ? "..." : `Rs ${(s.value || 0).toLocaleString("en-PK")}`}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+    <div className="space-y-2">
+      {/* v2.10.53: First row — CURRENT BALANCES (big, prominent) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {currentBalances.map((s, i) => (
+          <Card key={i} className={`${s.bg} border-2`}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <s.icon className={`w-5 h-5 ${s.color}`} />
+                <span className="text-xs font-bold text-muted-foreground">{s.label}</span>
+              </div>
+              <div className={`text-2xl font-bold ${s.color}`}>
+                {loading ? "..." : `Rs ${(s.value || 0).toLocaleString("en-PK")}`}
+              </div>
+              {s.sublabel && (
+                <div className="text-[10px] text-muted-foreground mt-0.5">{s.sublabel}</div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Second row — Today's transactions */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+        {todayStats.map((s, i) => (
+          <Card key={i} className={s.bg}>
+            <CardContent className="p-3">
+              <div className="flex items-center gap-1.5 mb-1">
+                <s.icon className={`w-3.5 h-3.5 ${s.color}`} />
+                <span className="text-[10px] font-medium text-muted-foreground">{s.label}</span>
+              </div>
+              <div className={`text-base font-bold ${s.color}`}>
+                {loading ? "..." : `Rs ${(s.value || 0).toLocaleString("en-PK")}`}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

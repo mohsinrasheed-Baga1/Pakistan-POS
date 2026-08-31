@@ -116,6 +116,32 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // v2.10.53: Auto-sync the wallet account's new balance to its POS Product mirror
+    // (the WalletTab UI updates the WalletAccount.balance separately via
+    // /api/load-bill/wallet-accounts PUT — we just need to mirror that
+    // updated balance to the Product.stock for POS sync).
+    try {
+      if (accountId) {
+        const account = await db.walletAccount.findUnique({ where: { id: accountId } });
+        if (account) {
+          const barcode = `WALLET-${account.name.toUpperCase().replace(/\s+/g, "")}`;
+          const product = await db.product.findUnique({ where: { barcode } });
+          if (product) {
+            await db.product.update({
+              where: { id: product.id },
+              data: {
+                stock: Math.floor(account.balance),
+                name: account.name, // in case it was renamed
+              },
+            });
+            console.log(`[wallet] Synced ${account.name} balance → POS Product stock: ${account.balance}`);
+          }
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn("[wallet] POS Product sync failed (non-fatal):", syncErr?.message);
+    }
+
     return NextResponse.json({ transaction }, { status: 201 });
   } catch (error: any) {
     console.error("[wallet POST]", error);

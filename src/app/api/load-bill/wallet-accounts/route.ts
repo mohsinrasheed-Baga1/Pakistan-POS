@@ -63,6 +63,27 @@ export async function PUT(req: NextRequest) {
     if (active !== undefined) updateData.active = Boolean(active);
 
     const account = await db.walletAccount.update({ where: { id }, data: updateData });
+
+    // v2.10.53: Auto-sync the wallet account's new balance to its POS Product mirror
+    try {
+      const updatedAccount = await db.walletAccount.findUnique({ where: { id } });
+      if (updatedAccount) {
+        const barcode = `WALLET-${updatedAccount.name.toUpperCase().replace(/\s+/g, "")}`;
+        const product = await db.product.findUnique({ where: { barcode } });
+        if (product) {
+          await db.product.update({
+            where: { id: product.id },
+            data: {
+              stock: Math.floor(updatedAccount.balance),
+              name: updatedAccount.name,
+            },
+          });
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn("[wallet-accounts PUT] POS Product sync failed (non-fatal):", syncErr?.message);
+    }
+
     return NextResponse.json({ account });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

@@ -78,6 +78,27 @@ export async function PUT(req: NextRequest) {
     }
 
     const company = await db.mobileLoadCompany.update({ where: { id }, data: updateData });
+
+    // v2.10.53: Auto-sync the company's new balance/name to its POS Product mirror
+    try {
+      const updatedCompany = await db.mobileLoadCompany.findUnique({ where: { id } });
+      if (updatedCompany) {
+        const barcode = `LOAD-${updatedCompany.name.toUpperCase().replace(/\s+/g, "")}`;
+        const product = await db.product.findUnique({ where: { barcode } });
+        if (product) {
+          await db.product.update({
+            where: { id: product.id },
+            data: {
+              stock: Math.floor(updatedCompany.balance),
+              name: `${updatedCompany.name} Load`,
+            },
+          });
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn("[companies PUT] POS Product sync failed (non-fatal):", syncErr?.message);
+    }
+
     return NextResponse.json({ company });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
@@ -96,6 +117,22 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "Company ID required" }, { status: 400 });
+
+    // Get company before delete so we can find+deactivate its POS Product mirror
+    const company = await db.mobileLoadCompany.findUnique({ where: { id } });
+    if (company) {
+      const barcode = `LOAD-${company.name.toUpperCase().replace(/\s+/g, "")}`;
+      try {
+        const product = await db.product.findUnique({ where: { barcode } });
+        if (product) {
+          // Deactivate (don't delete — preserve sales history)
+          await db.product.update({
+            where: { id: product.id },
+            data: { active: false, stock: 0 },
+          });
+        }
+      } catch {}
+    }
 
     await db.mobileLoadCompany.delete({ where: { id } }).catch(() => null);
     return NextResponse.json({ ok: true });
