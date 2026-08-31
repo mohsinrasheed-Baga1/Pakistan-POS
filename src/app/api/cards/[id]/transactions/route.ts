@@ -148,6 +148,62 @@ export async function POST(
       return { transaction, card: updatedCard };
     });
 
+    // v2.10.51: Sync transaction + new balance to Supabase (cloud)
+    // This was MISSING — deposits were only saved locally, so the customer
+    // card QR page showed wrong balance (only sales deducted, no deposits added).
+    try {
+      const { getShopSupabaseAsync } = await import("@/lib/supabase-sync");
+      const sb = await getShopSupabaseAsync();
+      if (sb) {
+        const cardNumber = result.card.cardNumber;
+
+        // 1) Upsert the card with the NEW (correct) balance from local DB
+        const { error: cardSyncError } = await sb.from("customer_cards").upsert({
+          card_number: cardNumber,
+          customer_name: result.card.name,
+          customer_phone: result.card.phone || null,
+          customer_address: result.card.address || null,
+          balance: result.card.balance, // ← NEW balance (local is the source of truth)
+          card_type: result.card.type || "REGULAR",
+          is_active: result.card.active !== false,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "card_number" });
+
+        if (cardSyncError) {
+          console.warn("[txn sync] card upsert failed:", cardSyncError.message);
+        } else {
+          console.log("[txn sync] ✓ card balance synced:", cardNumber, "=", result.card.balance);
+        }
+
+        // 2) Insert the transaction record with signed amount
+        //    DEPOSIT/CREDIT/REFUND → positive (money added to card)
+        //    WITHDRAWAL/PURCHASE/PAYMENT/DEBIT → negative (money taken from card)
+        //    ADJUSTMENT → 0 (just sets balance; skip txn record since old balance is unknown)
+        if (type !== "ADJUSTMENT") {
+          const signedAmount = ["DEPOSIT", "CREDIT", "REFUND"].includes(type)
+            ? parsedAmount
+            : -parsedAmount;
+
+          const { error: txnSyncError } = await sb.from("card_transactions").upsert({
+            card_number: cardNumber,
+            amount: signedAmount,
+            type: type.toLowerCase(),
+            description: description?.toString().trim() || type,
+            created_at: new Date().toISOString(),
+          }, { onConflict: "created_at" });
+
+          if (txnSyncError) {
+            console.warn("[txn sync] txn upsert failed:", txnSyncError.message);
+          } else {
+            console.log("[txn sync] ✓ transaction synced:", cardNumber, type, signedAmount);
+          }
+        }
+      }
+    } catch (syncErr: any) {
+      // Non-fatal — local save already succeeded
+      console.warn("[txn sync] Cloud sync failed (non-fatal):", syncErr?.message);
+    }
+
     return NextResponse.json(result, { status: 201 });
   } catch (error: any) {
     console.error("[cards/id/transactions POST]", error);

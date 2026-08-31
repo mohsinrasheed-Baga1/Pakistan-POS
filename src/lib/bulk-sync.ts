@@ -177,5 +177,56 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
     console.error("Sales bulk sync error:", e);
   }
 
-  return { products: productCount, cards: cardCount, sales: saleCount, transactions: txnCount, shopInfo: shopInfoSynced, errors };
+  // ─── 4. v2.10.51: Sync ALL local card transactions (deposits etc.) ─────
+  // This was MISSING — deposits/withdrawals were only in local DB, so the
+  // customer card QR page showed wrong balance (only sales, no deposits).
+  // We fetch all local CardTransaction records (DEPOSIT, WITHDRAWAL, etc.)
+  // and upsert them to Supabase card_transactions.
+  let localTxnCount = 0;
+  try {
+    const res = await fetch("/api/cards/all-transactions?limit=2000");
+    const data = await res.json();
+    const localTxns = data.transactions || [];
+
+    // Filter out sale-based transactions (already synced in step 3 via
+    // sales_history) — we only want manual transactions (deposits etc.)
+    const manualTxns = localTxns.filter((t: any) =>
+      t.cardNumber && !t.saleId && t.type !== "PURCHASE"
+    );
+
+    for (const t of manualTxns) {
+      try {
+        // Sign the amount based on transaction type
+        // DEPOSIT/CREDIT/REFUND → positive (money added)
+        // WITHDRAWAL/PAYMENT/DEBIT → negative (money taken)
+        const signedAmount = ["DEPOSIT", "CREDIT", "REFUND"].includes(t.type)
+          ? (t.amount || 0)
+          : -(t.amount || 0);
+
+        await sb.from("card_transactions").upsert({
+          card_number: t.cardNumber,
+          amount: signedAmount,
+          type: (t.type || "transaction").toLowerCase(),
+          description: t.description || t.type,
+          created_at: new Date(t.createdAt).toISOString(),
+        }, { onConflict: "created_at" });
+        localTxnCount++;
+      } catch (e) {
+        console.warn("[BulkSync] local card_txn upsert failed:", t.id, e);
+      }
+    }
+    console.log(`[BulkSync] Synced ${localTxnCount} local card transactions (deposits etc.)`);
+  } catch (e) {
+    console.error("Local card transactions bulk sync error:", e);
+  }
+
+  return {
+    products: productCount,
+    cards: cardCount,
+    sales: saleCount,
+    transactions: txnCount,
+    localTransactions: localTxnCount,
+    shopInfo: shopInfoSynced,
+    errors,
+  };
 }
