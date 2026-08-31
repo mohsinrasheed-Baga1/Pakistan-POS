@@ -111,3 +111,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to create bill payment" }, { status: 500 });
   }
 }
+
+// v2.10.52: DELETE — delete a bill payment record (admin only)
+export async function DELETE(req: NextRequest) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  }
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "Bill payment ID required" }, { status: 400 });
+
+    await db.billPaymentTxn.delete({ where: { id } }).catch(() => null);
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}

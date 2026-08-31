@@ -266,6 +266,12 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
   const [addCompanyOpen, setAddCompanyOpen] = React.useState(false);
   const [newCompanyName, setNewCompanyName] = React.useState("");
   const [addCompanySaving, setAddCompanySaving] = React.useState(false);
+  // v2.10.52: Edit company state
+  const [editCompanyOpen, setEditCompanyOpen] = React.useState(false);
+  const [editCompanyId, setEditCompanyId] = React.useState("");
+  const [editCompanyName, setEditCompanyName] = React.useState("");
+  const [editCompanyBalance, setEditCompanyBalance] = React.useState("");
+  const [editCompanySaving, setEditCompanySaving] = React.useState(false);
 
   // Handle creating a new company, then immediately select it
   async function handleAddCompany() {
@@ -446,6 +452,30 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
                   <Plus className="w-3 h-3 mr-1" /> Sell
                 </Button>
               </div>
+              {/* v2.10.52: Edit + Delete buttons */}
+              {isAdmin && (
+                <div className="flex gap-1 mt-1">
+                  <Button
+                    size="sm" variant="ghost" className="h-6 text-xs flex-1 text-blue-600 hover:bg-blue-50"
+                    onClick={() => { setEditCompanyId(c.id); setEditCompanyName(c.name); setEditCompanyBalance(String(c.balance)); setEditCompanyOpen(true); }}
+                  >
+                    ✎ Rename
+                  </Button>
+                  <Button
+                    size="sm" variant="ghost" className="h-6 text-xs flex-1 text-rose-600 hover:bg-rose-50"
+                    onClick={async () => {
+                      if (!confirm(`Delete company "${c.name}"?\n\nThis will also delete all its transactions. This cannot be undone.`)) return;
+                      try {
+                        const res = await fetch(`/api/load-bill/companies?id=${c.id}`, { method: "DELETE" });
+                        if (res.ok) { toast.success(`Company "${c.name}" deleted`); load(); onRefresh(); }
+                        else { const d = await res.json(); toast.error(d.error || "Failed"); }
+                      } catch { toast.error("Network error"); }
+                    }}
+                  >
+                    🗑 Delete
+                  </Button>
+                </div>
+              )}
             </div>
           ))}
           {filteredCompanies.length === 0 && (
@@ -545,6 +575,64 @@ function LoadTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refresh
           { label: "Load Received", value: amtNum },
         ]}
       />
+
+      {/* v2.10.52: Edit Company Dialog */}
+      <Dialog open={editCompanyOpen} onOpenChange={setEditCompanyOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Company</DialogTitle>
+            <DialogDescription>Rename company or adjust its balance.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Company Name *</Label>
+              <Input
+                value={editCompanyName}
+                onChange={(e) => setEditCompanyName(e.target.value)}
+                placeholder="e.g. Jazz, Ufone, Telenor"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Balance (optional — leave blank to keep unchanged)</Label>
+              <Input
+                type="number"
+                value={editCompanyBalance}
+                onChange={(e) => setEditCompanyBalance(e.target.value)}
+                placeholder="Leave blank to keep current"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditCompanyOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              disabled={editCompanySaving}
+              onClick={async () => {
+                if (!editCompanyName.trim()) { toast.error("Company name required"); return; }
+                setEditCompanySaving(true);
+                try {
+                  const body: any = { id: editCompanyId, name: editCompanyName.trim() };
+                  if (editCompanyBalance.trim() !== "") body.balance = parseFloat(editCompanyBalance) || 0;
+                  const res = await fetch("/api/load-bill/companies", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                  });
+                  const d = await res.json();
+                  if (!res.ok) { toast.error(d.error || "Failed"); setEditCompanySaving(false); return; }
+                  toast.success(`Company updated: ${d.company.name}`);
+                  setEditCompanyOpen(false);
+                  load(); onRefresh();
+                } catch { toast.error("Network error"); }
+                finally { setEditCompanySaving(false); }
+              }}
+            >
+              {editCompanySaving ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -822,6 +910,8 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
   const [accProvider, setAccProvider] = React.useState("JAZZCASH");
   const [accPhone, setAccPhone] = React.useState("");
   const [accBalance, setAccBalance] = React.useState("");
+  // v2.10.52: If set, the Add Account dialog is in EDIT mode
+  const [editAccId, setEditAccId] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -848,14 +938,24 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
   const dueNum = parseFloat(due) || 0;
   const total = amtNum + chargeNum;
 
+  // v2.10.52 FIX: Extra charges are PROFIT — they must NOT be deducted
+  // from the wallet balance. Only the PRINCIPAL amount affects balance:
+  //   RECEIVE: balance += amtNum (charges are separate profit)
+  //   SEND:    balance -= amtNum (charges are separate profit)
+  // Previously, `total` (amt + charges) was added/subtracted, so charges
+  // were wrongly deducted from the balance.
   const selectedAccount = accounts.find(a => a.id === selAccount);
   const balanceAfter = selectedAccount
-    ? txnType === "RECEIVE" ? selectedAccount.balance + total : selectedAccount.balance - total
+    ? txnType === "RECEIVE" ? selectedAccount.balance + amtNum : selectedAccount.balance - amtNum
     : 0;
 
   async function handleTxn() {
     if (!selAccount) { toast.error("Select account"); return; }
     if (amtNum <= 0) { toast.error("Enter amount"); return; }
+    if (txnType === "SEND" && amtNum > (selectedAccount?.balance || 0)) {
+      toast.error(`Insufficient balance! Only Rs ${(selectedAccount?.balance || 0).toLocaleString()} available`);
+      return;
+    }
     setSaving(true);
     try {
       const acc = accounts.find(a => a.id === selAccount);
@@ -865,11 +965,12 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
       });
       const d = await res.json();
       if (!res.ok) { toast.error(d.error); setSaving(false); return; }
-      // Update account balance
+      // Update account balance — v2.10.52: only PRINCIPAL amount affects
+      // balance; charges are tracked separately as profit (totalCharges).
       if (acc) {
         await fetch("/api/load-bill/wallet-accounts", {
           method: "PUT", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: selAccount, balance: balanceAfter, totalReceived: txnType === "RECEIVE" ? total : 0, totalSent: txnType === "SEND" ? total : 0, totalCharges: chargeNum }),
+          body: JSON.stringify({ id: selAccount, balance: balanceAfter, totalReceived: txnType === "RECEIVE" ? amtNum : 0, totalSent: txnType === "SEND" ? amtNum : 0, totalCharges: chargeNum }),
         });
       }
       toast.success(`${txnType === "RECEIVE" ? "Received" : "Sent"}: Rs ${total} | Balance: Rs ${balanceAfter.toLocaleString()}`);
@@ -883,6 +984,26 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
     if (!accName.trim()) { toast.error("Account name required"); return; }
     setSaving(true);
     try {
+      // v2.10.52: If editAccId is set, we're EDITING an existing account
+      if (editAccId) {
+        const res = await fetch("/api/load-bill/wallet-accounts", {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: editAccId,
+            name: accName,
+            provider: accProvider,
+            phoneNumber: accPhone,
+            balance: accBalance !== "" ? (parseFloat(accBalance) || 0) : undefined,
+          }),
+        });
+        const d = await res.json();
+        if (!res.ok) { toast.error(d.error); setSaving(false); return; }
+        toast.success("Account updated");
+        setAddAccOpen(false); setAccName(""); setAccPhone(""); setAccBalance(""); setEditAccId(null);
+        load(); onRefresh();
+        return;
+      }
+
       const res = await fetch("/api/load-bill/wallet-accounts", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: accName, provider: accProvider, phoneNumber: accPhone, balance: accBalance || 0 }),
@@ -914,7 +1035,7 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
           <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5 text-emerald-600" /> Digital Wallet (Cash)</CardTitle>
           <div className="flex gap-2">
             {isAdmin && (
-              <Button size="sm" variant="outline" onClick={() => { setAccName(""); setAccPhone(""); setAccBalance(""); setAddAccOpen(true); }}>
+              <Button size="sm" variant="outline" onClick={() => { setAccName(""); setAccPhone(""); setAccBalance(""); setEditAccId(null); setAddAccOpen(true); }}>
                 <Plus className="w-4 h-4 mr-1" /> Add Account
               </Button>
             )}
@@ -974,6 +1095,37 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
                   <ArrowUpRight className="w-3 h-3 mr-1" /> Send
                 </Button>
               </div>
+              {/* v2.10.52: Edit + Delete buttons */}
+              {isAdmin && (
+                <div className="flex gap-1 mt-1">
+                  <Button
+                    size="sm" variant="ghost" className="h-6 text-xs flex-1 text-blue-600 hover:bg-blue-50"
+                    onClick={() => {
+                      setEditAccId(a.id);
+                      setAccName(a.name);
+                      setAccProvider(a.provider);
+                      setAccPhone(a.phoneNumber || "");
+                      setAccBalance(String(a.balance));
+                      setAddAccOpen(true); // reuse the Add Account dialog for editing
+                    }}
+                  >
+                    ✎ Rename
+                  </Button>
+                  <Button
+                    size="sm" variant="ghost" className="h-6 text-xs flex-1 text-rose-600 hover:bg-rose-50"
+                    onClick={async () => {
+                      if (!confirm(`Delete account "${a.name}"?\n\nThis will also delete all its transactions. This cannot be undone.`)) return;
+                      try {
+                        const res = await fetch(`/api/load-bill/wallet-accounts?id=${a.id}`, { method: "DELETE" });
+                        if (res.ok) { toast.success(`Account "${a.name}" deleted`); load(); onRefresh(); }
+                        else { const d = await res.json(); toast.error(d.error || "Failed"); }
+                      } catch { toast.error("Network error"); }
+                    }}
+                  >
+                    🗑 Delete
+                  </Button>
+                </div>
+              )}
             </div>
           ))}
           {accounts.length === 0 && (
@@ -1030,10 +1182,10 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
         ]}
       />
 
-      {/* Add Account Dialog */}
+      {/* Add/Edit Account Dialog — v2.10.52: reuses dialog for edit */}
       <Dialog open={addAccOpen} onOpenChange={setAddAccOpen}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Add Wallet Account</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editAccId ? "Edit Wallet Account" : "Add Wallet Account"}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1"><Label className="text-xs">Provider</Label>
               <select className="w-full rounded-md border px-3 py-2 text-sm" value={accProvider} onChange={(e) => setAccProvider(e.target.value)}>
@@ -1042,11 +1194,11 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
             </div>
             <div className="space-y-1"><Label className="text-xs">Name *</Label><Input value={accName} onChange={(e) => setAccName(e.target.value)} placeholder="e.g. JazzCash 03001234567" /></div>
             <div className="space-y-1"><Label className="text-xs">Phone / Account #</Label><Input value={accPhone} onChange={(e) => setAccPhone(e.target.value)} placeholder="03001234567" /></div>
-            <div className="space-y-1"><Label className="text-xs">Opening Balance</Label><Input type="number" value={accBalance} onChange={(e) => setAccBalance(e.target.value)} placeholder="0" /></div>
+            <div className="space-y-1"><Label className="text-xs">{editAccId ? "Current Balance (update)" : "Opening Balance"}</Label><Input type="number" value={accBalance} onChange={(e) => setAccBalance(e.target.value)} placeholder="0" /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddAccOpen(false)}>Cancel</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleAddAccount}>{saving ? "..." : "Add"}</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleAddAccount}>{saving ? "..." : (editAccId ? "Save Changes" : "Add")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
