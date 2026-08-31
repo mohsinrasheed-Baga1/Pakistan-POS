@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Smartphone, Plus, RefreshCw, Wallet, FileText, ArrowDownLeft, ArrowUpRight,
   TrendingUp, TrendingDown, CreditCard, BarChart3, DollarSign, Search, Phone,
-  PackageOpen, ArrowLeftRight, Banknote, Withdraw,
+  PackageOpen, ArrowLeftRight, Banknote, ArrowDownToLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -617,7 +617,7 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
           <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5 text-emerald-600" /> Bill Payment</CardTitle>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" className="border-rose-500 text-rose-700 hover:bg-rose-50" onClick={() => setWithdrawOpen(true)}>
-              <Withdraw className="w-4 h-4 mr-1" /> Withdraw
+              <ArrowDownToLine className="w-4 h-4 mr-1" /> Withdraw
             </Button>
             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setBillAmount(""); setCharge(""); setDue(""); setOpen(true); }}>
               <Plus className="w-4 h-4 mr-1" /> Add Bill
