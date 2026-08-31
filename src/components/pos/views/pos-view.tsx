@@ -18,6 +18,8 @@ import {
   RotateCcw,
   Calculator,
   Pause,
+  PackageOpen,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1099,6 +1101,51 @@ export function PosView({ settings }: PosViewProps) {
         <div className="lg:sticky lg:top-4 h-fit">
           <Card className="border-2 border-emerald-700 bg-emerald-100 dark:bg-emerald-900/40 shadow-lg">
             <CardContent className="p-4 space-y-3">
+              {/* v2.10.48: Pending Product Load Requests — shown at top of cart */}
+              <PendingLoadsWidget onAddToCart={(load) => {
+                // Add the load request as a virtual product to the cart
+                cart.addItem({
+                  id: `LOAD-${load.id}`,
+                  name: load.productName,
+                  barcode: `LOAD${load.id.substring(0, 8)}`,
+                  salePrice: load.totalAmount,
+                  costPrice: load.loadAmount,
+                  stock: 1,
+                  unit: "load",
+                  active: true,
+                  hasBarcode: false,
+                  barcodeType: "CODE128",
+                  minStock: 0,
+                  categoryId: null,
+                  vendorId: null,
+                  storeStock: 0,
+                  image: null,
+                  expiryDate: null,
+                  manufacturingDate: null,
+                  packBarcode: null,
+                  packQuantity: 0,
+                  packPrice: 0,
+                  productCode: null,
+                  barcodeSvg: null,
+                  barcodePng: null,
+                  barcodeVerified: false,
+                  stickerSize: "50x30",
+                  packingDate: null,
+                  inventorySource: "SHOP",
+                  linkedStoreProductId: null,
+                } as any, 1);
+                toast.success(`Load added: ${load.productName} (Rs ${load.totalAmount})`);
+                // Mark as completed
+                fetch(`/api/load-bill/product-load?id=${load.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    status: "COMPLETED",
+                    processedAt: new Date().toISOString(),
+                  }),
+                }).catch(() => {});
+              }} />
+
               {/* v2.10.16: Cart header with proper layout — no overflow */}
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
@@ -2331,5 +2378,161 @@ function CalculatorDialog({ open, onOpenChange }: CalculatorDialogProps) {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v2.10.48: PendingLoadsWidget
+// Shows pending Product Load requests at the top of the POS cart.
+// Click any pending load → adds it to cart as a virtual product + marks COMPLETED.
+// ═════════════════════════════════════════════════════════════════════════════
+function PendingLoadsWidget({ onAddToCart }: { onAddToCart: (load: any) => void }) {
+  const [loads, setLoads] = React.useState<any[]>([]);
+  const [open, setOpen] = React.useState(false);
+  const [selectedLoad, setSelectedLoad] = React.useState<any | null>(null);
+
+  async function loadPending() {
+    try {
+      const r = await fetch("/api/load-bill/product-load?status=PENDING", { cache: "no-store" });
+      if (r.ok) {
+        const d = await r.json();
+        setLoads(d.requests || []);
+      }
+    } catch {}
+  }
+
+  React.useEffect(() => {
+    loadPending();
+    // Refresh every 30 seconds
+    const interval = setInterval(loadPending, 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loads.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <PackageOpen className="w-4 h-4 text-amber-700" />
+          <span className="text-sm font-bold text-amber-900">
+            Pending Loads ({loads.length})
+          </span>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-amber-700 hover:bg-amber-100"
+          onClick={loadPending}
+        >
+          <RefreshCw className="w-3 h-3" />
+        </Button>
+      </div>
+      <div className="space-y-1 max-h-32 overflow-y-auto">
+        {loads.slice(0, 5).map((load) => (
+          <button
+            key={load.id}
+            onClick={() => { setSelectedLoad(load); setOpen(true); }}
+            className="w-full text-left rounded border border-amber-200 bg-white p-2 hover:bg-amber-100 transition-colors"
+          >
+            <div className="flex justify-between items-center">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{load.productName}</div>
+                <div className="text-xs text-muted-foreground">
+                  {load.customerName || "No name"} • Rs {(load.loadAmount || 0).toLocaleString()} + Rs {(load.extraCharges || 0).toLocaleString()} charges
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold">Rs {(load.totalAmount || 0).toLocaleString()}</div>
+                {load.due > 0 && (
+                  <div className="text-xs text-rose-600">Due: Rs {load.due.toLocaleString()}</div>
+                )}
+              </div>
+            </div>
+          </button>
+        ))}
+        {loads.length > 5 && (
+          <div className="text-xs text-center text-amber-700 py-1">+ {loads.length - 5} more...</div>
+        )}
+      </div>
+
+      {/* Detail Dialog — shows full info + add to cart button */}
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSelectedLoad(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Process Load Request</DialogTitle>
+            <DialogDescription>
+              Load request details — click "Add to Cart" to process this load in the current sale.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedLoad && (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Product:</span>
+                <span className="font-medium">{selectedLoad.productName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Customer:</span>
+                <span>{selectedLoad.customerName || "-"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Phone:</span>
+                <span>{selectedLoad.customerPhone || "-"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Load Amount:</span>
+                <span className="font-mono">Rs {(selectedLoad.loadAmount || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Extra Charges:</span>
+                <span className="font-mono text-emerald-700">Rs {(selectedLoad.extraCharges || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between border-t pt-2">
+                <span className="font-bold">Total:</span>
+                <span className="font-bold font-mono text-emerald-700">Rs {(selectedLoad.totalAmount || 0).toLocaleString()}</span>
+              </div>
+              {selectedLoad.due > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Due (بقایا):</span>
+                  <span className="font-mono text-rose-600">Rs {(selectedLoad.due || 0).toLocaleString()}</span>
+                </div>
+              )}
+              {selectedLoad.referenceNo && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Reference:</span>
+                  <span className="font-mono">{selectedLoad.referenceNo}</span>
+                </div>
+              )}
+              {selectedLoad.note && (
+                <div className="rounded border bg-muted/30 p-2 text-xs">
+                  <span className="font-medium">Note:</span> {selectedLoad.note}
+                </div>
+              )}
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Created:</span>
+                <span>{new Date(selectedLoad.createdAt).toLocaleString("en-PK")}</span>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => { setOpen(false); setSelectedLoad(null); }}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => {
+                if (selectedLoad) {
+                  onAddToCart(selectedLoad);
+                  setOpen(false);
+                  setSelectedLoad(null);
+                }
+              }}
+            >
+              <Plus className="w-4 h-4 mr-1" /> Add to Cart (Rs {selectedLoad?.totalAmount.toLocaleString() || 0})
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

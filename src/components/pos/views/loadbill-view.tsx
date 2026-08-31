@@ -521,6 +521,10 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
   const [txns, setTxns] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [open, setOpen] = React.useState(false);
+  const [withdrawOpen, setWithdrawOpen] = React.useState(false);
+  const [withdrawAmount, setWithdrawAmount] = React.useState("");
+  const [withdrawNote, setWithdrawNote] = React.useState("");
+  const [withdrawSaving, setWithdrawSaving] = React.useState(false);
   const [category, setCategory] = React.useState("electricity");
   const [billAmount, setBillAmount] = React.useState("");
   const [charge, setCharge] = React.useState("");
@@ -538,12 +542,51 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
+  // v2.10.48: Calculate total collected bills (all-time, not just today)
+  const totalCollected = txns.reduce((s, t) => s + (t.totalPaid || 0), 0);
+  const totalCharges = txns.reduce((s, t) => s + (t.serviceCharge || 0), 0);
+  const totalDue = txns.reduce((s, t) => s + (t.due || 0), 0);
+
   // Today's total collection
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayTxns = txns.filter(t => new Date(t.createdAt) >= today);
   const todayTotal = todayTxns.reduce((s, t) => s + (t.totalPaid || 0), 0);
   const todayCharges = todayTxns.reduce((s, t) => s + (t.serviceCharge || 0), 0);
   const todayDue = todayTxns.reduce((s, t) => s + (t.due || 0), 0);
+
+  async function handleWithdraw() {
+    const amt = parseFloat(withdrawAmount) || 0;
+    if (amt <= 0) { toast.error("Enter amount > 0"); return; }
+    if (amt > totalCollected) {
+      toast.error(`Cannot withdraw more than total collected (Rs ${totalCollected.toLocaleString()})`);
+      return;
+    }
+    setWithdrawSaving(true);
+    try {
+      // Create a "WITHDRAW" bill payment transaction to track the withdrawal
+      const res = await fetch("/api/load-bill/bill-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: "withdrawal",
+          billAmount: -amt,  // negative = withdrawal
+          serviceCharge: 0,
+          totalPaid: -amt,
+          amountReceived: -amt,
+          due: 0,
+          note: withdrawNote.trim() || "Bill collection withdrawn",
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error); setWithdrawSaving(false); return; }
+      toast.success(`Withdrew Rs ${amt.toLocaleString()} from bill collection`);
+      setWithdrawOpen(false);
+      setWithdrawAmount("");
+      setWithdrawNote("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setWithdrawSaving(false); }
+  }
 
   const billNum = parseFloat(billAmount) || 0;
   const chargeNum = parseFloat(charge) || 0;
@@ -572,12 +615,39 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5 text-emerald-600" /> Bill Payment</CardTitle>
-          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setBillAmount(""); setCharge(""); setDue(""); setOpen(true); }}>
-            <Plus className="w-4 h-4 mr-1" /> Add Bill
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="border-rose-500 text-rose-700 hover:bg-rose-50" onClick={() => setWithdrawOpen(true)}>
+              <Withdraw className="w-4 h-4 mr-1" /> Withdraw
+            </Button>
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setBillAmount(""); setCharge(""); setDue(""); setOpen(true); }}>
+              <Plus className="w-4 h-4 mr-1" /> Add Bill
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* v2.10.48: All-time totals (withdrawable amount + charges + due) */}
+        <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-bold text-blue-900">کل بل وصولی (All-time)</span>
+            <Badge variant="outline" className="bg-white">{txns.length} bills</Badge>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <div className="text-xs text-blue-700">کل وصول شدہ</div>
+              <div className="text-lg font-bold text-blue-900">Rs {totalCollected.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-xs text-blue-700">کل منافع</div>
+              <div className="text-lg font-bold text-emerald-700">Rs {totalCharges.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-xs text-blue-700">کل بقایا</div>
+              <div className="text-lg font-bold text-rose-600">Rs {totalDue.toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+
         {/* Today's collection summary */}
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center">
@@ -642,6 +712,58 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
           { label: "Service Charge", value: chargeNum },
         ]}
       />
+
+      {/* v2.10.48: Withdraw Dialog — withdraw money from bill collection */}
+      <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Withdraw from Bill Collection</DialogTitle>
+            <DialogDescription>
+              Withdraw collected bill money from your collection. This creates a withdrawal record.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-blue-700">Available to withdraw:</span>
+                <span className="font-bold text-blue-900">Rs {totalCollected.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-blue-700">Total charges (profit):</span>
+                <span className="font-bold text-emerald-700">Rs {totalCharges.toLocaleString()}</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Withdraw Amount *</Label>
+              <Input
+                type="number"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                placeholder="0"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Note (optional)</Label>
+              <Input
+                value={withdrawNote}
+                onChange={(e) => setWithdrawNote(e.target.value)}
+                placeholder="e.g. Cash withdrawal, Bank deposit"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWithdrawOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-rose-600 hover:bg-rose-700"
+              disabled={withdrawSaving}
+              onClick={handleWithdraw}
+            >
+              {withdrawSaving ? "Withdrawing..." : `Withdraw Rs ${withdrawAmount ? parseFloat(withdrawAmount).toLocaleString() : "0"}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -744,11 +866,17 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
     label: `${a.name} — Balance: Rs ${a.balance.toLocaleString()}`,
   }));
 
+  // v2.10.48: Calculate total balance across all accounts
+  const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
+  const totalReceived = accounts.reduce((s, a) => s + (a.totalReceived || 0), 0);
+  const totalSent = accounts.reduce((s, a) => s + (a.totalSent || 0), 0);
+  const totalChargesAll = accounts.reduce((s, a) => s + (a.totalCharges || 0), 0);
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5 text-emerald-600" /> Digital Wallet</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5 text-emerald-600" /> Digital Wallet (Cash)</CardTitle>
           <div className="flex gap-2">
             {isAdmin && (
               <Button size="sm" variant="outline" onClick={() => { setAccName(""); setAccPhone(""); setAccBalance(""); setAddAccOpen(true); }}>
@@ -763,6 +891,29 @@ function WalletTab({ isAdmin, refreshKey, onRefresh }: { isAdmin: boolean; refre
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* v2.10.48: Total cash balance across all accounts */}
+        <div className="rounded-lg border-2 border-emerald-400 bg-emerald-50 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-bold text-emerald-900">موجودہ کیش بیلنس (Total)</span>
+            <Badge variant="outline" className="bg-white">{accounts.length} accounts</Badge>
+          </div>
+          <div className="text-2xl font-bold text-emerald-900 mb-2">Rs {totalBalance.toLocaleString()}</div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div>
+              <div className="text-emerald-700">کل موصول</div>
+              <div className="font-bold text-emerald-700">Rs {totalReceived.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-rose-700">کل بھیجا</div>
+              <div className="font-bold text-rose-700">Rs {totalSent.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-amber-700">کل چارجز</div>
+              <div className="font-bold text-amber-700">Rs {totalChargesAll.toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+
         {/* Account cards — each shows balance + quick receive/send buttons */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {accounts.map(a => (
