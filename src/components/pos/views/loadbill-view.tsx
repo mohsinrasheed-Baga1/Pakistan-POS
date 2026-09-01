@@ -334,14 +334,25 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // UNIFIED CHECKOUT DIALOG
+// v2.10.57: totals can optionally specify which line is the "deduction"
+//           (the amount that gets cut from balance). Previously, grandTotal
+//           was shown as the deduction, confusing users who thought charges
+//           were also deducted. Now we clearly show:
+//             - Total (customer pays): grandTotal
+//             - Balance deduction: only the "deduction" total (usually principal)
 // ═════════════════════════════════════════════════════════════════════════════
-function CheckoutDialog({ open, onClose, title, fields, totals, onConfirm, saving }: {
+function CheckoutDialog({ open, onClose, title, fields, totals, onConfirm, saving, deductionLabel }: {
   open: boolean; onClose: () => void; title: string;
   fields: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; options?: { value: string; label: string }[] }[];
   totals: { label: string; value: number }[];
   onConfirm: () => void; saving: boolean;
+  deductionLabel?: string; // v2.10.57: label for the "deducted from balance" line
 }) {
   const grandTotal = totals.reduce((s, t) => s + t.value, 0);
+  // v2.10.57: The first total (usually "Load Amount" or "Amount") is the
+  // principal that gets deducted from balance. All other totals are charges/profit.
+  const deductionAmount = totals.length > 0 ? totals[0].value : grandTotal;
+  const charges = grandTotal - deductionAmount;
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
@@ -368,15 +379,28 @@ function CheckoutDialog({ open, onClose, title, fields, totals, onConfirm, savin
               </div>
             ))}
             <div className="border-t border-emerald-300 mt-1 pt-1 flex justify-between">
-              <span className="font-bold">کل وصول:</span>
+              <span className="font-bold">کل وصول (Customer pays):</span>
               <span className="font-bold text-emerald-700 text-lg">Rs {grandTotal.toLocaleString()}</span>
             </div>
+            {/* v2.10.57: Show what's deducted from balance vs what's profit */}
+            {charges > 0 && (
+              <div className="border-t border-emerald-300 mt-1 pt-1 space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-rose-700">{deductionLabel || "بیلنس سے کٹوتی:"}</span>
+                  <span className="font-mono text-rose-700">- Rs {deductionAmount.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-emerald-700">منافع (Charges):</span>
+                  <span className="font-mono text-emerald-700">+ Rs {charges.toLocaleString()}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={onConfirm}>
-            {saving ? "..." : `Checkout — Rs ${grandTotal.toLocaleString()}`}
+            {saving ? "..." : `Confirm — Rs ${grandTotal.toLocaleString()}`}
           </Button>
         </DialogFooter>
       </DialogContent>
