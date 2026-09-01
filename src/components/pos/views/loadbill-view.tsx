@@ -30,13 +30,54 @@ interface WalletAccount {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// v2.10.54: Simple Error Boundary class component
+// Catches any error from children and shows a retry button instead of
+// crashing the entire page.
+// ═════════════════════════════════════════════════════════════════════════════
+class LoadBillErrorBoundary extends React.Component<
+  { children: React.ReactNode; onRetry: () => void },
+  { hasError: boolean }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: any) {
+    console.error("[LoadBill ErrorBoundary]", error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Card className="border-rose-300 bg-rose-50">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-rose-700 mb-3">
+              LoadBill page mein error aaya. Retry karein.
+            </p>
+            <Button variant="outline" onClick={() => { this.setState({ hasError: false }); this.props.onRetry(); }}>
+              <RefreshCw className="w-4 h-4 mr-2" /> Retry
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
+// v2.10.54: Wrapped in error boundary so page NEVER crashes — if any
+// sub-component throws, we catch it and show a friendly error + retry button.
 // ═════════════════════════════════════════════════════════════════════════════
 export function LoadBillView({ userRole }: LoadBillViewProps) {
   const isAdmin = userRole === "ADMIN" || userRole === "MANAGER";
   const [refresh, setRefresh] = React.useState(0);
   const [syncing, setSyncing] = React.useState(false);
-  const triggerRefresh = () => setRefresh(r => r + 1);
+  const [error, setError] = React.useState<string | null>(null);
+  const triggerRefresh = () => { setRefresh(r => r + 1); setError(null); };
 
   // v2.10.50: Sync LoadBill entities → POS Products
   async function syncToPos() {
@@ -89,24 +130,39 @@ export function LoadBillView({ userRole }: LoadBillViewProps) {
         </div>
       </div>
 
-      <DashboardSummary refreshKey={refresh} />
+      {/* v2.10.54: Error boundary — if any sub-component crashes, show error
+          + retry instead of white screen */}
+      {error ? (
+        <Card className="border-rose-300 bg-rose-50">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-rose-700 mb-3">{error}</p>
+            <Button variant="outline" onClick={() => { setError(null); triggerRefresh(); }}>
+              <RefreshCw className="w-4 h-4 mr-2" /> Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <LoadBillErrorBoundary onRetry={triggerRefresh}>
+          <DashboardSummary refreshKey={refresh} />
 
-      <Tabs defaultValue="load" className="w-full">
-        <TabsList className="w-full sm:w-auto flex flex-wrap">
-          <TabsTrigger value="load"><Smartphone className="w-4 h-4 mr-1" /> Load</TabsTrigger>
-          <TabsTrigger value="productLoad"><PackageOpen className="w-4 h-4 mr-1" /> Product Load</TabsTrigger>
-          <TabsTrigger value="bill"><FileText className="w-4 h-4 mr-1" /> Bill</TabsTrigger>
-          <TabsTrigger value="wallet"><Wallet className="w-4 h-4 mr-1" /> Cash/Wallet</TabsTrigger>
-          <TabsTrigger value="sim"><CreditCard className="w-4 h-4 mr-1" /> SIM</TabsTrigger>
-          <TabsTrigger value="reports"><BarChart3 className="w-4 h-4 mr-1" /> Reports</TabsTrigger>
-        </TabsList>
-        <TabsContent value="load"><LoadTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
-        <TabsContent value="productLoad"><ProductLoadTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
-        <TabsContent value="bill"><BillTab refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
-        <TabsContent value="wallet"><WalletTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
-        <TabsContent value="sim"><SimTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
-        <TabsContent value="reports"><ReportsTab refreshKey={refresh} /></TabsContent>
-      </Tabs>
+          <Tabs defaultValue="load" className="w-full">
+            <TabsList className="w-full sm:w-auto flex flex-wrap">
+              <TabsTrigger value="load"><Smartphone className="w-4 h-4 mr-1" /> Load</TabsTrigger>
+              <TabsTrigger value="productLoad"><PackageOpen className="w-4 h-4 mr-1" /> Product Load</TabsTrigger>
+              <TabsTrigger value="bill"><FileText className="w-4 h-4 mr-1" /> Bill</TabsTrigger>
+              <TabsTrigger value="wallet"><Wallet className="w-4 h-4 mr-1" /> Cash/Wallet</TabsTrigger>
+              <TabsTrigger value="sim"><CreditCard className="w-4 h-4 mr-1" /> SIM</TabsTrigger>
+              <TabsTrigger value="reports"><BarChart3 className="w-4 h-4 mr-1" /> Reports</TabsTrigger>
+            </TabsList>
+            <TabsContent value="load"><LoadTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+            <TabsContent value="productLoad"><ProductLoadTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+            <TabsContent value="bill"><BillTab refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+            <TabsContent value="wallet"><WalletTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+            <TabsContent value="sim"><SimTab isAdmin={isAdmin} refreshKey={refresh} onRefresh={triggerRefresh} /></TabsContent>
+            <TabsContent value="reports"><ReportsTab refreshKey={refresh} /></TabsContent>
+          </Tabs>
+        </LoadBillErrorBoundary>
+      )}
     </div>
   );
 }
@@ -119,99 +175,125 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
+    let mounted = true;
     (async () => {
       try {
-        // Fetch each endpoint separately so one failing doesn't break all
+        // v2.10.54: Each fetch wrapped in try-catch so one failure doesn't
+        // crash the entire dashboard. This prevents the "page not opening"
+        // issue when one endpoint is slow or returns an error.
         let loads: any[] = [];
         let bills: any[] = [];
         let wallets: any[] = [];
         let companies: any[] = [];
         let accounts: any[] = [];
+
         try {
           const r = await fetch("/api/load-bill/mobile-load?limit=500", { cache: "no-store" });
           if (r.ok) { const d = await r.json(); loads = d.transactions || []; }
-        } catch {}
+        } catch (e) { console.warn("[Dashboard] mobile-load fetch failed:", e); }
         try {
           const r = await fetch("/api/load-bill/bill-payment?limit=500", { cache: "no-store" });
           if (r.ok) { const d = await r.json(); bills = d.transactions || d.payments || []; }
-        } catch {}
+        } catch (e) { console.warn("[Dashboard] bill-payment fetch failed:", e); }
         try {
           const r = await fetch("/api/load-bill/wallet?limit=500", { cache: "no-store" });
           if (r.ok) { const d = await r.json(); wallets = d.transactions || []; }
-        } catch {}
-        // v2.10.53: Also fetch companies + accounts to show CURRENT BALANCES
+        } catch (e) { console.warn("[Dashboard] wallet fetch failed:", e); }
         try {
           const r = await fetch("/api/load-bill/companies", { cache: "no-store" });
           if (r.ok) { const d = await r.json(); companies = d.companies || []; }
-        } catch {}
+        } catch (e) { console.warn("[Dashboard] companies fetch failed:", e); }
         try {
           const r = await fetch("/api/load-bill/wallet-accounts", { cache: "no-store" });
           if (r.ok) { const d = await r.json(); accounts = d.accounts || []; }
-        } catch {}
+        } catch (e) { console.warn("[Dashboard] wallet-accounts fetch failed:", e); }
 
         const today = new Date(); today.setHours(0, 0, 0, 0);
-        const isToday = (d: string) => new Date(d) >= today;
+        const isToday = (d: string) => { try { return new Date(d) >= today; } catch { return false; } };
 
         const tLoads = loads.filter((t: any) => isToday(t.createdAt) && t.type === "SALE");
         const tBills = bills.filter((t: any) => isToday(t.createdAt));
         const tWallets = wallets.filter((t: any) => isToday(t.createdAt));
 
+        // v2.10.54: Today's totals — principal only (NOT charges)
         const totalLoad = tLoads.reduce((s: number, t: any) => s + (t.salePrice || t.amount || 0), 0);
         const totalBill = tBills.reduce((s: number, t: any) => s + (t.totalPaid || 0), 0);
-        const totalReceived = tWallets.filter((t: any) => t.type === "RECEIVE").reduce((s: number, t: any) => s + (t.amount + (t.serviceCharge || 0)), 0);
-        const totalSent = tWallets.filter((t: any) => t.type === "SEND").reduce((s: number, t: any) => s + (t.amount + (t.serviceCharge || 0)), 0);
-        const totalCharges = [...tLoads, ...tBills, ...tWallets].reduce((s: number, t: any) => {
-          if (t.salePrice && t.amount) return s + (t.salePrice - t.amount);
-          if (t.serviceCharge) return s + t.serviceCharge;
-          return s;
-        }, 0);
+        // v2.10.54 FIX: Wallet received/sent should show PRINCIPAL only (not charges)
+        // Charges are tracked SEPARATELY as profit below.
+        const totalReceived = tWallets.filter((t: any) => t.type === "RECEIVE").reduce((s: number, t: any) => s + (t.amount || 0), 0);
+        const totalSent = tWallets.filter((t: any) => t.type === "SEND").reduce((s: number, t: any) => s + (t.amount || 0), 0);
+
+        // v2.10.54 FIX: Profit = ONLY extra charges (serviceCharge), NOT principal
+        // Previously, wallet transactions' `amount` was being counted in profit
+        // calculations via `totalReceived`/`totalSent` which included charges.
+        // Now: profit is strictly the sum of serviceCharge for each transaction.
+        const loadProfit = tLoads.reduce((s: number, t: any) => s + ((t.salePrice || 0) - (t.amount || 0)), 0);
+        const billProfit = tBills.reduce((s: number, t: any) => s + (t.serviceCharge || 0), 0);
+        const walletProfit = tWallets.reduce((s: number, t: any) => s + (t.serviceCharge || 0), 0);
+        const totalCharges = loadProfit + billProfit + walletProfit;
+
         const totalDue = [...tLoads, ...tBills, ...tWallets].reduce((s: number, t: any) => s + (t.due || 0), 0);
         const grandTotal = totalLoad + totalBill + totalReceived;
 
-        // v2.10.53: Current balances — these are the LIVING totals that
-        // update in real-time as transactions happen (incl. POS sales that
-        // deduct from these entities). User wants these prominently visible.
+        // v2.10.53: Current balances — all-time, living totals
         const currentLoadBalance = companies.reduce((s: number, c: any) => s + (c.balance || 0), 0);
         const currentCashBalance = accounts.reduce((s: number, a: any) => s + (a.balance || 0), 0);
         const totalBillCollected = bills.reduce((s: number, t: any) => s + (t.totalPaid || 0), 0);
-        const totalBillCharges = bills.reduce((s: number, t: any) => s + (t.serviceCharge || 0), 0);
-        const totalSimStock = 0; // Fetched in SimTab — not needed here for now
 
-        // Total collected wallet charges (profit)
-        const totalWalletCharges = accounts.reduce((s: number, a: any) => s + (a.totalCharges || 0), 0);
-        const totalLoadProfit = companies.reduce((s: number, c: any) => s + (c.totalProfit || 0), 0);
-
-        setData({
-          totalLoad, totalBill, totalReceived, totalSent, totalCharges, totalDue, grandTotal,
-          currentLoadBalance, currentCashBalance, totalBillCollected, totalBillCharges,
-          totalWalletCharges, totalLoadProfit,
-        });
-      } catch { setData({}); }
-      finally { setLoading(false); }
+        if (mounted) {
+          setData({
+            totalLoad, totalBill, totalReceived, totalSent,
+            totalCharges, totalDue, grandTotal,
+            currentLoadBalance, currentCashBalance, totalBillCollected,
+          });
+        }
+      } catch (err) {
+        console.error("[Dashboard] unexpected error:", err);
+        // Don't crash — set empty data
+        if (mounted) setData({});
+      } finally {
+        if (mounted) setLoading(false);
+      }
     })();
+    return () => { mounted = false; };
   }, [refreshKey]);
 
-  // v2.10.53: First row — CURRENT BALANCES (big, prominent)
-  const currentBalances = [
-    { label: "موجودہ لوڈ بیلنس", value: data.currentLoadBalance || 0, icon: Smartphone, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-300", big: true, sublabel: "All companies combined" },
-    { label: "موجودہ کیش بیلنس", value: data.currentCashBalance || 0, icon: Wallet, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-300", big: true, sublabel: "All wallet accounts" },
-    { label: "کل بل وصولی", value: data.totalBillCollected || 0, icon: FileText, color: "text-blue-700", bg: "bg-blue-50 border-blue-300", big: true, sublabel: "All-time collected" },
+  // v2.10.54: If data failed to load, still render the page (don't crash)
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {[0, 1, 2].map(i => (
+          <Card key={i} className="bg-muted/30">
+            <CardContent className="p-4">
+              <div className="h-4 w-24 bg-muted animate-pulse rounded mb-2" />
+              <div className="h-8 w-32 bg-muted animate-pulse rounded" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  // Row 1: Current balances (big, prominent)
+  const currentBalances: Array<{ label: string; value: number; icon: any; color: string; bg: string; sublabel?: string }> = [
+    { label: "موجودہ لوڈ بیلنس", value: data.currentLoadBalance || 0, icon: Smartphone, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-300", sublabel: "All companies" },
+    { label: "موجودہ کیش بیلنس", value: data.currentCashBalance || 0, icon: Wallet, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-300", sublabel: "All wallets" },
+    { label: "کل بل وصولی", value: data.totalBillCollected || 0, icon: FileText, color: "text-blue-700", bg: "bg-blue-50 border-blue-300", sublabel: "All-time" },
   ];
 
-  // Second row — Today's transactions
-  const todayStats = [
-    { label: "آج کا کل لوڈ", value: data.totalLoad || 0, icon: Smartphone, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+  // Row 2: Today's transactions
+  const todayStats: Array<{ label: string; value: number; icon: any; color: string; bg: string }> = [
+    { label: "آج کا لوڈ", value: data.totalLoad || 0, icon: Smartphone, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
     { label: "آج کے بل", value: data.totalBill || 0, icon: FileText, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
-    { label: "وصول (Wallet)", value: data.totalReceived || 0, icon: ArrowDownLeft, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
-    { label: "بھیجی (Wallet)", value: data.totalSent || 0, icon: ArrowUpRight, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
-    { label: "آج کی کل سیل", value: data.grandTotal || 0, icon: DollarSign, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
-    { label: "آج کا منافع", value: data.totalCharges || 0, icon: TrendingUp, color: "text-amber-700", bg: "bg-amber-50 border-amber-200" },
+    { label: "وصول", value: data.totalReceived || 0, icon: ArrowDownLeft, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+    { label: "بھیجا", value: data.totalSent || 0, icon: ArrowUpRight, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
+    { label: "آج کی سیل", value: data.grandTotal || 0, icon: DollarSign, color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+    { label: "منافع (charges)", value: data.totalCharges || 0, icon: TrendingUp, color: "text-amber-700", bg: "bg-amber-50 border-amber-200" },
     { label: "بقایا", value: data.totalDue || 0, icon: TrendingDown, color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
   ];
 
   return (
     <div className="space-y-2">
-      {/* v2.10.53: First row — CURRENT BALANCES (big, prominent) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         {currentBalances.map((s, i) => (
           <Card key={i} className={`${s.bg} border-2`}>
@@ -221,7 +303,7 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
                 <span className="text-xs font-bold text-muted-foreground">{s.label}</span>
               </div>
               <div className={`text-2xl font-bold ${s.color}`}>
-                {loading ? "..." : `Rs ${(s.value || 0).toLocaleString("en-PK")}`}
+                Rs {(s.value || 0).toLocaleString("en-PK")}
               </div>
               {s.sublabel && (
                 <div className="text-[10px] text-muted-foreground mt-0.5">{s.sublabel}</div>
@@ -231,7 +313,6 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
         ))}
       </div>
 
-      {/* Second row — Today's transactions */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         {todayStats.map((s, i) => (
           <Card key={i} className={s.bg}>
@@ -241,7 +322,7 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
                 <span className="text-[10px] font-medium text-muted-foreground">{s.label}</span>
               </div>
               <div className={`text-base font-bold ${s.color}`}>
-                {loading ? "..." : `Rs ${(s.value || 0).toLocaleString("en-PK")}`}
+                Rs {(s.value || 0).toLocaleString("en-PK")}
               </div>
             </CardContent>
           </Card>
