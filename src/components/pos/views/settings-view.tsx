@@ -425,6 +425,7 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
         defaultTax: form.taxEnabled ? Number(form.defaultTax) || 0 : 0,
         receiptFooter: form.receiptFooter.trim(),
         invoicePrefix: form.invoicePrefix.trim() || "INV",
+        enableLoadBill: form.enableLoadBill, // v2.10.58: was missing — toggle never saved
       });
       toast.success("Shop details saved");
     } catch (err: any) {

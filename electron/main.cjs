@@ -772,6 +772,12 @@ if (!gotLock) {
       const { html, printerName, silent = true } = opts || {};
       if (!html) return { ok: false, error: "No HTML provided" };
 
+      // v2.10.58: Use a temp file instead of data: URL — data: URLs have
+      // size limits and can cause "ERR_INVALID_URL" on large receipts.
+      // Writing to a temp .html file is more reliable.
+      const tempHtmlPath = path.join(app.getPath("temp"), "pos-receipt.html");
+      fs.writeFileSync(tempHtmlPath, html, "utf-8");
+
       // Open a hidden window to render the HTML
       const printWin = new BrowserWindow({
         show: false,
@@ -782,11 +788,11 @@ if (!gotLock) {
         },
       });
 
-      // Load HTML content
-      await printWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+      // Load from temp file (more reliable than data: URL)
+      await printWin.loadFile(tempHtmlPath);
 
       // Wait a moment for rendering
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 500));
 
       // Print options
       const printOptions = {
@@ -797,15 +803,22 @@ if (!gotLock) {
         printOptions.deviceName = printerName;
       }
 
-      await new Promise((resolve, reject) => {
+      const printResult = await new Promise((resolve) => {
         printWin.webContents.print(printOptions, (success, failureReason) => {
-          if (success) resolve();
-          else reject(new Error(failureReason || "Print failed"));
+          resolve({ success, failureReason });
         });
       });
 
       printWin.destroy();
-      return { ok: true };
+
+      // Clean up temp file
+      try { fs.unlinkSync(tempHtmlPath); } catch {}
+
+      if (printResult.success) {
+        return { ok: true };
+      } else {
+        return { ok: false, error: printResult.failureReason || "Print failed" };
+      }
     } catch (e) {
       console.error("[POS] Silent print error:", e.message);
       return { ok: false, error: e.message };
