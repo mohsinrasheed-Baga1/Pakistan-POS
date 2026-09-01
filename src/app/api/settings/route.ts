@@ -66,6 +66,10 @@ export async function PUT(req: NextRequest) {
     const v = typeof body.googleRefreshToken === "string" ? body.googleRefreshToken.trim() : "";
     data.googleRefreshToken = v ? v : null;
   }
+  // v2.10.56: Enable Load & Bill Management toggle
+  if (body.enableLoadBill !== undefined) {
+    data.enableLoadBill = body.enableLoadBill === true;
+  }
   const settings = await db.settings.upsert({
     where: { id: "shop" },
     update: data,

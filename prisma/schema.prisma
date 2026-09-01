@@ -380,6 +380,8 @@ model Settings {
   googleClientId     String?
   googleClientSecret String?
   googleRefreshToken String?
+  // v2.10.56: Enable Load & Bill Management (default off — optional feature)
+  enableLoadBill     Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

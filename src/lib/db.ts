@@ -288,6 +288,7 @@ CREATE TABLE IF NOT EXISTS Settings (
   googleClientId TEXT,
   googleClientSecret TEXT,
   googleRefreshToken TEXT,
+  enableLoadBill BOOLEAN NOT NULL DEFAULT 0,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL
 );
@@ -593,6 +594,8 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     // v2.10.12: Default printer names for silent printing
     ["receiptPrinterName", "TEXT"],
     ["stickerPrinterName", "TEXT"],
+    // v2.10.56: Enable Load & Bill Management (default off)
+    ["enableLoadBill", "BOOLEAN NOT NULL DEFAULT 0"],
   ],
   // Load & Bill module — new columns added in v2.7.47
   MobileLoadTxn: [

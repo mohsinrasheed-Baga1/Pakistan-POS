@@ -94,6 +94,7 @@ import {
   ChevronDown,
   ChevronUp,
   Barcode as BarcodeIcon,
+  Smartphone,
 } from "lucide-react";
 import {
   Collapsible,
@@ -250,6 +251,7 @@ export function SettingsView() {
         googleClientId: pick("googleClientId"),
         googleClientSecret: pick("googleClientSecret"),
         googleRefreshToken: pick("googleRefreshToken"),
+        enableLoadBill: pick("enableLoadBill"),
       };
       const res = await fetch("/api/settings", {
         method: "PUT",
@@ -381,6 +383,7 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
         : 0,
     receiptFooter: settings.receiptFooter ?? "",
     invoicePrefix: settings.invoicePrefix || "INV",
+    enableLoadBill: !!(settings as any)?.enableLoadBill,
   });
   const [saving, setSaving] = React.useState(false);
 
@@ -397,6 +400,7 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
           : 0,
       receiptFooter: settings.receiptFooter ?? "",
       invoicePrefix: settings.invoicePrefix || "INV",
+      enableLoadBill: !!(settings as any)?.enableLoadBill,
     });
   }, [settings]);
 
@@ -610,6 +614,27 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
                 INV-0001)
               </p>
             </div>
+          </div>
+
+          {/* v2.10.56: Enable Load & Bill Management toggle */}
+          <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-1">
+              <Smartphone className="w-5 h-5 text-blue-600 flex-shrink-0" />
+              <div>
+                <Label htmlFor="enableLoadBill" className="font-bold text-blue-900 cursor-pointer">
+                  Load & Bill Management
+                </Label>
+                <p className="text-xs text-blue-700 mt-0.5">
+                  Enable this if you offer mobile load, bill payment, JazzCash/Easypaisa, or SIM sales.
+                  When OFF, the "Load & Bill" menu is hidden.
+                </p>
+              </div>
+            </div>
+            <Switch
+              id="enableLoadBill"
+              checked={form.enableLoadBill}
+              onCheckedChange={(c) => setField("enableLoadBill", c)}
+            />
           </div>
 
           {/* Submit */}

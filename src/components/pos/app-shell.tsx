@@ -90,6 +90,10 @@ export function AppShell({ user, settings }: AppShellProps) {
 
   const roleOrder = { CASHIER: 1, MANAGER: 2, ADMIN: 3 };
   const navItems = NAV.filter((n) => {
+    // v2.10.56: Hide LoadBill menu unless explicitly enabled in Settings
+    if (n.id === "loadbill" && !(settings as any)?.enableLoadBill) {
+      return false;
+    }
     // Check role
     if (n.minRole && roleOrder[user.role as keyof typeof roleOrder] < roleOrder[n.minRole as keyof typeof roleOrder]) {
       return false;
@@ -98,8 +102,6 @@ export function AppShell({ user, settings }: AppShellProps) {
     if (user.role === "ADMIN") return true;
     // Check permission (will be undefined for items that only require minRole)
     if (n.permission) {
-      // permissions object comes from the user prop (we'll need to add it)
-      // For now, fall back to role-based check
       const userPerms = (user as any).permissions;
       if (userPerms && userPerms[n.permission] === false) {
         return false;
