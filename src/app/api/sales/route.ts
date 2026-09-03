@@ -344,8 +344,16 @@ async function processSale(userId: string, body: any, items: any[]) {
       // v2.10.25: Loose products (MAIN_STORE) should ONLY deduct from Main Store
       // Regular SHOP products deduct from shop stock as normal
       const isMainStoreProduct = product.inventorySource === "MAIN_STORE";
+      // v2.10.59: Skip regular stock decrement for LoadBill products —
+      // their stock (which mirrors entity balance) is updated separately
+      // in the LoadBill deduction section below, using the actual amount
+      // (not quantity).
+      const isLoadBillProduct =
+        product.inventorySource === "LOAD_COMPANY" ||
+        product.inventorySource === "WALLET_ACCOUNT" ||
+        product.inventorySource === "SIM_STOCK";
 
-      if (!isMainStoreProduct) {
+      if (!isMainStoreProduct && !isLoadBillProduct) {
         // Regular shop product — deduct from shop stock
         const stockDeduction = it.quantity;
         await db.product.update({
@@ -487,16 +495,13 @@ async function processSale(userId: string, body: any, items: any[]) {
     if (!product) continue;
 
     // ─── LOAD COMPANY: deduct load amount from company balance ─────────────
-    // For load products, the SALE PRICE is the load amount + extra charges.
-    // We deduct the FULL sale price (load + charges) from the company
-    // balance because that's the money the shopkeeper spent.
     if (product.inventorySource === "LOAD_COMPANY" && product.linkedStoreProductId) {
       try {
         const company = await db.mobileLoadCompany.findUnique({
           where: { id: product.linkedStoreProductId },
         });
         if (company) {
-          const deductAmount = it.price * it.quantity; // total for this line
+          const deductAmount = it.price * it.quantity;
           const newBalance = Math.max(0, company.balance - deductAmount);
           await db.mobileLoadCompany.update({
             where: { id: company.id },
@@ -505,21 +510,26 @@ async function processSale(userId: string, body: any, items: any[]) {
               totalSold: { increment: deductAmount },
             },
           });
-          // Record the transaction as a SALE
           await db.mobileLoadTxn.create({
             data: {
               companyId: company.id,
               type: "SALE",
-              amount: it.price * it.quantity, // face value approximation
+              amount: it.price * it.quantity,
               salePrice: it.price * it.quantity,
-              profit: 0, // charges are included in salePrice for simplicity
+              profit: 0,
               due: 0,
               customerName: body.customerName || null,
               customerPhone: body.customerPhone || null,
               note: `POS sale ${invoiceNo}`,
             },
           });
-          console.log(`[sales] Load company ${company.name} balance: ${company.balance} → ${newBalance} (deducted ${deductAmount})`);
+          // v2.10.59: Update Product.stock to mirror the new company balance
+          // so POS search shows the updated balance immediately
+          await db.product.update({
+            where: { id: product.id },
+            data: { stock: Math.floor(newBalance) },
+          });
+          console.log(`[sales] Load company ${company.name} balance: ${company.balance} → ${newBalance} | Product.stock updated`);
         }
       } catch (e: any) {
         console.error("[sales] Load company balance deduction error:", e?.message);
@@ -534,7 +544,7 @@ async function processSale(userId: string, body: any, items: any[]) {
         });
         if (account) {
           const txnAmount = it.price * it.quantity;
-          const newBalance = account.balance - txnAmount; // can go negative if SEND
+          const newBalance = account.balance - txnAmount;
           await db.walletAccount.update({
             where: { id: account.id },
             data: {
@@ -555,7 +565,12 @@ async function processSale(userId: string, body: any, items: any[]) {
               note: `POS sale ${invoiceNo}`,
             },
           });
-          console.log(`[sales] Wallet ${account.name} balance: ${account.balance} → ${newBalance}`);
+          // v2.10.59: Update Product.stock to mirror the new wallet balance
+          await db.product.update({
+            where: { id: product.id },
+            data: { stock: Math.floor(newBalance) },
+          });
+          console.log(`[sales] Wallet ${account.name} balance: ${account.balance} → ${newBalance} | Product.stock updated`);
         }
       } catch (e: any) {
         console.error("[sales] Wallet balance deduction error:", e?.message);
@@ -565,11 +580,9 @@ async function processSale(userId: string, body: any, items: any[]) {
     // ─── SIM STOCK: deduct quantity from SimStock rows ─────────────────────
     if (product.inventorySource === "SIM_STOCK" && product.linkedStoreProductId) {
       try {
-        // linkedStoreProductId is "company-type" key
         const [company, type] = product.linkedStoreProductId.split("-");
         let remaining = it.quantity;
 
-        // Deduct from individual SIM stock rows (FIFO)
         const sims = await db.simStock.findMany({
           where: { company, type, status: "IN_STOCK" },
           orderBy: { createdAt: "asc" },
@@ -582,7 +595,6 @@ async function processSale(userId: string, body: any, items: any[]) {
           const newQty = available - take;
 
           if (newQty <= 0) {
-            // Mark as SOLD
             await db.simStock.update({
               where: { id: sim.id },
               data: {
@@ -601,7 +613,16 @@ async function processSale(userId: string, body: any, items: any[]) {
           }
           remaining -= take;
         }
-        console.log(`[sales] SIM stock deducted: ${company} ${type} × ${it.quantity}`);
+        // v2.10.59: Recalculate Product.stock from remaining SIMs
+        const remainingSims = await db.simStock.findMany({
+          where: { company, type, status: "IN_STOCK" },
+        });
+        const newSimCount = remainingSims.reduce((s, sim) => s + (sim.stockQuantity || 1), 0);
+        await db.product.update({
+          where: { id: product.id },
+          data: { stock: newSimCount },
+        });
+        console.log(`[sales] SIM stock deducted: ${company} ${type} × ${it.quantity} | Product.stock = ${newSimCount}`);
       } catch (e: any) {
         console.error("[sales] SIM stock deduction error:", e?.message);
       }
