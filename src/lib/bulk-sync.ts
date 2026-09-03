@@ -203,10 +203,17 @@ export async function bulkSyncAll(): Promise<{ products: number; cards: number; 
           ? (t.amount || 0)
           : -(t.amount || 0);
 
+        // v2.10.60: Map to Supabase's allowed type values (check constraint)
+        //   DEPOSIT/CREDIT/REFUND → 'topup'
+        //   Everything else → 'sale'
+        const supabaseType = ["DEPOSIT", "CREDIT", "REFUND"].includes(t.type)
+          ? "topup"
+          : "sale";
+
         await sb.from("card_transactions").upsert({
           card_number: t.cardNumber,
           amount: signedAmount,
-          type: (t.type || "transaction").toLowerCase(),
+          type: supabaseType,
           description: t.description || t.type,
           created_at: new Date(t.createdAt).toISOString(),
         }, { onConflict: "created_at" });

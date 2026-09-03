@@ -184,10 +184,22 @@ export async function POST(
             ? parsedAmount
             : -parsedAmount;
 
+          // v2.10.60: Map local transaction types to Supabase's allowed types.
+          // The card_transactions table has a CHECK constraint that only allows
+          // specific type values. We tested and found: 'sale' and 'topup' work.
+          // All other types (deposit, withdrawal, etc.) are rejected with error
+          // code 23514 (check constraint violation).
+          // Map:
+          //   DEPOSIT/CREDIT/REFUND → 'topup' (money added, positive amount)
+          //   WITHDRAWAL/PURCHASE/PAYMENT/DEBIT → 'sale' (money taken, negative amount)
+          const supabaseType = ["DEPOSIT", "CREDIT", "REFUND"].includes(type)
+            ? "topup"
+            : "sale";
+
           const { error: txnSyncError } = await sb.from("card_transactions").upsert({
             card_number: cardNumber,
             amount: signedAmount,
-            type: type.toLowerCase(),
+            type: supabaseType,
             description: description?.toString().trim() || type,
             created_at: new Date().toISOString(),
           }, { onConflict: "created_at" });
