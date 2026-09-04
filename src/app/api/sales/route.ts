@@ -370,43 +370,62 @@ async function processSale(userId: string, body: any, items: any[]) {
         });
 
         // ─── AUTO-REFILL ──────────────────────────────────────────────────────
-        const boxProduct = await db.product.findFirst({
-          where: { packBarcode: product.barcode },
-        });
-        if (boxProduct && boxProduct.stock > 0) {
-          const refreshedPiece = await db.product.findUnique({
-            where: { id: product.id },
-          });
-          const pieceStockAfter = refreshedPiece?.stock ?? 0;
-          const packQty = boxProduct.packQuantity || 1;
-          if (pieceStockAfter < packQty) {
-            // Open the box
-            await db.product.update({
-              where: { id: boxProduct.id },
-              data: { stock: { decrement: 1 } },
-            });
-            await db.product.update({
-              where: { id: product.id },
-              data: { stock: { increment: packQty } },
-            });
-            await db.stockLog.create({
-              data: {
-                productId: boxProduct.id,
-                type: "ADJUSTMENT",
-                quantity: -1,
-                note: `Auto-opened 1 box for ${product.name} after sale ${invoiceNo}`,
-              },
-            });
-            await db.stockLog.create({
-              data: {
-                productId: product.id,
-                type: "ADJUSTMENT",
-                quantity: packQty,
-                note: `Auto-refill from box after sale ${invoiceNo} (+${packQty} pcs)`,
-              },
-            });
-          }
-        }
+        // v2.10.61: DISABLED auto-refill. This was causing a MAJOR stock
+        // counting bug: when selling ALL remaining pieces (e.g. 37), stock
+        // goes to 0, then auto-refill detects a linked box product and
+        // opens it → adds packQty (e.g. 24) pieces back. The user sees
+        // stock=24 after selling everything, which is confusing and wrong.
+        //
+        // The auto-refill was designed for a scenario where the shopkeeper
+        // sells pieces one at a time and wants the system to auto-open a
+        // box when pieces run low. But in practice, shopkeepers sell in
+        // bulk (all 37 at once), and the auto-refill fires incorrectly.
+        //
+        // Fix: completely disable auto-refill. If the user wants to open
+        // a box, they can do it manually from the Products page.
+        //
+        // The code below is commented out for reference. If we re-enable
+        // it in the future, it should ONLY trigger when:
+        //   1. The sale was for a SINGLE piece (qty === 1)
+        //   2. Stock after sale is 0 (completely empty)
+        //   3. The user has explicitly opted into auto-refill in Settings
+        //
+        // const boxProduct = await db.product.findFirst({
+        //   where: { packBarcode: product.barcode },
+        // });
+        // if (boxProduct && boxProduct.stock > 0) {
+        //   const refreshedPiece = await db.product.findUnique({
+        //     where: { id: product.id },
+        //   });
+        //   const pieceStockAfter = refreshedPiece?.stock ?? 0;
+        //   const packQty = boxProduct.packQuantity || 1;
+        //   if (pieceStockAfter < packQty) {
+        //     await db.product.update({
+        //       where: { id: boxProduct.id },
+        //       data: { stock: { decrement: 1 } },
+        //     });
+        //     await db.product.update({
+        //       where: { id: product.id },
+        //       data: { stock: { increment: packQty } },
+        //     });
+        //     await db.stockLog.create({
+        //       data: {
+        //         productId: boxProduct.id,
+        //         type: "ADJUSTMENT",
+        //         quantity: -1,
+        //         note: `Auto-opened 1 box for ${product.name} after sale ${invoiceNo}`,
+        //       },
+        //     });
+        //     await db.stockLog.create({
+        //       data: {
+        //         productId: product.id,
+        //         type: "ADJUSTMENT",
+        //         quantity: packQty,
+        //         note: `Auto-refill from box after sale ${invoiceNo} (+${packQty} pcs)`,
+        //       },
+        //     });
+        //   }
+        // }
       }
       // Note: For MAIN_STORE products, we do NOT deduct from shop stock.
       // The deduction happens only from Main Store (storeStock) below.
