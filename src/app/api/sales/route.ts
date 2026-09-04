@@ -355,6 +355,71 @@ async function processSale(userId: string, body: any, items: any[]) {
 
       if (!isMainStoreProduct && !isLoadBillProduct) {
         // Regular shop product — deduct from shop stock
+        // v2.10.62: SMART AUTO-BOX-OPEN
+        // Before deducting, check if piece stock is sufficient.
+        // If not, auto-open boxes to cover the shortfall.
+        //
+        // Example:
+        //   Piece stock: 1, Box stock: 5 (each box = 12 pcs)
+        //   Sell 25 pieces
+        //   Shortfall: 25 - 1 = 24 pieces needed from boxes
+        //   Boxes to open: ceil(24 / 12) = 2 boxes
+        //   After opening: piece stock = 1 + (2 × 12) = 25
+        //   After sale: piece stock = 25 - 25 = 0
+        //   Box stock: 5 - 2 = 3
+
+        const currentPiece = await db.product.findUnique({ where: { id: it.productId } });
+        const currentPieceStock = currentPiece?.stock || 0;
+        const sellQty = it.quantity;
+
+        // Check if we need to open boxes
+        if (currentPieceStock < sellQty) {
+          // Find linked box product (where packBarcode = this product's barcode)
+          const boxProduct = await db.product.findFirst({
+            where: { packBarcode: product.barcode },
+          });
+
+          if (boxProduct && boxProduct.stock > 0 && boxProduct.packQuantity > 0) {
+            const packQty = boxProduct.packQuantity;
+            const shortfall = sellQty - currentPieceStock;
+            const boxesToOpen = Math.ceil(shortfall / packQty);
+
+            // Don't open more boxes than available
+            const actualBoxesToOpen = Math.min(boxesToOpen, boxProduct.stock);
+            const piecesToAdd = actualBoxesToOpen * packQty;
+
+            if (actualBoxesToOpen > 0) {
+              // Open the boxes: decrement box stock, increment piece stock
+              await db.product.update({
+                where: { id: boxProduct.id },
+                data: { stock: { decrement: actualBoxesToOpen } },
+              });
+              await db.product.update({
+                where: { id: it.productId },
+                data: { stock: { increment: piecesToAdd } },
+              });
+              await db.stockLog.create({
+                data: {
+                  productId: boxProduct.id,
+                  type: "ADJUSTMENT",
+                  quantity: -actualBoxesToOpen,
+                  note: `Auto-opened ${actualBoxesToOpen} box(es) for ${product.name} before sale ${invoiceNo} (+${piecesToAdd} pcs)`,
+                },
+              });
+              await db.stockLog.create({
+                data: {
+                  productId: it.productId,
+                  type: "ADJUSTMENT",
+                  quantity: piecesToAdd,
+                  note: `Auto-refill from ${actualBoxesToOpen} box(es) before sale ${invoiceNo} (+${piecesToAdd} pcs)`,
+                },
+              });
+              console.log(`[sales] Auto-opened ${actualBoxesToOpen} box(es) for ${product.name}: +${piecesToAdd} pieces before selling ${sellQty}`);
+            }
+          }
+        }
+
+        // Now deduct the sold quantity
         const stockDeduction = it.quantity;
         await db.product.update({
           where: { id: it.productId },
@@ -368,45 +433,6 @@ async function processSale(userId: string, body: any, items: any[]) {
             note: `Sale ${invoiceNo}`,
           },
         });
-
-        // ─── AUTO-REFILL ──────────────────────────────────────────────────────
-        const boxProduct = await db.product.findFirst({
-          where: { packBarcode: product.barcode },
-        });
-        if (boxProduct && boxProduct.stock > 0) {
-          const refreshedPiece = await db.product.findUnique({
-            where: { id: product.id },
-          });
-          const pieceStockAfter = refreshedPiece?.stock ?? 0;
-          const packQty = boxProduct.packQuantity || 1;
-          if (pieceStockAfter < packQty) {
-            // Open the box
-            await db.product.update({
-              where: { id: boxProduct.id },
-              data: { stock: { decrement: 1 } },
-            });
-            await db.product.update({
-              where: { id: product.id },
-              data: { stock: { increment: packQty } },
-            });
-            await db.stockLog.create({
-              data: {
-                productId: boxProduct.id,
-                type: "ADJUSTMENT",
-                quantity: -1,
-                note: `Auto-opened 1 box for ${product.name} after sale ${invoiceNo}`,
-              },
-            });
-            await db.stockLog.create({
-              data: {
-                productId: product.id,
-                type: "ADJUSTMENT",
-                quantity: packQty,
-                note: `Auto-refill from box after sale ${invoiceNo} (+${packQty} pcs)`,
-              },
-            });
-          }
-        }
       }
       // Note: For MAIN_STORE products, we do NOT deduct from shop stock.
       // The deduction happens only from Main Store (storeStock) below.

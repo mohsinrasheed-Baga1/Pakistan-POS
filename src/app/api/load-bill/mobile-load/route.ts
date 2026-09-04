@@ -32,7 +32,12 @@ export async function POST(req: NextRequest) {
 
     const parsedCost = Number(costPrice) || 0;
     const parsedSale = Number(salePrice) || 0;
-    const profit = type === "SALE" ? parsedSale - parsedCost : 0;
+    // v2.10.62 FIX: Profit = salePrice - amount (NOT salePrice - costPrice)
+    // For SALE: salePrice = load + charges (e.g. 155), amount = load (e.g. 150)
+    // Profit should be charges only (e.g. 5), NOT the full sale amount.
+    // Previously: profit = salePrice - costPrice = 155 - 0 = 155 (WRONG)
+    // Now: profit = salePrice - amount = 155 - 150 = 5 (correct)
+    const profit = type === "SALE" ? parsedSale - parsedAmount : 0;
 
     // Verify company exists
     const company = await db.mobileLoadCompany.findUnique({ where: { id: companyId } });
