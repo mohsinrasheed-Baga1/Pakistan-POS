@@ -79,7 +79,15 @@ export async function POST(req: NextRequest) {
       } else {
         updatedBalance -= parsedAmount;
         updatedTotalSold += parsedAmount;
-        updatedTotalProfit += profit;
+        // v2.10.63: Recalculate totalProfit from ALL transactions instead of
+        // incrementing. This auto-fixes any previously corrupted profit values
+        // from the old bug (where profit = salePrice - costPrice instead of
+        // salePrice - amount).
+        const allTxns = await tx.mobileLoadTxn.findMany({
+          where: { companyId, type: "SALE" },
+          select: { salePrice: true, amount: true },
+        });
+        updatedTotalProfit = allTxns.reduce((s, t) => s + ((t.salePrice || 0) - (t.amount || 0)), 0);
       }
 
       const updatedCompany = await tx.mobileLoadCompany.update({
