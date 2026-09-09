@@ -527,35 +527,40 @@ async function processSale(userId: string, body: any, items: any[]) {
           where: { id: product.linkedStoreProductId },
         });
         if (company) {
-          const deductAmount = it.price * it.quantity;
-          const newBalance = Math.max(0, company.balance - deductAmount);
+          // v2.10.64: Separate principal (load amount) from charges (profit)
+          // it.price = TOTAL (load + charges) — what customer pays
+          // it.costPrice = principal (load amount only) — set by confirmLoadAdd
+          const totalAmount = it.price * it.quantity;        // Total customer pays (e.g. 179)
+          const principalAmount = (it.costPrice || it.price) * it.quantity; // Load amount (e.g. 169)
+          const chargesAmount = totalAmount - principalAmount;   // Charges/profit (e.g. 10)
+
+          // Deduct ONLY principal from balance (charges are profit, NOT deducted)
+          const newBalance = Math.max(0, company.balance - principalAmount);
           await db.mobileLoadCompany.update({
             where: { id: company.id },
             data: {
               balance: newBalance,
-              totalSold: { increment: deductAmount },
+              totalSold: { increment: principalAmount },
             },
           });
           await db.mobileLoadTxn.create({
             data: {
               companyId: company.id,
               type: "SALE",
-              amount: it.price * it.quantity,
-              salePrice: it.price * it.quantity,
-              profit: 0,
+              amount: principalAmount,      // Load amount (169)
+              salePrice: totalAmount,       // Total customer paid (179)
+              profit: chargesAmount,        // Charges only (10)
               due: 0,
               customerName: body.customerName || null,
               customerPhone: body.customerPhone || null,
               note: `POS sale ${invoiceNo}`,
             },
           });
-          // v2.10.59: Update Product.stock to mirror the new company balance
-          // so POS search shows the updated balance immediately
           await db.product.update({
             where: { id: product.id },
             data: { stock: Math.floor(newBalance) },
           });
-          console.log(`[sales] Load company ${company.name} balance: ${company.balance} → ${newBalance} | Product.stock updated`);
+          console.log(`[sales] Load company ${company.name}: balance ${company.balance}→${newBalance} (deducted ${principalAmount}), profit ${chargesAmount}`);
         }
       } catch (e: any) {
         console.error("[sales] Load company balance deduction error:", e?.message);
@@ -569,13 +574,19 @@ async function processSale(userId: string, body: any, items: any[]) {
           where: { id: product.linkedStoreProductId },
         });
         if (account) {
-          const txnAmount = it.price * it.quantity;
-          const newBalance = account.balance - txnAmount;
+          // v2.10.64: Separate principal from charges (same as load company)
+          const totalAmount = it.price * it.quantity;
+          const principalAmount = (it.costPrice || it.price) * it.quantity;
+          const chargesAmount = totalAmount - principalAmount;
+
+          // Deduct ONLY principal from balance (charges are profit, NOT deducted)
+          const newBalance = account.balance - principalAmount;
           await db.walletAccount.update({
             where: { id: account.id },
             data: {
               balance: newBalance,
-              totalSent: { increment: txnAmount },
+              totalSent: { increment: principalAmount },
+              totalCharges: { increment: chargesAmount },
             },
           });
           await db.walletTxn.create({
@@ -583,20 +594,19 @@ async function processSale(userId: string, body: any, items: any[]) {
               accountId: account.id,
               provider: account.provider,
               type: "SEND",
-              amount: txnAmount,
-              serviceCharge: 0,
+              amount: principalAmount,
+              serviceCharge: chargesAmount,
               due: 0,
               customerName: body.customerName || null,
               customerPhone: body.customerPhone || null,
               note: `POS sale ${invoiceNo}`,
             },
           });
-          // v2.10.59: Update Product.stock to mirror the new wallet balance
           await db.product.update({
             where: { id: product.id },
             data: { stock: Math.floor(newBalance) },
           });
-          console.log(`[sales] Wallet ${account.name} balance: ${account.balance} → ${newBalance} | Product.stock updated`);
+          console.log(`[sales] Wallet ${account.name}: balance ${account.balance}→${newBalance} (deducted ${principalAmount}), profit ${chargesAmount}`);
         }
       } catch (e: any) {
         console.error("[sales] Wallet balance deduction error:", e?.message);

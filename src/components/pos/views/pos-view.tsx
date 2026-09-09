@@ -269,11 +269,16 @@ export function PosView({ settings }: PosViewProps) {
       return;
     }
 
-    // Add as virtual product with the TOTAL as price
+    // v2.10.64: Add as virtual product with the TOTAL as price (for customer payment)
+    // But also store the PRINCIPAL (load amount) and CHARGES separately in custom fields
+    // so the sale route can deduct only the principal from balance and track charges as profit.
     cart.addItem({
       ...loadDialogProduct,
-      salePrice: total,
-      name: `${loadDialogProduct.name} — Rs ${amt}${charges > 0 ? ` (+${charges})` : ""}`,
+      salePrice: total, // Total = what customer pays (load + charges)
+      costPrice: amt,   // v2.10.64: Principal = load amount only (for balance deduction)
+      // Custom fields to pass through to sale route
+      _loadPrincipal: amt,
+      _loadCharges: charges,
     } as Product, 1);
     toast.success(`${loadDialogProduct.name}: Rs ${total} added to cart`);
 
@@ -302,11 +307,15 @@ export function PosView({ settings }: PosViewProps) {
       return;
     }
 
-    // Add as virtual product
+    // v2.10.64: Add as virtual product with TOTAL as price, but store
+    // principal + charges separately for correct balance/profit tracking
     cart.addItem({
       ...walletDialogProduct,
-      salePrice: total,
-      name: `${walletDialogProduct.name} ${walletTxnType === "SEND" ? "SEND" : "RECEIVE"} — Rs ${amt}${charges > 0 ? ` (+${charges})` : ""}`,
+      salePrice: total, // Total = what customer pays/receives
+      costPrice: amt,   // Principal = amount only
+      _walletPrincipal: amt,
+      _walletCharges: charges,
+      _walletTxnType: walletTxnType,
     } as Product, 1);
     toast.success(`${walletDialogProduct.name} ${walletTxnType}: Rs ${total} added to cart`);
 
