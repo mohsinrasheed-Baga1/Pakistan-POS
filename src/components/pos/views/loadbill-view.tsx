@@ -215,11 +215,13 @@ function DashboardSummary({ refreshKey }: { refreshKey: number }) {
         const tBills = bills.filter((t: any) => isToday(t.createdAt));
         const tWallets = wallets.filter((t: any) => isToday(t.createdAt));
 
-        // v2.10.54: Today's totals — principal only (NOT charges)
-        const totalLoad = tLoads.reduce((s: number, t: any) => s + (t.salePrice || t.amount || 0), 0);
-        const totalBill = tBills.reduce((s: number, t: any) => s + (t.totalPaid || 0), 0);
-        // v2.10.54 FIX: Wallet received/sent should show PRINCIPAL only (not charges)
-        // Charges are tracked SEPARATELY as profit below.
+        // v2.10.66: Today's totals — PRINCIPAL only (t.amount, NOT t.salePrice)
+        // t.amount = load amount (169) — what gets deducted from balance
+        // t.salePrice = total (179) — what customer pays (principal + charges)
+        // Sales should show 169 (principal), NOT 179 (total).
+        // Charges (10) are tracked separately as profit below.
+        const totalLoad = tLoads.reduce((s: number, t: any) => s + (t.amount || 0), 0);
+        const totalBill = tBills.reduce((s: number, t: any) => s + (t.billAmount || 0), 0);
         const totalReceived = tWallets.filter((t: any) => t.type === "RECEIVE").reduce((s: number, t: any) => s + (t.amount || 0), 0);
         const totalSent = tWallets.filter((t: any) => t.type === "SEND").reduce((s: number, t: any) => s + (t.amount || 0), 0);
 
@@ -1760,14 +1762,20 @@ function ReportsTab({ refreshKey }: { refreshKey: number }) {
         const sims = (await simRes.json()).sims || [];
 
         const loadSales = loads.filter((t: any) => t.type === "SALE");
-        const loadProfit = loadSales.reduce((s: number, t: any) => s + (t.salePrice - t.amount), 0);
+        // v2.10.66: Sales amount = t.amount (principal), NOT t.salePrice (total)
+        const loadSalesAmount = loadSales.reduce((s: number, t: any) => s + (t.amount || 0), 0);
+        // Profit = t.salePrice - t.amount (charges only)
+        const loadProfit = loadSales.reduce((s: number, t: any) => s + ((t.salePrice || 0) - (t.amount || 0)), 0);
+        const billSalesAmount = bills.reduce((s: number, t: any) => s + (t.billAmount || 0), 0);
         const billProfit = bills.reduce((s: number, t: any) => s + (t.serviceCharge || 0), 0);
+        const walletSalesAmount = wallets.reduce((s: number, t: any) => s + (t.amount || 0), 0);
         const walletProfit = wallets.reduce((s: number, t: any) => s + (t.serviceCharge || 0), 0);
         const simRevenue = sims.filter((s: any) => s.status === "SOLD").reduce((s: number, t: any) => s + (t.salePrice || 0), 0);
         const totalDue = [...loads, ...bills, ...wallets].reduce((s: number, t: any) => s + (t.due || 0), 0);
+        const totalSales = loadSalesAmount + billSalesAmount + walletSalesAmount;
         const totalProfit = loadProfit + billProfit + walletProfit;
 
-        setData({ loadSales: loadSales.length, loadProfit, billCount: bills.length, billProfit, walletCount: wallets.length, walletProfit, simSold: sims.filter((s: any) => s.status === "SOLD").length, simRevenue, totalDue, totalProfit });
+        setData({ loadSales: loadSales.length, loadSalesAmount, loadProfit, billCount: bills.length, billSalesAmount, billProfit, walletCount: wallets.length, walletSalesAmount, walletProfit, simSold: sims.filter((s: any) => s.status === "SOLD").length, simRevenue, totalDue, totalSales, totalProfit });
       } catch {}
       finally { setLoading(false); }
     })();
@@ -1777,13 +1785,17 @@ function ReportsTab({ refreshKey }: { refreshKey: number }) {
 
   const rows = [
     { label: "Load Sales Count", value: data.loadSales || 0 },
+    { label: "Load Sales Amount (سیل)", value: `Rs ${(data.loadSalesAmount || 0).toLocaleString()}` },
     { label: "Load Profit (Service Charges)", value: `Rs ${(data.loadProfit || 0).toLocaleString()}` },
     { label: "Bill Payment Count", value: data.billCount || 0 },
+    { label: "Bill Sales Amount (سیل)", value: `Rs ${(data.billSalesAmount || 0).toLocaleString()}` },
     { label: "Bill Profit (Service Charges)", value: `Rs ${(data.billProfit || 0).toLocaleString()}` },
     { label: "Wallet Transaction Count", value: data.walletCount || 0 },
+    { label: "Wallet Sales Amount (سیل)", value: `Rs ${(data.walletSalesAmount || 0).toLocaleString()}` },
     { label: "Wallet Profit (Service Charges)", value: `Rs ${(data.walletProfit || 0).toLocaleString()}` },
     { label: "SIMs Sold", value: data.simSold || 0 },
     { label: "SIM Revenue", value: `Rs ${(data.simRevenue || 0).toLocaleString()}` },
+    { label: "Total Sales (کل سیل)", value: `Rs ${(data.totalSales || 0).toLocaleString()}` },
     { label: "Total Due (بقایا)", value: `Rs ${(data.totalDue || 0).toLocaleString()}` },
     { label: "Total Profit (کل منافع)", value: `Rs ${(data.totalProfit || 0).toLocaleString()}` },
   ];
