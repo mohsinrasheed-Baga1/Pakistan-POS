@@ -889,6 +889,11 @@ export function PosView({ settings }: PosViewProps) {
             : cart.saleType === "SHOPKEEPER" && i.product.shopkeeperPrice > 0
             ? i.product.shopkeeperPrice
             : i.product.salePrice,
+          // v2.10.67: Send costPrice so the sale route can separate
+          // principal (load amount) from charges (profit) for LoadBill products.
+          // For regular products, costPrice comes from DB (fallback).
+          // For LoadBill products, costPrice = principal set by confirmLoadAdd.
+          costPrice: (i.product as any).costPrice || 0,
         })),
         discount: cart.discount,
         paidAmount: effectivePaidAmount,

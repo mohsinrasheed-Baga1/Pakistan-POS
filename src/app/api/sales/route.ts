@@ -190,7 +190,8 @@ async function processSale(userId: string, body: any, items: any[]) {
 
   // v2.10.18: Merge duplicate items (same productId) before processing
   // This prevents receipt from showing the same product multiple times
-  const mergedItems: { productId: string; quantity: number; price: number }[] = [];
+  // v2.10.67: Also carry costPrice (for LoadBill principal/charges separation)
+  const mergedItems: { productId: string; quantity: number; price: number; costPrice: number }[] = [];
   for (const it of items) {
     const existing = mergedItems.find((m) => m.productId === it.productId);
     if (existing) {
@@ -200,6 +201,7 @@ async function processSale(userId: string, body: any, items: any[]) {
         productId: it.productId,
         quantity: Number(it.quantity),
         price: Number(it.price),
+        costPrice: Number(it.costPrice) || 0, // v2.10.67: from cart item
       });
     }
   }
@@ -223,11 +225,10 @@ async function processSale(userId: string, body: any, items: any[]) {
       name: product.name,
       barcode: product.barcode,
       price,
-      // v2.10.65: Use the cart item's costPrice (which for LoadBill products
-      // contains the principal/load amount), NOT the DB product's costPrice
-      // (which is 0 for LoadBill products and would cause the principal
-      // calculation to fall back to the full price).
-      costPrice: Number(it.costPrice) || product.costPrice,
+      // v2.10.67: Use the cart item's costPrice (sent from frontend).
+      // For LoadBill products, this contains the principal (load amount).
+      // For regular products, it's 0 → falls back to DB product.costPrice.
+      costPrice: (Number(it.costPrice) || product.costPrice),
       quantity: qty,
       unit: product.unit,
       taxRate: product.taxRate,
