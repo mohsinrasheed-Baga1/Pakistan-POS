@@ -223,7 +223,11 @@ async function processSale(userId: string, body: any, items: any[]) {
       name: product.name,
       barcode: product.barcode,
       price,
-      costPrice: product.costPrice,
+      // v2.10.65: Use the cart item's costPrice (which for LoadBill products
+      // contains the principal/load amount), NOT the DB product's costPrice
+      // (which is 0 for LoadBill products and would cause the principal
+      // calculation to fall back to the full price).
+      costPrice: Number(it.costPrice) || product.costPrice,
       quantity: qty,
       unit: product.unit,
       taxRate: product.taxRate,

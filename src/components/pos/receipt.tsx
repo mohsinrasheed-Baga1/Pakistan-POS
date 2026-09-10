@@ -305,31 +305,32 @@ export function Receipt({ sale, settings, open, onOpenChange, onEdit }: ReceiptP
             <span>Recd:</span>
             <span>{formatMoney(sale.paidAmount, currency)}</span>
           </div>
-          {/* v2.10.31: Always show Change when customer paid >= total
-              (was gated behind rs.showChange toggle + sale.change > 0,
-              which caused it to be missing on receipts when toggle was off
-              or sale.change wasn't populated for older sales).
-              Now: calculate dynamically as max(0, paidAmount - total). */}
+          {/* v2.10.65: ALWAYS show Change on receipt — user requested it be visible.
+              Change = paidAmount - total (when customer paid more than total).
+              Also show Balance Due when customer paid less. */}
           {(() => {
             const paid = Number(sale.paidAmount) || 0;
             const total = Number(sale.total) || 0;
-            const change = paid > total ? Math.max(0, paid - total) : (Number(sale.change) || 0);
-            if (paid <= 0) return null; // no payment recorded
-            if (paid < total) return null; // underpayment — show "Balance Due" below instead
+            const change = Math.max(0, paid - total);
+            const balanceDue = Math.max(0, total - paid);
+            if (paid <= 0) return null;
             return (
-              <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
-                <span>Change:</span>
-                <span>{formatMoney(change, currency)}</span>
-              </div>
+              <>
+                {change > 0 && (
+                  <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
+                    <span>Change:</span>
+                    <span>{formatMoney(change, currency)}</span>
+                  </div>
+                )}
+                {balanceDue > 0 && (
+                  <div className="row bold" style={{ fontSize: tableFontSize, fontWeight: "bold", color: "#dc2626" }}>
+                    <span>Balance Due:</span>
+                    <span>{formatMoney(balanceDue, currency)}</span>
+                  </div>
+                )}
+              </>
             );
           })()}
-          {/* Balance Due (when customer paid less — RED) */}
-          {(sale.balanceDue || 0) > 0 && (
-            <div className="row bold" style={{ fontSize: tableFontSize, fontWeight: "bold", color: "#dc2626" }}>
-              <span>Balance Due:</span>
-              <span>{formatMoney(sale.balanceDue, currency)}</span>
-            </div>
-          )}
 
           <div className="border" />
 
