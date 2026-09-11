@@ -352,6 +352,12 @@ export function Receipt({ sale, settings, open, onOpenChange, onEdit }: ReceiptP
               {rs.receiptFooter || settings?.receiptFooter || "Thank you! Please come again."}
             </div>
           )}
+
+          {/* v2.10.69: Provider credit — always shown at bottom of receipt */}
+          <div className="center" style={{ fontSize: `${rs.fontSize - 3}px`, marginTop: "6px", paddingTop: "4px", borderTop: "1px dashed #999", color: "#666" }}>
+            <div style={{ fontWeight: "bold" }}>Software Provided by Mohsin IT</div>
+            <div>Contact: 03000088482</div>
+          </div>
         </div>
         </div>
         {/* Sticky footer — always visible regardless of receipt length */}
