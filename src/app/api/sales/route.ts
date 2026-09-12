@@ -226,14 +226,14 @@ async function processSale(userId: string, body: any, items: any[]) {
       name: product.name,
       barcode: product.barcode,
       price,
-      // v2.10.67: Use the cart item's costPrice (sent from frontend).
-      // For LoadBill products, this contains the principal (load amount).
-      // For regular products, it's 0 → falls back to DB product.costPrice.
       costPrice: (Number(it.costPrice) || product.costPrice),
       quantity: qty,
       unit: product.unit,
       taxRate: product.taxRate,
       lineTotal,
+      // v2.10.70: Carry walletTxnType so the LoadBill deduction section
+      // knows whether to ADD (RECEIVE) or SUBTRACT (SEND) from balance.
+      walletTxnType: it.walletTxnType || null,
     });
   }
 
