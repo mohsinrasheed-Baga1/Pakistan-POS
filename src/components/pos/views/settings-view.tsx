@@ -95,6 +95,7 @@ import {
   ChevronUp,
   Barcode as BarcodeIcon,
   Smartphone,
+  DollarSign,
 } from "lucide-react";
 import {
   Collapsible,
