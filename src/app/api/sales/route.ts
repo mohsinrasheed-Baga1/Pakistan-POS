@@ -238,7 +238,9 @@ async function processSale(userId: string, body: any, items: any[]) {
   }
 
   const discount = Number(body.discount) || 0;
-  const total = Math.max(0, subtotal + taxTotal - discount);
+  // v2.10.71: POS Service Tax
+  const posServiceTax = Number(body.posServiceTax) || 0;
+  const total = Math.max(0, subtotal + taxTotal - discount + posServiceTax);
 
   // v2.10.15: Properly handle paidAmount, change, and balanceDue
   // - If paidAmount >= total: change = paidAmount - total, balanceDue = 0
@@ -267,6 +269,8 @@ async function processSale(userId: string, body: any, items: any[]) {
       paidAmount,
       change,
       balanceDue,
+      // v2.10.71: Store POS Service Tax
+      posServiceTax: Number(body.posServiceTax) || 0,
       paymentMethod: body.paymentMethod || "CASH",
       status: "COMPLETED",
       note: body.note || null,

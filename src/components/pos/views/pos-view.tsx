@@ -96,6 +96,16 @@ export function PosView({ settings }: PosViewProps) {
   const taxEnabled = !!settings?.taxEnabled;
   const totals = cart.totals(taxEnabled);
 
+  // v2.10.71: POS Service Tax calculation
+  // Applied when enabled AND items count >= minItems threshold
+  const posServiceTaxEnabled = (settings as any)?.posServiceTaxEnabled;
+  const posServiceTaxPercent = Number((settings as any)?.posServiceTaxPercent) || 0;
+  const posServiceTaxMinItems = Number((settings as any)?.posServiceTaxMinItems) || 5;
+  const posServiceTaxAmount = (posServiceTaxEnabled && totals.itemCount >= posServiceTaxMinItems)
+    ? Math.round(totals.total * posServiceTaxPercent / 100)
+    : 0;
+  const grandTotalWithServiceTax = totals.total + posServiceTaxAmount;
+
   const loadProducts = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -875,8 +885,8 @@ export function PosView({ settings }: PosViewProps) {
     // For card payments, paidAmount = total (no change to give back)
     // For cash payments, use the entered paidAmount
     const effectivePaidAmount = isCardPayment
-      ? totals.total  // card: exact amount, no change
-      : (Number(paidAmount) || totals.total);
+      ? grandTotalWithServiceTax  // v2.10.71: use grand total with service tax
+      : (Number(paidAmount) || grandTotalWithServiceTax);
 
     setSubmitting(true);
     try {
@@ -902,6 +912,8 @@ export function PosView({ settings }: PosViewProps) {
         customerName: cart.customerName,
         customerPhone: cart.customerPhone,
         invoicePrefix: settings?.invoicePrefix || "INV",
+        // v2.10.71: POS Service Tax
+        posServiceTax: posServiceTaxAmount,
       };
       const res = await fetch("/api/sales", {
         method: "POST",
@@ -1554,11 +1566,18 @@ export function PosView({ settings }: PosViewProps) {
                       <span className="text-muted-foreground">Discount</span>
                       <span>-{formatMoney(totals.discount, currency)}</span>
                     </div>
+                    {/* v2.10.71: POS Service Tax */}
+                    {posServiceTaxAmount > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Service Tax ({posServiceTaxPercent}%)</span>
+                        <span>{formatMoney(posServiceTaxAmount, currency)}</span>
+                      </div>
+                    )}
                     <Separator />
                     <div className="flex justify-between text-lg font-bold">
-                      <span>Total</span>
+                      <span>Total{posServiceTaxAmount > 0 ? " (+Tax)" : ""}</span>
                       <span className="text-emerald-700">
-                        {formatMoney(totals.total, currency)}
+                        {formatMoney(grandTotalWithServiceTax, currency)}
                       </span>
                     </div>
                   </div>

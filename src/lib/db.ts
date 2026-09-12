@@ -289,6 +289,9 @@ CREATE TABLE IF NOT EXISTS Settings (
   googleClientSecret TEXT,
   googleRefreshToken TEXT,
   enableLoadBill BOOLEAN NOT NULL DEFAULT 0,
+  posServiceTaxEnabled BOOLEAN NOT NULL DEFAULT 0,
+  posServiceTaxPercent REAL NOT NULL DEFAULT 0,
+  posServiceTaxMinItems INTEGER NOT NULL DEFAULT 5,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL
 );
@@ -559,6 +562,8 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["customerPhone", "TEXT"],
     // v2.10.15: balanceDue — amount customer still owes (if paidAmount < total)
     ["balanceDue", "REAL NOT NULL DEFAULT 0"],
+    // v2.10.71: POS Service Tax
+    ["posServiceTax", "REAL NOT NULL DEFAULT 0"],
   ],
   SaleReturn: [
     ["userId", "TEXT"],
@@ -596,6 +601,9 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["stickerPrinterName", "TEXT"],
     // v2.10.56: Enable Load & Bill Management (default off)
     ["enableLoadBill", "BOOLEAN NOT NULL DEFAULT 0"],
+    ["posServiceTaxEnabled", "BOOLEAN NOT NULL DEFAULT 0"],
+    ["posServiceTaxPercent", "REAL NOT NULL DEFAULT 0"],
+    ["posServiceTaxMinItems", "INTEGER NOT NULL DEFAULT 5"],
   ],
   // Load & Bill module — new columns added in v2.7.47
   MobileLoadTxn: [

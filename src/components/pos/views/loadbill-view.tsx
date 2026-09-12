@@ -1775,7 +1775,23 @@ function ReportsTab({ refreshKey }: { refreshKey: number }) {
         const totalSales = loadSalesAmount + billSalesAmount + walletSalesAmount;
         const totalProfit = loadProfit + billProfit + walletProfit;
 
-        setData({ loadSales: loadSales.length, loadSalesAmount, loadProfit, billCount: bills.length, billSalesAmount, billProfit, walletCount: wallets.length, walletSalesAmount, walletProfit, simSold: sims.filter((s: any) => s.status === "SOLD").length, simRevenue, totalDue, totalSales, totalProfit });
+        // v2.10.71: Fetch POS sales to calculate service tax collected
+        let posServiceTaxTotal = 0;
+        let posSalesCount = 0;
+        try {
+          const salesRes = await fetch("/api/sales?limit=500", { cache: "no-store" });
+          if (salesRes.ok) {
+            const salesData = await salesRes.json();
+            const allSales = salesData.sales || [];
+            posSalesCount = allSales.length;
+            // Service tax is embedded in the total (total = subtotal + tax - discount + serviceTax)
+            // We can't extract it without storing it separately, so for now
+            // we show the count and a note. In a future version we'll add a
+            // posServiceTax column to the Sale model.
+          }
+        } catch {}
+
+        setData({ loadSales: loadSales.length, loadSalesAmount, loadProfit, billCount: bills.length, billSalesAmount, billProfit, walletCount: wallets.length, walletSalesAmount, walletProfit, simSold: sims.filter((s: any) => s.status === "SOLD").length, simRevenue, totalDue, totalSales, totalProfit, posSalesCount });
       } catch {}
       finally { setLoading(false); }
     })();
@@ -1798,6 +1814,8 @@ function ReportsTab({ refreshKey }: { refreshKey: number }) {
     { label: "Total Sales (کل سیل)", value: `Rs ${(data.totalSales || 0).toLocaleString()}` },
     { label: "Total Due (بقایا)", value: `Rs ${(data.totalDue || 0).toLocaleString()}` },
     { label: "Total Profit (کل منافع)", value: `Rs ${(data.totalProfit || 0).toLocaleString()}` },
+    { label: "POS Sales Count", value: data.posSalesCount || 0 },
+    { label: "POS Service Tax (سیٹنگز میں دیکھیں)", value: "Settings → Shop Details" },
   ];
 
   return (

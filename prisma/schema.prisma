@@ -142,6 +142,8 @@ model Sale {
   change        Float      @default(0)
   // v2.10.15: balanceDue — amount customer still owes (if paidAmount < total)
   balanceDue    Float      @default(0)
+  // v2.10.71: POS Service Tax amount (0 if not applicable)
+  posServiceTax Float      @default(0)
   paymentMethod String     @default("CASH")
   saleType      String     @default("RETAIL")
   status        String     @default("COMPLETED")
@@ -382,6 +384,10 @@ model Settings {
   googleRefreshToken String?
   // v2.10.56: Enable Load & Bill Management (default off — optional feature)
   enableLoadBill     Boolean  @default(false)
+  // v2.10.71: POS Service Tax (optional service charge on sales)
+  posServiceTaxEnabled Boolean @default(false)
+  posServiceTaxPercent Float  @default(0)
+  posServiceTaxMinItems Int   @default(5)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

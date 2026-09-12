@@ -70,6 +70,16 @@ export async function PUT(req: NextRequest) {
   if (body.enableLoadBill !== undefined) {
     data.enableLoadBill = body.enableLoadBill === true;
   }
+  // v2.10.71: POS Service Tax settings
+  if (body.posServiceTaxEnabled !== undefined) {
+    data.posServiceTaxEnabled = body.posServiceTaxEnabled === true;
+  }
+  if (body.posServiceTaxPercent !== undefined) {
+    data.posServiceTaxPercent = Number(body.posServiceTaxPercent) || 0;
+  }
+  if (body.posServiceTaxMinItems !== undefined) {
+    data.posServiceTaxMinItems = Number(body.posServiceTaxMinItems) || 5;
+  }
   const settings = await db.settings.upsert({
     where: { id: "shop" },
     update: data,

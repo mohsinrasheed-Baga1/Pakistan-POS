@@ -280,6 +280,13 @@ export function Receipt({ sale, settings, open, onOpenChange, onEdit }: ReceiptP
               </div>
             );
           })()}
+          {/* v2.10.71: POS Service Tax */}
+          {(sale as any).posServiceTax > 0 && (
+            <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
+              <span>Service Tax:</span>
+              <span>{formatMoney((sale as any).posServiceTax, currency)}</span>
+            </div>
+          )}
           <div className="row bold big" style={{ marginTop: "2px" }}>
             <span>TOTAL:</span>
             <span>{formatMoney(sale.total, currency)}</span>

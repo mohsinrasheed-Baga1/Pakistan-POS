@@ -384,6 +384,9 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
     receiptFooter: settings.receiptFooter ?? "",
     invoicePrefix: settings.invoicePrefix || "INV",
     enableLoadBill: !!(settings as any)?.enableLoadBill,
+    posServiceTaxEnabled: !!(settings as any)?.posServiceTaxEnabled,
+    posServiceTaxPercent: (settings as any)?.posServiceTaxPercent || 0,
+    posServiceTaxMinItems: (settings as any)?.posServiceTaxMinItems || 5,
   });
   const [saving, setSaving] = React.useState(false);
 
@@ -401,6 +404,9 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
       receiptFooter: settings.receiptFooter ?? "",
       invoicePrefix: settings.invoicePrefix || "INV",
       enableLoadBill: !!(settings as any)?.enableLoadBill,
+      posServiceTaxEnabled: !!(settings as any)?.posServiceTaxEnabled,
+      posServiceTaxPercent: (settings as any)?.posServiceTaxPercent || 0,
+      posServiceTaxMinItems: (settings as any)?.posServiceTaxMinItems || 5,
     });
   }, [settings]);
 
@@ -425,7 +431,10 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
         defaultTax: form.taxEnabled ? Number(form.defaultTax) || 0 : 0,
         receiptFooter: form.receiptFooter.trim(),
         invoicePrefix: form.invoicePrefix.trim() || "INV",
-        enableLoadBill: form.enableLoadBill, // v2.10.58: was missing — toggle never saved
+        enableLoadBill: form.enableLoadBill,
+        posServiceTaxEnabled: form.posServiceTaxEnabled,
+        posServiceTaxPercent: Number(form.posServiceTaxPercent) || 0,
+        posServiceTaxMinItems: Number(form.posServiceTaxMinItems) || 5, // v2.10.58: was missing — toggle never saved
       });
       toast.success("Shop details saved");
     } catch (err: any) {
@@ -636,6 +645,59 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
               checked={form.enableLoadBill}
               onCheckedChange={(c) => setField("enableLoadBill", c)}
             />
+          </div>
+
+          {/* v2.10.71: POS Service Tax toggle + settings */}
+          <div className="rounded-lg border-2 border-amber-200 bg-amber-50 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-1">
+                <DollarSign className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                <div>
+                  <Label htmlFor="posServiceTaxEnabled" className="font-bold text-amber-900 cursor-pointer">
+                    POS Service Tax (سروس ٹیکس)
+                  </Label>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    Enable to charge a service tax on POS sales. Tax applies when
+                    customer buys the minimum number of items specified below.
+                  </p>
+                </div>
+              </div>
+              <Switch
+                id="posServiceTaxEnabled"
+                checked={form.posServiceTaxEnabled}
+                onCheckedChange={(c) => setField("posServiceTaxEnabled", c)}
+              />
+            </div>
+            {form.posServiceTaxEnabled && (
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-amber-200">
+                <div className="space-y-1">
+                  <Label className="text-xs font-bold text-amber-800">Service Tax %</Label>
+                  <Input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="100"
+                    value={form.posServiceTaxPercent}
+                    onChange={(e) => setField("posServiceTaxPercent", parseFloat(e.target.value) || 0)}
+                    placeholder="e.g. 2"
+                    className="h-9"
+                  />
+                  <p className="text-[10px] text-amber-600">Percentage of total bill</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-bold text-amber-800">Min Items</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={form.posServiceTaxMinItems}
+                    onChange={(e) => setField("posServiceTaxMinItems", parseInt(e.target.value) || 5)}
+                    placeholder="e.g. 5"
+                    className="h-9"
+                  />
+                  <p className="text-[10px] text-amber-600">Tax applies when items ≥ this number</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Submit */}
