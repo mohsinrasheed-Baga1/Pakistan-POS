@@ -231,9 +231,9 @@ async function processSale(userId: string, body: any, items: any[]) {
       unit: product.unit,
       taxRate: product.taxRate,
       lineTotal,
-      // v2.10.70: Carry walletTxnType so the LoadBill deduction section
-      // knows whether to ADD (RECEIVE) or SUBTRACT (SEND) from balance.
-      walletTxnType: it.walletTxnType || null,
+      // v2.10.74: walletTxnType is NOT stored in SaleItem — it's only used
+      // in the LoadBill deduction section below via the mergedItems loop.
+      // Storing it here causes Prisma error: "Unknown argument walletTxnType"
     });
   }
 
@@ -524,9 +524,10 @@ async function processSale(userId: string, body: any, items: any[]) {
   }
 
   // v2.10.50: LoadBill entity balance deduction
-  // If any sale item is a LOAD_COMPANY / WALLET_ACCOUNT / SIM_STOCK product,
-  // deduct from the ORIGINAL entity's balance (not just Product.stock).
-  for (const it of saleItemsData) {
+  // v2.10.74: Use mergedItems (which has walletTxnType) instead of saleItemsData
+  for (let i = 0; i < saleItemsData.length; i++) {
+    const it = saleItemsData[i];
+    const mi = mergedItems[i] || {}; // Get walletTxnType from mergedItems
     const product = await db.product.findUnique({ where: { id: it.productId } });
     if (!product) continue;
 
@@ -589,7 +590,7 @@ async function processSale(userId: string, body: any, items: any[]) {
           const chargesAmount = totalAmount - principalAmount;
 
           // v2.10.68: Check walletTxnType — RECEIVE adds, SEND subtracts
-          const isReceive = it.walletTxnType === "RECEIVE";
+          const isReceive = mi.walletTxnType === "RECEIVE";
 
           let newBalance: number;
           let updateData: any;

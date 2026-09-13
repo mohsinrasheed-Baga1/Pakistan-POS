@@ -81,6 +81,8 @@ export interface VendorPurchase {
 export interface CartItem {
   product: Product;
   quantity: number;
+  // v2.10.74: Per-item price override (e.g. set wholesale price for one item)
+  priceOverride?: number | null;
 }
 
 export interface SaleItem {

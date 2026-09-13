@@ -69,6 +69,8 @@ interface CartState {
   setPaymentMethod: (m: "CASH" | "CARD" | "MOBILE") => void;
   setSaleType: (s: SaleType) => void;
   clear: () => void;
+  // v2.10.74: Set price override for a specific cart item
+  setItemPrice: (productId: string, price: number | null) => void;
   totals: (taxEnabled: boolean) => {
     subtotal: number;
     taxTotal: number;
@@ -202,6 +204,13 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
       paymentMethod: "CASH",
       saleType: "RETAIL",
     }),
+  // v2.10.74: Set price override for a specific cart item
+  setItemPrice: (productId, price) =>
+    set((state) => ({
+      items: state.items.map((i) =>
+        i.product.id === productId ? { ...i, priceOverride: price } : i
+      ),
+    })),
   holdCart: () => {
     const state = get();
     if (state.items.length === 0) return; // Don't hold empty cart

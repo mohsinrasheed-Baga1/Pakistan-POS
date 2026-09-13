@@ -894,14 +894,15 @@ export function PosView({ settings }: PosViewProps) {
         items: cart.items.map((i) => ({
           productId: i.product.id,
           quantity: i.quantity,
-          price: cart.saleType === "WHOLESALE" && i.product.wholesalePrice > 0
+          // v2.10.74: Use priceOverride if set (per-item wholesale/shopkeeper)
+          price: i.priceOverride != null
+            ? i.priceOverride
+            : cart.saleType === "WHOLESALE" && i.product.wholesalePrice > 0
             ? i.product.wholesalePrice
             : cart.saleType === "SHOPKEEPER" && i.product.shopkeeperPrice > 0
             ? i.product.shopkeeperPrice
             : i.product.salePrice,
           costPrice: (i.product as any).costPrice || 0,
-          // v2.10.68: Send wallet transaction type (RECEIVE/SEND) so the
-          // sale route knows whether to ADD or SUBTRACT from balance.
           walletTxnType: (i.product as any)._walletTxnType || null,
         })),
         discount: cart.discount,
@@ -1363,13 +1364,14 @@ export function PosView({ settings }: PosViewProps) {
                   <ScrollArea className="h-[40vh] pr-2">
                     <div className="space-y-2">
                       {[...cart.items].reverse().map((item) => {
-                        // Per-unit price based on sale type
-                        const unitPrice =
+                        // v2.10.74: Per-item price override (e.g. wholesale price for one item)
+                        const basePrice =
                           cart.saleType === "WHOLESALE" && item.product.wholesalePrice > 0
                             ? item.product.wholesalePrice
                             : cart.saleType === "SHOPKEEPER" && item.product.shopkeeperPrice > 0
                             ? item.product.shopkeeperPrice
                             : item.product.salePrice;
+                        const unitPrice = item.priceOverride != null ? item.priceOverride : basePrice;
                         const lineTotal = unitPrice * item.quantity;
                         return (
                           <div
@@ -1394,6 +1396,31 @@ export function PosView({ settings }: PosViewProps) {
                             <div className="flex items-center justify-between gap-2">
                               <div className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
                                 {formatMoney(unitPrice, currency)} / {unitLabel(item.product.unit)}
+                                {/* v2.10.74: Per-item price toggle buttons */}
+                                {item.product.wholesalePrice > 0 && item.product.wholesalePrice !== item.product.salePrice && (
+                                  <div className="flex gap-0.5 mt-0.5">
+                                    <button
+                                      className={`text-[9px] px-1 py-0.5 rounded ${unitPrice === item.product.salePrice ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground"}`}
+                                      onClick={() => cart.setItemPrice(item.product.id, item.product.salePrice)}
+                                    >
+                                      Reg
+                                    </button>
+                                    <button
+                                      className={`text-[9px] px-1 py-0.5 rounded ${unitPrice === item.product.wholesalePrice ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground"}`}
+                                      onClick={() => cart.setItemPrice(item.product.id, item.product.wholesalePrice)}
+                                    >
+                                      WS
+                                    </button>
+                                    {item.product.shopkeeperPrice > 0 && (
+                                      <button
+                                        className={`text-[9px] px-1 py-0.5 rounded ${unitPrice === item.product.shopkeeperPrice ? "bg-amber-600 text-white" : "bg-muted text-muted-foreground"}`}
+                                        onClick={() => cart.setItemPrice(item.product.id, item.product.shopkeeperPrice)}
+                                      >
+                                        SK
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
                                 <Button
