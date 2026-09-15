@@ -251,6 +251,21 @@ export function Receipt({ sale, settings, open, onOpenChange, onEdit }: ReceiptP
           <div className="border" />
 
           {/* Totals */}
+          {/* v2.10.75: Total items summary line — distinct products + total quantity */}
+          {(() => {
+            const items: any[] = sale.items || [];
+            const distinctProducts = items.length;
+            const totalQty = items.reduce((s, it) => s + Number(it.quantity || 0), 0);
+            if (distinctProducts === 0) return null;
+            return (
+              <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
+                <span>Items:</span>
+                <span>
+                  {distinctProducts} {distinctProducts === 1 ? "product" : "products"} · {totalQty} {totalQty === 1 ? "pc" : "pcs"}
+                </span>
+              </div>
+            );
+          })()}
           <div className="row" style={{ fontSize: tableFontSize }}>
             <span>Subtotal:</span>
             <span>{formatMoney(sale.subtotal, currency)}</span>

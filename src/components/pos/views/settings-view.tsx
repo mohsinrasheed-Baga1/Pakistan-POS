@@ -4163,6 +4163,7 @@ function ShortcutsCard() {
     { key: "- or _", desc: "Decrease quantity of LAST cart item by 1 (min 1, won't delete)", section: "POS" },
     { key: "Delete", desc: "Delete the LAST cart item (remove from cart)", section: "POS" },
     { key: "Ctrl + Backspace", desc: "Undo last cart item (alternative to Delete)", section: "POS" },
+    { key: "Ctrl + H", desc: "Hold current cart (park sale). Press again on empty cart to restore first held cart", section: "POS" },
     { key: "F2", desc: "Checkout (complete sale)", section: "POS" },
     { key: "F3", desc: "Return / Refund", section: "POS" },
     { key: "F8", desc: "Hold current cart (park sale, start new cart)", section: "POS" },

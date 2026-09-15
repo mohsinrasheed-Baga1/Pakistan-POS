@@ -467,6 +467,34 @@ export function PosView({ settings }: PosViewProps) {
         return;
       }
 
+      // ─── v2.10.75: Ctrl+H = Hold cart / Restore first held cart ────────
+      // Toggle behavior:
+      //   - If current cart has items → hold it (park for next customer)
+      //   - If current cart is empty AND there are held carts → restore the
+      //     first held cart (go back to "page 1")
+      // This lets the cashier serve the next customer quickly (Ctrl+H to
+      // park the current cart, scan items for the next customer, then
+      // Ctrl+H again to come back to the first cart).
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "h" || e.key === "H")) {
+        e.preventDefault();
+        if (cart.items.length > 0) {
+          // Hold the current cart
+          cart.holdCart();
+          setScannedCard(null);
+          setCardLastTxn(null);
+          toast.success("Cart held — press Ctrl+H again to restore the first held cart");
+        } else if (cart.heldCarts.length > 0) {
+          // Restore the FIRST held cart (index 0 = oldest held cart = "page 1")
+          const firstHeld = cart.heldCarts[0];
+          cart.restoreCart(0);
+          toast.success(`Restored ${firstHeld.label} (${firstHeld.items.length} items)`);
+        } else {
+          toast.info("Nothing to hold or restore — cart is empty and no held carts");
+        }
+        setTimeout(() => searchRef.current?.focus(), 50);
+        return;
+      }
+
       // ─── Ctrl+Backspace = Reverse (remove last item from cart) ─────────
       // Changed from Ctrl+R to avoid conflict with browser refresh.
       // Ctrl+Backspace is a natural "undo last" gesture and doesn't
@@ -708,7 +736,7 @@ export function PosView({ settings }: PosViewProps) {
     window.addEventListener("keydown", handlePosKey);
     return () => window.removeEventListener("keydown", handlePosKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart.saleType, returnOpen, calcOpen, checkoutOpen, receiptOpen, products, highlightedIndex, q, cart.items.length, scannedCard]);
+  }, [cart.saleType, returnOpen, calcOpen, checkoutOpen, receiptOpen, products, highlightedIndex, q, cart.items.length, cart.heldCarts.length, scannedCard]);
 
   // v2.10.35: Edit Sale — load sale items back into cart for editing.
   // Flow: return all items from the original sale → load items into cart →
@@ -1282,6 +1310,19 @@ export function PosView({ settings }: PosViewProps) {
                       <Badge className="bg-emerald-700 text-white">{totals.itemCount}</Badge>
                     )}
                   </h2>
+                  {/* v2.10.75: Prominent item count chip on the right side of cart header */}
+                  {cart.items.length > 0 && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-700 text-white text-xs font-bold shadow-sm">
+                      <Package className="w-3.5 h-3.5" />
+                      <span>{cart.items.length}</span>
+                      <span className="opacity-80 font-normal">
+                        {cart.items.length === 1 ? "product" : "products"}
+                      </span>
+                      <span className="opacity-70">·</span>
+                      <span>{totals.itemCount}</span>
+                      <span className="opacity-80 font-normal">qty</span>
+                    </div>
+                  )}
                 </div>
                 {/* Cart action buttons — wrap properly on small screens */}
                 {cart.items.length > 0 && (
@@ -1296,7 +1337,7 @@ export function PosView({ settings }: PosViewProps) {
                         toast.success("Cart held — new cart opened");
                         setTimeout(() => searchRef.current?.focus(), 50);
                       }}
-                      title="Hold this cart and start a new one (F8)"
+                      title="Hold this cart and start a new one (Ctrl+H)"
                     >
                       <Pause className="w-3.5 h-3.5 mr-1" /> Hold
                     </Button>
@@ -1517,6 +1558,15 @@ export function PosView({ settings }: PosViewProps) {
                             : "Rs 0 (no advance)"}
                         </span>
                       </div>
+                      {/* v2.10.75: Items in cart for this customer */}
+                      <div className="flex items-center justify-between text-xs bg-white/60 rounded px-2 py-1">
+                        <span className="text-muted-foreground">Items in cart:</span>
+                        <span className="font-bold text-emerald-800">
+                          {cart.items.length} {cart.items.length === 1 ? "product" : "products"}
+                          {" · "}
+                          {totals.itemCount} {totals.itemCount === 1 ? "pc" : "pcs"}
+                        </span>
+                      </div>
                       {/* Last transaction */}
                       {cardLastTxn && (
                         <div className="flex items-center justify-between text-xs">
@@ -1579,6 +1629,19 @@ export function PosView({ settings }: PosViewProps) {
 
                   {/* totals */}
                   <div className="space-y-1 text-sm">
+                    {/* v2.10.75: Item count summary — distinct products + total quantity */}
+                    {cart.items.length > 0 && (
+                      <div className="flex justify-between items-center bg-emerald-50 dark:bg-emerald-950/30 rounded px-2 py-1 text-xs">
+                        <span className="text-emerald-800 dark:text-emerald-200 font-medium">
+                          Items in cart
+                        </span>
+                        <span className="text-emerald-800 dark:text-emerald-200 font-bold">
+                          {cart.items.length} {cart.items.length === 1 ? "product" : "products"}
+                          {" · "}
+                          {totals.itemCount} {totals.itemCount === 1 ? "piece" : "pieces"}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Subtotal</span>
                       <span>{formatMoney(totals.subtotal, currency)}</span>
