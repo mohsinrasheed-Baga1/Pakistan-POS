@@ -365,39 +365,42 @@ async function processSale(userId: string, body: any, items: any[]) {
 
       if (!isMainStoreProduct && !isLoadBillProduct) {
         // Regular shop product — deduct from shop stock
-        // v2.10.62: SMART AUTO-BOX-OPEN
-        // Before deducting, check if piece stock is sufficient.
-        // If not, auto-open boxes to cover the shortfall.
+        // v2.10.62 / v2.10.77: FULLY AUTOMATIC BOX-OPEN
+        // When selling pieces, if piece stock is INSUFFICIENT to cover
+        // the sale, the system AUTO-OPENS enough boxes to cover the
+        // shortfall. This is the user's spec — 100% automatic, no
+        // manual button.
         //
-        // Example:
-        //   Piece stock: 1, Box stock: 5 (each box = 12 pcs)
-        //   Sell 25 pieces
-        //   Shortfall: 25 - 1 = 24 pieces needed from boxes
-        //   Boxes to open: ceil(24 / 12) = 2 boxes
-        //   After opening: piece stock = 1 + (2 × 12) = 25
-        //   After sale: piece stock = 25 - 25 = 0
-        //   Box stock: 5 - 2 = 3
+        // Cycle (user's example):
+        //   - User adds 10 boxes (via /api/stock/box-purchase) — only
+        //     box stock increases (piece stock stays at whatever it was)
+        //   - Sell 1 piece when piece stock = 0
+        //     → auto-open 1 box (box stock 10→9, piece stock 0→packQty)
+        //     → sell 1 piece (piece stock packQty→packQty-1)
+        //   - Continue selling until piece stock = 0
+        //     → next sale auto-opens another box (box stock 9→8)
+        //   - Repeat until all boxes are opened and pieces sold out
         //
-        // v2.10.76: PROACTIVE REFILL — after the sale, if piece stock
-        // falls below 1 box worth (packQuantity), auto-open 1 MORE box
-        // proactively so the shopkeeper never runs out of pieces mid-sale.
-        // This addresses the user's complaint: "I have sold many eggs
-        // (pieces) but the box count hasn't decreased" — now the box
-        // count will decrease proactively whenever piece stock is low,
-        // even if the current sale was satisfied from existing pieces.
+        // When selling a BOX itself (the box product), the box stock
+        // decreases (no auto-open happens — that's a direct box sale).
+        //
+        // v2.10.76 proactive refill (open 1 box when piece stock < 1
+        // box worth, even after satisfied sale) was REMOVED in v2.10.77
+        // because the user said: "بکس صرف اس وقت کھلنا چاہیے جب پیس
+        // خرید ہوں — اگلا ڈبہ تب کھلنا چاہیے جب پہلے ڈبے کی پیس بک
+        // جائیں" (box should only open when pieces are bought — next
+        // box should open when first box's pieces are sold out).
+        // So we ONLY open boxes when piece stock is insufficient.
 
         const currentPiece = await db.product.findUnique({ where: { id: it.productId } });
         const currentPieceStock = currentPiece?.stock || 0;
         const sellQty = it.quantity;
 
         // Find linked box product (where packBarcode = this product's barcode)
-        // We look it up ONCE here so we can use it both for the shortfall
-        // check (insufficient stock) AND the proactive refill (low stock).
         const boxProduct = await db.product.findFirst({
           where: { packBarcode: product.barcode },
         });
 
-        // ─── Phase 1: Insufficient stock — open boxes to cover shortfall ───
         // Check if we need to open boxes to satisfy the current sale
         if (currentPieceStock < sellQty && boxProduct && boxProduct.stock > 0 && boxProduct.packQuantity > 0) {
           const packQty = boxProduct.packQuantity;
@@ -452,47 +455,6 @@ async function processSale(userId: string, body: any, items: any[]) {
             note: `Sale ${invoiceNo}`,
           },
         });
-
-        // ─── v2.10.76: PROACTIVE REFILL — keep piece stock above 1 box worth ───
-        // After the sale, if piece stock falls below 1 box worth (packQty),
-        // auto-open 1 box proactively. This ensures the shopkeeper always
-        // has loose pieces available for the next customer.
-        // Skip if no linked box product or box stock is 0.
-        if (boxProduct && boxProduct.stock > 0 && boxProduct.packQuantity > 0) {
-          const packQty = boxProduct.packQuantity;
-          // Re-fetch the post-sale piece stock (current stock after deduction)
-          const postSalePiece = await db.product.findUnique({ where: { id: it.productId } });
-          const postSalePieceStock = postSalePiece?.stock || 0;
-
-          if (postSalePieceStock < packQty) {
-            // Auto-open 1 box proactively (decrement box by 1, increment piece by packQty)
-            await db.product.update({
-              where: { id: boxProduct.id },
-              data: { stock: { decrement: 1 } },
-            });
-            await db.product.update({
-              where: { id: it.productId },
-              data: { stock: { increment: packQty } },
-            });
-            await db.stockLog.create({
-              data: {
-                productId: boxProduct.id,
-                type: "ADJUSTMENT",
-                quantity: -1,
-                note: `Proactive auto-open: 1 box opened after sale ${invoiceNo} (piece stock was ${postSalePieceStock}, below 1 box worth of ${packQty} pcs)`,
-              },
-            });
-            await db.stockLog.create({
-              data: {
-                productId: it.productId,
-                type: "ADJUSTMENT",
-                quantity: packQty,
-                note: `Proactive refill: +${packQty} pcs from 1 box opened after sale ${invoiceNo}`,
-              },
-            });
-            console.log(`[sales] Proactive auto-open: 1 box for ${product.name} after sale ${invoiceNo} (piece stock was ${postSalePieceStock} < ${packQty})`);
-          }
-        }
       }
       // Note: For MAIN_STORE products, we do NOT deduct from shop stock.
       // The deduction happens only from Main Store (storeStock) below.

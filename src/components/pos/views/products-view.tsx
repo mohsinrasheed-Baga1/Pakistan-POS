@@ -13,7 +13,6 @@ import {
   RefreshCw,
   Calendar,
   Warehouse,
-  PackageOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -137,10 +136,6 @@ export function ProductsView({ userRole }: ProductsViewProps) {
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
   const [editProduct, setEditProduct] = React.useState<Product | null>(null);
-  // v2.10.76: "Open Box" feature — manually break open boxes into pieces
-  const [openBoxProduct, setOpenBoxProduct] = React.useState<Product | null>(null);
-  const [openBoxCount, setOpenBoxCount] = React.useState("1");
-  const [openBoxBusy, setOpenBoxBusy] = React.useState(false);
 
   const loadProducts = React.useCallback(async () => {
     setLoading(true);
@@ -317,50 +312,6 @@ export function ProductsView({ userRole }: ProductsViewProps) {
     setSelectedIds(new Set());
     setBulkDeleteOpen(false);
     loadProducts();
-  }
-
-  // v2.10.76: Open Box — manually break open N boxes into N × packQuantity pieces
-  // Calls /api/stock/open-box to decrement box stock + increment piece stock atomically.
-  async function handleOpenBox() {
-    if (!openBoxProduct) return;
-    const count = Number(openBoxCount) || 0;
-    if (count <= 0) {
-      toast.error("Enter a valid number of boxes to open");
-      return;
-    }
-    if (count > openBoxProduct.stock) {
-      toast.error(`Only ${openBoxProduct.stock} boxes available`);
-      return;
-    }
-    setOpenBoxBusy(true);
-    try {
-      const res = await fetch("/api/stock/open-box", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          boxProductId: openBoxProduct.id,
-          count,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "Failed to open box", { duration: 6000 });
-        return;
-      }
-      toast.success(
-        `Opened ${data.boxesOpened} box(es) → +${data.piecesAdded} pieces added to "${data.pieceProductName}"`,
-        { duration: 5000 }
-      );
-      // Close dialog
-      setOpenBoxProduct(null);
-      setOpenBoxCount("1");
-      // Reload products to reflect new stock counts
-      loadProducts();
-    } catch (e: any) {
-      toast.error("Network error: " + (e?.message || "Could not reach server"));
-    } finally {
-      setOpenBoxBusy(false);
-    }
   }
 
   return (
@@ -615,22 +566,6 @@ export function ProductsView({ userRole }: ProductsViewProps) {
                             >
                               <BarcodeIcon className="w-4 h-4 text-emerald-600" />
                             </Button>
-                            {/* v2.10.76: Open Box button — only visible on BOX products (those with packBarcode set) */}
-                            {canManage && p.packBarcode && p.packQuantity > 0 && (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 text-amber-600 hover:bg-amber-50"
-                                onClick={() => {
-                                  setOpenBoxProduct(p);
-                                  setOpenBoxCount("1");
-                                }}
-                                title={`Open Box — break open boxes into ${p.packQuantity} pieces each (current: ${p.stock} boxes)`}
-                                disabled={p.stock <= 0}
-                              >
-                                <PackageOpen className="w-4 h-4" />
-                              </Button>
-                            )}
                             {canManage && (
                               <>
                                 <Button
@@ -969,82 +904,6 @@ export function ProductsView({ userRole }: ProductsViewProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* v2.10.76: Open Box dialog — break open N boxes into N × packQuantity pieces */}
-      <Dialog
-        open={!!openBoxProduct}
-        onOpenChange={(o) => {
-          if (!o) {
-            setOpenBoxProduct(null);
-            setOpenBoxCount("1");
-          }
-        }}
-      >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-700">
-              <PackageOpen className="w-5 h-5" />
-              Open Box
-            </DialogTitle>
-          </DialogHeader>
-          {openBoxProduct && (
-            <div className="space-y-3">
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm space-y-1">
-                <div className="font-bold text-amber-900">{openBoxProduct.name}</div>
-                <div className="text-xs text-amber-800">
-                  Each box contains <strong>{openBoxProduct.packQuantity}</strong> pieces.
-                </div>
-                <div className="text-xs text-amber-800">
-                  Currently available: <strong>{openBoxProduct.stock}</strong> boxes
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-sm">How many boxes to open?</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max={openBoxProduct.stock}
-                  value={openBoxCount}
-                  onChange={(e) => setOpenBoxCount(e.target.value)}
-                  autoFocus
-                  className="h-12 text-lg text-center font-mono"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleOpenBox();
-                    }
-                  }}
-                />
-                <div className="text-xs text-muted-foreground">
-                  You will get: <strong>{(Number(openBoxCount) || 0) * openBoxProduct.packQuantity}</strong> pieces added to the linked piece product.
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-                <div className="font-medium mb-1">What happens:</div>
-                <ul className="list-disc pl-4 space-y-0.5">
-                  <li>Box stock decreases by {Number(openBoxCount) || 0}</li>
-                  <li>Piece stock increases by {(Number(openBoxCount) || 0) * openBoxProduct.packQuantity}</li>
-                  <li>Cost & sale prices stay unchanged (cost was paid at purchase)</li>
-                </ul>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setOpenBoxProduct(null); setOpenBoxCount("1"); }}>
-              Cancel
-            </Button>
-            <Button
-              className="bg-amber-600 hover:bg-amber-700"
-              disabled={openBoxBusy || !openBoxProduct || (Number(openBoxCount) || 0) <= 0 || (openBoxProduct && Number(openBoxCount) > openBoxProduct.stock)}
-              onClick={handleOpenBox}
-            >
-              {openBoxBusy ? "Opening..." : "Open Box"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

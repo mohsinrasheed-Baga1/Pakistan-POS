@@ -467,15 +467,17 @@ export function StoreView() {
           return;
         }
         const totalPieces = count * (boxPurchaseLookup.packQuantity || 0);
-        // Show whether prices were auto-recalculated
+        // v2.10.77: Show whether prices were auto-recalculated.
+        // Note: pieces are NO LONGER auto-added to piece stock on box
+        // purchase. Pieces auto-open on sale when piece stock runs out.
         if (data.pricesRecalculated) {
           toast.success(
-            `Purchase recorded: ${count} boxes × ${boxPurchaseLookup.packQuantity} pcs = ${totalPieces} pieces\n` +
+            `Purchase recorded: ${count} boxes added (${totalPieces} pieces available in boxes — auto-open on sale)\n` +
             `Prices auto-adjusted: Sale Rs ${data.newBoxSalePrice} | Wholesale Rs ${data.newBoxWholesalePrice} | Shopkeeper Rs ${data.newBoxShopkeeperPrice}`
           );
         } else {
           toast.success(
-            `Purchase recorded: ${count} boxes × ${boxPurchaseLookup.packQuantity} pcs = ${totalPieces} pieces added`
+            `Purchase recorded: ${count} boxes added (${totalPieces} pieces available in boxes — will auto-open on sale)`
           );
         }
       } else {
@@ -1209,11 +1211,16 @@ export function StoreView() {
                 {boxPurchaseCount && Number(boxPurchaseCount) > 0 && (
                   <div className="rounded bg-amber-100 border border-amber-300 p-2 text-center text-sm font-bold text-amber-900">
                     {boxPurchaseLookup.packBarcode && boxPurchaseLookup.packQuantity > 0 ? (
-                      <>{boxPurchaseCount} boxes × {boxPurchaseLookup.packQuantity} pcs = {" "}
-                      <span className="text-base">
-                        {Number(boxPurchaseCount) * boxPurchaseLookup.packQuantity}
-                      </span>{" "}
-                      pieces total</>
+                      <>
+                        {boxPurchaseCount} boxes × {boxPurchaseLookup.packQuantity} pcs ={" "}
+                        <span className="text-base">
+                          {Number(boxPurchaseCount) * boxPurchaseLookup.packQuantity}
+                        </span>{" "}
+                        pieces available
+                        <div className="text-[10px] font-normal text-amber-700 mt-1">
+                          (Pieces auto-open from boxes when sold — no need to open manually)
+                        </div>
+                      </>
                     ) : (
                       <>{boxPurchaseCount} pieces total</>
                     )}
