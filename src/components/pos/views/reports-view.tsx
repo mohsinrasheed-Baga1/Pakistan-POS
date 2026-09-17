@@ -19,6 +19,8 @@ import {
   X,
   Truck,
   CreditCard,
+  Banknote,
+  ShieldCheck,
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -413,6 +415,96 @@ export function ReportsView() {
             <div className="text-xs text-rose-700 font-medium">Pending — بقایا</div>
             <div className="text-lg font-bold text-rose-800">{formatMoney(data?.pendingTotal ?? 0, currency)}</div>
           </div>
+        </div>
+
+        {/* v2.10.78: CASH DEPOSITS — separate from Sales
+            Sales = items we sold (above). Cash deposits = money received
+            from customers paying back old debts (card top-ups). */}
+        <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50/50 p-4 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Banknote className="w-5 h-5 text-emerald-700" />
+              <h3 className="font-bold text-emerald-900">
+                Cash Deposits (Customer Card Top-ups) — کیش جمع
+              </h3>
+            </div>
+            <div className="text-2xl font-bold text-emerald-800">
+              {formatMoney((data as any)?.cashDeposits?.grandTotal ?? 0, currency)}
+            </div>
+          </div>
+          <div className="text-xs text-emerald-700 -mt-1">
+            سیل وہ ہے جو ہم نے سودا بیچ دیا ہے — کیش وہ ہے جو ہم نے پرانا سودا بیچے ہوئے پیسے واپس لیے ہیں
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-lg border border-emerald-200 bg-white p-3 flex items-center gap-3">
+              <div className="rounded-full bg-emerald-100 p-2">
+                <Banknote className="w-5 h-5 text-emerald-700" />
+              </div>
+              <div className="flex-1">
+                <div className="text-xs text-muted-foreground">Cash — رسد سودا</div>
+                <div className="text-lg font-bold text-emerald-800">
+                  {formatMoney((data as any)?.cashDeposits?.totalCashDeposits ?? 0, currency)}
+                </div>
+              </div>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-white p-3 flex items-center gap-3">
+              <div className="rounded-full bg-blue-100 p-2">
+                <ShieldCheck className="w-5 h-5 text-blue-700" />
+              </div>
+              <div className="flex-1">
+                <div className="text-xs text-muted-foreground">Legitimate Cash — جائز کیش</div>
+                <div className="text-lg font-bold text-blue-800">
+                  {formatMoney((data as any)?.cashDeposits?.totalLegitimateCash ?? 0, currency)}
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* Detailed list of cash deposits in this date range */}
+          {((data as any)?.cashDeposits?.list ?? []).length > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-emerald-700 font-medium hover:underline">
+                View {((data as any)?.cashDeposits?.list ?? []).length} deposit(s) in this period
+              </summary>
+              <div className="mt-2 overflow-x-auto rounded border border-emerald-200 bg-white">
+                <table className="w-full text-left">
+                  <thead className="bg-emerald-50 text-emerald-800">
+                    <tr>
+                      <th className="px-2 py-1.5 font-semibold">Date</th>
+                      <th className="px-2 py-1.5 font-semibold">Customer</th>
+                      <th className="px-2 py-1.5 font-semibold">Type</th>
+                      <th className="px-2 py-1.5 font-semibold text-right">Amount</th>
+                      <th className="px-2 py-1.5 font-semibold">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {((data as any)?.cashDeposits?.list ?? []).map((d: any, i: number) => (
+                      <tr key={i} className="border-t border-emerald-100">
+                        <td className="px-2 py-1.5 text-muted-foreground">
+                          {new Date(d.createdAt).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" })}
+                        </td>
+                        <td className="px-2 py-1.5 font-medium">{d.customerName}</td>
+                        <td className="px-2 py-1.5">
+                          {d.cashType === "LEGITIMATE_CASH" ? (
+                            <span className="inline-flex items-center gap-1 text-blue-700">
+                              <ShieldCheck className="w-3 h-3" /> جائز
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-emerald-700">
+                              <Banknote className="w-3 h-3" /> Cash
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 py-1.5 text-right font-bold text-emerald-800">
+                          {formatMoney(d.amount, currency)}
+                        </td>
+                        <td className="px-2 py-1.5 text-muted-foreground">{d.description || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

@@ -303,7 +303,10 @@ export function Receipt({ sale, settings, open, onOpenChange, onEdit }: ReceiptP
             </div>
           )}
           <div className="row bold big" style={{ marginTop: "2px" }}>
-            <span>TOTAL:</span>
+            {/* v2.10.78: Make it clear the TOTAL includes service tax.
+                When posServiceTax > 0, label as "GRAND TOTAL (incl. Service Tax)"
+                so the customer can see the service tax is included. */}
+            <span>{(sale as any).posServiceTax > 0 ? "GRAND TOTAL (incl. Tax):" : "TOTAL:"}</span>
             <span>{formatMoney(sale.total, currency)}</span>
           </div>
 

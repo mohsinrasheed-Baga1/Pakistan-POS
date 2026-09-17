@@ -21,6 +21,8 @@ import {
   TrendingUp,
   TrendingDown,
   Receipt,
+  Banknote,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,6 +99,17 @@ const emptyTxForm = {
   type: "DEPOSIT" as TransactionType,
   amount: "",
   description: "",
+  // v2.10.78: Cash Type — distinguish "Cash" (regular cash deposit)
+  // from "Legitimate Cash" (جائز کیش — formal record with wallet link)
+  // When type=DEPOSIT, the user must choose a cashType.
+  // - "CASH": regular cash deposit to customer card (logged in reports
+  //   under "Cash Deposits", NOT under Sales)
+  // - "LEGITIMATE_CASH": formal cash record (future: links to wallet
+  //   account from Bill & Load → Wallet section)
+  cashType: "CASH" as "CASH" | "LEGITIMATE_CASH",
+  // v2.10.78: Optional wallet account ID for LEGITIMATE_CASH
+  // (links this deposit to a wallet account in LoadBill → Wallet)
+  walletAccountId: "" as string,
   operatorName: "",
 };
 
@@ -353,14 +366,31 @@ export function CardsView({ userRole }: CardsViewProps) {
     }
     setTxSaving(true);
     try {
+      // v2.10.78: For DEPOSIT transactions, prefix the description with
+      // the cash type so reports can distinguish "Cash" from "Legitimate Cash".
+      // - "CASH" → description prefix "[CASH]"
+      // - "LEGITIMATE_CASH" → description prefix "[جائز کیش]"
+      // The transaction type is still "DEPOSIT" (no schema change needed).
+      let finalDescription = txForm.description.trim();
+      if (txForm.type === "DEPOSIT") {
+        const cashTypePrefix = txForm.cashType === "LEGITIMATE_CASH"
+          ? "[جائز کیش] "
+          : "[CASH] ";
+        finalDescription = cashTypePrefix + finalDescription;
+      }
       const res = await fetch(`/api/cards/${detailCard.id}/transactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: txForm.type,
           amount: amt,
-          description: txForm.description.trim(),
+          description: finalDescription,
           operatorName: txForm.operatorName.trim(),
+          // v2.10.78: Pass cashType + walletAccountId as metadata
+          // (the API can use these for reports categorization and
+          // future wallet account linking)
+          cashType: txForm.cashType,
+          walletAccountId: txForm.walletAccountId || null,
         }),
       });
       const data = await res.json();
@@ -369,8 +399,14 @@ export function CardsView({ userRole }: CardsViewProps) {
         setTxSaving(false);
         return;
       }
-      toast.success("Transaction recorded");
+      toast.success(
+        txForm.cashType === "LEGITIMATE_CASH"
+          ? "Legitimate cash (جائز کیش) deposit recorded"
+          : "Cash deposit recorded"
+      );
       setTxDialogOpen(false);
+      // Reset cashType to default for next time
+      setTxForm({ ...emptyTxForm, type: txForm.type });
       // Refresh detail + list
       openDetail({ ...detailCard, balance: (detailCard.balance || 0) + amt } as CustomerCard);
       loadCards();
@@ -1030,6 +1066,70 @@ export function CardsView({ userRole }: CardsViewProps) {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* v2.10.78: Cash Type — only show when transaction type = DEPOSIT
+                (cash-in to customer card). Asks: "Cash" or "Legitimate Cash (جائز کیش)"
+                - Cash: regular cash deposit (logged in reports under "Cash Deposits")
+                - Legitimate Cash: formal cash record (future: links to wallet account) */}
+            {txForm.type === "DEPOSIT" && (
+              <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                <Label className="font-bold text-emerald-900">
+                  Cash Type / کیش کی قسم *
+                </Label>
+                <p className="text-xs text-emerald-700 mb-2">
+                  خریدار کارڈ میں پیسے جمع کروانے کے لیے: کیش ہے یا جائز کیش؟
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTxForm({ ...txForm, cashType: "CASH" })}
+                    className={`flex flex-col items-center gap-1 py-3 px-2 rounded-lg border-2 transition-all ${
+                      txForm.cashType === "CASH"
+                        ? "border-emerald-600 bg-white text-emerald-700 shadow-sm"
+                        : "border-emerald-200 bg-white/50 text-emerald-600 hover:bg-white"
+                    }`}
+                  >
+                    <Banknote className="w-5 h-5" />
+                    <span className="text-sm font-bold">Cash</span>
+                    <span className="text-[10px] opacity-80">رسد سودا</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTxForm({ ...txForm, cashType: "LEGITIMATE_CASH" })}
+                    className={`flex flex-col items-center gap-1 py-3 px-2 rounded-lg border-2 transition-all ${
+                      txForm.cashType === "LEGITIMATE_CASH"
+                        ? "border-blue-600 bg-white text-blue-700 shadow-sm"
+                        : "border-blue-200 bg-white/50 text-blue-600 hover:bg-white"
+                    }`}
+                  >
+                    <ShieldCheck className="w-5 h-5" />
+                    <span className="text-sm font-bold">جائز کیش</span>
+                    <span className="text-[10px] opacity-80">Legitimate Cash</span>
+                  </button>
+                </div>
+                {txForm.cashType === "LEGITIMATE_CASH" && (
+                  <div className="mt-2 text-xs text-blue-700 bg-blue-50 rounded p-2 border border-blue-200">
+                    <ShieldCheck className="w-3 h-3 inline mr-1" />
+                    جائز کیش — یہ رقم ریپورٹ میں "Cash Deposits" کے تحت "Legitimate Cash" کے طور پر ظاہر ہوگی۔
+                    {/*
+                      TODO v2.10.79+: Integrate with LoadBill → Wallet accounts.
+                      When user picks "Legitimate Cash", show a dropdown of
+                      wallet accounts (JazzCash, Easypaisa, Bank, etc. from
+                      LoadBill → Wallet section). The selected account's
+                      balance will be increased by this deposit amount.
+                      For now, this is logged as metadata only.
+                    */}
+                  </div>
+                )}
+                {txForm.cashType === "CASH" && (
+                  <div className="mt-2 text-xs text-emerald-700 bg-emerald-50 rounded p-2 border border-emerald-200">
+                    <Banknote className="w-3 h-3 inline mr-1" />
+                    کیش — یہ رقم ریپورٹ میں "Cash Deposits" کے تحت دکھائی دے گی (سیل کے طور پر نہیں)۔
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>Amount / رقم *</Label>
               <Input

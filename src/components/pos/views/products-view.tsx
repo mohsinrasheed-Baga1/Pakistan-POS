@@ -418,6 +418,54 @@ export function ProductsView({ userRole }: ProductsViewProps) {
               return true; // "all" — no filtering
             });
 
+            // v2.10.78: Build a map of piece-barcode → linked box product
+            // so we can show "X sealed boxes + Y loose pieces" breakdown
+            // in the Stock column for both box and piece products.
+            // - For a BOX product (has packBarcode set): find linked piece by barcode = packBarcode
+            // - For a PIECE product (no packBarcode): find linked box by box.packBarcode === this.barcode
+            const pieceByBarcode: Record<string, Product> = {};
+            products.forEach((p) => {
+              if (!p.packBarcode && p.barcode) {
+                pieceByBarcode[p.barcode] = p;
+              }
+            });
+            const boxByPieceBarcode: Record<string, Product> = {};
+            products.forEach((p) => {
+              if (p.packBarcode) {
+                boxByPieceBarcode[p.packBarcode] = p;
+              }
+            });
+            // Helper: get linked info for a product
+            // Returns { linkedStock, linkedLabel, packQty } or null
+            function getLinkedInfo(p: Product): {
+              linkedStock: number;
+              linkedLabel: string;
+              packQty: number;
+            } | null {
+              if (p.packBarcode && p.packQuantity > 0) {
+                // This is a BOX product — find linked piece
+                const piece = pieceByBarcode[p.packBarcode];
+                if (piece) {
+                  return {
+                    linkedStock: piece.stock || 0,
+                    linkedLabel: "loose pcs",
+                    packQty: p.packQuantity,
+                  };
+                }
+              } else if (!p.packBarcode && p.barcode) {
+                // This is a PIECE product — find linked box
+                const box = boxByPieceBarcode[p.barcode];
+                if (box && box.packQuantity > 0) {
+                  return {
+                    linkedStock: box.stock || 0,
+                    linkedLabel: "sealed boxes",
+                    packQty: box.packQuantity,
+                  };
+                }
+              }
+              return null;
+            }
+
             if (loading) {
               return (
                 <div className="p-8 space-y-2">
@@ -503,20 +551,57 @@ export function ProductsView({ userRole }: ProductsViewProps) {
                           {formatMoney(p.salePrice)}
                         </TableCell>
                         <TableCell className="text-right">
-                          <span
-                            className={`font-medium ${
-                              p.stock <= 0
-                                ? "text-red-600"
-                                : p.stock <= p.minStock
-                                ? "text-amber-600"
-                                : ""
-                            }`}
-                          >
-                            {p.stock}
-                          </span>
-                          {p.stock <= p.minStock && (
-                            <AlertTriangle className="w-3 h-3 inline mr-1 text-amber-500" />
-                          )}
+                          {/* v2.10.78: Show "X sealed boxes + Y loose pcs" breakdown
+                              for both box and piece products. The user requested
+                              this so they can see clearly:
+                              - How many complete (sealed) boxes are in stock
+                              - How many loose pieces are available from the opened box
+                              Total = (sealed boxes × packQty) + loose pieces */}
+                          {(() => {
+                            const linked = getLinkedInfo(p);
+                            const totalPieces = linked
+                              ? (p.packBarcode
+                                  ? (p.stock || 0) * linked.packQty + linked.linkedStock  // BOX: boxes×packQty + loose
+                                  : (linked.linkedStock) * linked.packQty + (p.stock || 0)  // PIECE: boxes×packQty + loose
+                                )
+                              : (p.stock || 0);
+                            const lowStock = p.stock <= 0 || (linked && totalPieces <= (p.minStock || 0));
+                            return (
+                              <div className="text-right">
+                                <span
+                                  className={`font-medium ${
+                                    p.stock <= 0
+                                      ? "text-red-600"
+                                      : p.stock <= p.minStock
+                                      ? "text-amber-600"
+                                      : ""
+                                  }`}
+                                >
+                                  {p.stock}
+                                </span>
+                                {linked && (
+                                  <div className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                                    {p.packBarcode ? (
+                                      // This is a BOX product — show sealed boxes + linked loose pieces
+                                      <span>
+                                        + {linked.linkedStock} loose pcs<br />
+                                        <span className="text-emerald-700">= {totalPieces} total</span>
+                                      </span>
+                                    ) : (
+                                      // This is a PIECE product — show linked sealed boxes + current loose pieces
+                                      <span>
+                                        + {linked.linkedStock} sealed boxes<br />
+                                        <span className="text-emerald-700">= {totalPieces} total</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {p.stock <= p.minStock && (
+                                  <AlertTriangle className="w-3 h-3 inline ml-1 text-amber-500" />
+                                )}
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell>
                           {(() => {
@@ -1413,15 +1498,30 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
       // product (saved below) gets the "(Box)" suffix automatically.
       // Without this fix, both piece AND box products end up named
       // "EGG (Box)" which is confusing in the products list.
-      const pieceStockValue = isBox ? totalPieces : (Number(pieceStock) || 0);
+      //
+      // v2.10.78: CRITICAL FIX — Don't overwrite piece stock when editing
+      // a box product. Previously, opening a box product for edit would
+      // send pieceBody.stock = boxQty × piecesPerBox (e.g. 5×10=50),
+      // OVERWRITING the actual piece stock (e.g. 5 loose pieces from
+      // an opened box). This caused "accounting gone bad" — the loose
+      // pieces count was lost on every edit.
+      //
+      // Now: in EDIT mode for box products, we OMIT the stock field
+      // entirely so the API preserves the existing piece stock. In ADD
+      // mode for box products, we set piece stock = 0 (buying boxes
+      // via Box Purchase is the proper way to add box stock; pieces
+      // auto-open from boxes on sale — see v2.10.77 logic).
+      const pieceStockValue = isBox
+        ? (editId ? undefined : 0)  // box: edit=omit, new=0
+        : (Number(pieceStock) || 0);  // non-box piece: user-entered
       const pieceCleanName = name.replace(/\s*\(Box\)\s*$/i, "").trim();
-      const pieceBody = {
+      const pieceBody: any = {
         name: pieceCleanName, barcode: finalPieceBarcode, categoryId: categoryId || null,
         costPrice: isBox ? (Number(pieceCostPrice) || autoPieceCost) : Number(pieceCostPrice) || 0,
         salePrice: isBox ? (Number(pieceSalePrice) || autoPieceSale) : Number(pieceSalePrice) || 0,
         wholesalePrice: isBox ? (Number(pieceWholesalePrice) || autoPieceWholesale) : Number(pieceWholesalePrice) || 0,
         shopkeeperPrice: isBox ? (Number(pieceShopkeeperPrice) || autoPieceShopkeeper) : Number(pieceShopkeeperPrice) || 0,
-        unit: pieceUnit || "piece", stock: pieceStockValue,
+        unit: pieceUnit || "piece",
         minStock: Number(pieceMinStock) || 0,
         expiryDate: expiryDate || null,
         manufacturingDate: manufacturingDate || null,
@@ -1430,6 +1530,11 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
         inventorySource,
         linkedStoreProductId: inventorySource === "MAIN_STORE" ? linkedStoreProductId : null,
       };
+      // v2.10.78: Only include stock field if we have a value to set
+      // (omitting it makes the PUT API preserve the existing stock).
+      if (pieceStockValue !== undefined) {
+        pieceBody.stock = pieceStockValue;
+      }
 
       // ─── Build BOX product body (only if box) ──────────────────────────────
       // v2.10.25: Strip existing "(Box)" suffix to prevent duplication

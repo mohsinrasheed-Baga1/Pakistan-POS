@@ -139,8 +139,10 @@ export async function GET(req: NextRequest) {
   // ─── CUSTOMER (SHOP CARD) CREDIT/DEBIT ────────────────────────────────
   // balance > 0 = advance (we owe customer — they paid in advance)
   // balance < 0 = due (customer owes us — they bought on credit)
+  // v2.10.78: Fetch id+name too so we can build a cardId→name map for
+  // the cash deposits list below (avoids a second CustomerCard query).
   const cards = await db.customerCard.findMany({
-    select: { balance: true, name: true, totalPurchases: true, totalPaid: true },
+    select: { id: true, name: true, balance: true, totalPurchases: true, totalPaid: true },
   });
   const totalCustomerAdvance = cards.reduce((s, c) => s + (c.balance > 0 ? c.balance : 0), 0);
   const totalCustomerDue = cards.reduce((s, c) => s + (c.balance < 0 ? Math.abs(c.balance) : 0), 0);
@@ -150,6 +152,67 @@ export async function GET(req: NextRequest) {
     totalPurchases: c.totalPurchases,
     totalPaid: c.totalPaid,
   })).sort((a, b) => a.balance - b.balance); // most due first
+
+  // ─── v2.10.78: CASH DEPOSITS (Customer Card Top-ups) ───────────────────
+  // These are SEPARATE from sales. Sales = items we sold. Cash deposits =
+  // money customers paid to top up their card balance (e.g., paying back
+  // old debts, or prepaying for future purchases).
+  //
+  // The user spec: "سیل وہ ہے جو ہم نے سودا بیچ دیا ہے — کیش وہ ہے جو ہم
+  // نے ابھی پرانا سودا بیچے ہوئے پیسے واپس لیے ہیں"
+  // (Sales = items we sold. Cash = money we took back for old debts sold.)
+  //
+  // We sum DEPOSIT-type card transactions in the date range and break them
+  // down by cashType (CASH vs LEGITIMATE_CASH — parsed from the description
+  // prefix that handleTxSave in cards-view.tsx adds).
+  const cardDeposits = await db.cardTransaction.findMany({
+    where: {
+      type: "DEPOSIT",
+      createdAt: { gte: start, lte: end },
+    },
+    select: {
+      amount: true,
+      description: true,
+      createdAt: true,
+      cardId: true,
+      note: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  });
+  // Build a cardId → customer name map from the already-fetched cards list
+  // (avoids an extra DB query — important for performance on large DBs)
+  const cardIdToName: Record<string, string> = {};
+  cards.forEach((c) => { cardIdToName[c.id] = c.name; });
+
+  let totalCashDeposits = 0;       // sum of all CASH deposits
+  let totalLegitimateCash = 0;    // sum of all LEGITIMATE_CASH deposits
+  const cashDepositsList: {
+    customerName: string;
+    amount: number;
+    cashType: "CASH" | "LEGITIMATE_CASH";
+    description: string;
+    createdAt: string;
+  }[] = [];
+  for (const d of cardDeposits) {
+    const desc = d.description || "";
+    const isLegitimate = desc.startsWith("[جائز کیش]");
+    const isCash = desc.startsWith("[CASH]");
+    const cashType: "CASH" | "LEGITIMATE_CASH" = isLegitimate ? "LEGITIMATE_CASH" : "CASH";
+    if (isLegitimate) {
+      totalLegitimateCash += d.amount;
+    } else {
+      totalCashDeposits += d.amount;
+    }
+    cashDepositsList.push({
+      customerName: cardIdToName[d.cardId] || "Unknown",
+      amount: d.amount,
+      cashType,
+      description: desc.replace(/^\[(CASH|جائز کیش)\]\s*/, ""),
+      createdAt: d.createdAt.toISOString(),
+    });
+  }
+
 
   // ─── PAYMENT METHOD BREAKDOWN (v2.9.14) ──────────────────────────────
   // Payment method breakdown — use sale.total (not paidAmount)
@@ -200,6 +263,16 @@ export async function GET(req: NextRequest) {
       totalDue: totalCustomerDue,         // money customers owe us (credit purchases)
       netPosition: totalCustomerAdvance - totalCustomerDue,
       customersWithDue,                   // list of customers who owe us
+    },
+    // v2.10.78: CASH DEPOSITS — separate from sales
+    // - totalCashDeposits: sum of "[CASH]" prefixed DEPOSIT transactions
+    // - totalLegitimateCash: sum of "[جائز کیش]" prefixed DEPOSIT transactions
+    // - cashDepositsList: detailed list of each deposit (for table display)
+    cashDeposits: {
+      totalCashDeposits,        // regular cash (رسد سودا)
+      totalLegitimateCash,     // جائز کیش
+      grandTotal: totalCashDeposits + totalLegitimateCash,
+      list: cashDepositsList,
     },
   });
 }

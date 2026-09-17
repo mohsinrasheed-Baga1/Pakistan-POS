@@ -1047,8 +1047,12 @@ export function PosView({ settings }: PosViewProps) {
   }
 
   // v2.10.25: Show negative balance if customer paid less than total
+  // v2.10.78: Change calculation must use GRAND TOTAL (with service tax)
+  // — previously used totals.total (without service tax), causing the
+  // cashier to think customer paid in full when they actually still owed
+  // the service tax portion.
   const paidNum = Number(paidAmount) || 0;
-  const change = paidNum - totals.total; // Can be negative (customer owes money)
+  const change = paidNum - grandTotalWithServiceTax; // Can be negative (customer owes money)
   const balanceDue = change < 0 ? Math.abs(change) : 0;
 
   return (
@@ -1931,11 +1935,25 @@ export function PosView({ settings }: PosViewProps) {
             <DialogTitle>Payment</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="bg-emerald-50 rounded-lg p-4 text-center">
+            <div className="bg-emerald-50 rounded-lg p-4 text-center space-y-1">
+              {/* v2.10.78: Show grand total (with service tax) prominently
+                  + breakdown so the user sees service tax is included */}
               <div className="text-sm text-muted-foreground">Total Bill</div>
               <div className="text-3xl font-bold text-emerald-700">
-                {formatMoney(totals.total, currency)}
+                {formatMoney(grandTotalWithServiceTax, currency)}
               </div>
+              {posServiceTaxAmount > 0 && (
+                <div className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1 mt-2 space-y-0.5">
+                  <div className="flex justify-between">
+                    <span>Subtotal (incl. item tax):</span>
+                    <span>{formatMoney(totals.total, currency)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold">
+                    <span>Service Tax ({posServiceTaxPercent}%):</span>
+                    <span>+{formatMoney(posServiceTaxAmount, currency)}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ─── Shop Card selector with search ─── */}
@@ -2032,7 +2050,7 @@ export function PosView({ settings }: PosViewProps) {
                 type="number"
                 value={paidAmount}
                 onChange={(e) => setPaidAmount(e.target.value)}
-                placeholder={totals.total.toString()}
+                placeholder={grandTotalWithServiceTax.toString()}
                 className="h-12 text-lg text-left"
                 autoFocus
               />
@@ -2056,6 +2074,18 @@ export function PosView({ settings }: PosViewProps) {
             )}
 
             <div className="grid grid-cols-4 gap-2">
+              {/* v2.10.78: "Exact" button — fills in the exact grand total
+                  (with service tax) so the cashier can quickly mark paid
+                  in full without doing mental math. */}
+              <Button
+                variant="default"
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => setPaidAmount(grandTotalWithServiceTax.toString())}
+                title="Fill in exact grand total (with service tax)"
+              >
+                Exact
+              </Button>
               {[500, 1000, 2000, 5000].map((amt) => (
                 <Button
                   key={amt}
@@ -2066,6 +2096,33 @@ export function PosView({ settings }: PosViewProps) {
                   {amt}
                 </Button>
               ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {/* v2.10.78: Quick "round up" buttons relative to grand total */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 100) * 100))}
+                title="Round up to nearest 100"
+              >
+                ↑100
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 500) * 500))}
+                title="Round up to nearest 500"
+              >
+                ↑500
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 1000) * 1000))}
+                title="Round up to nearest 1000"
+              >
+                ↑1000
+              </Button>
             </div>
           </div>
           <DialogFooter>
