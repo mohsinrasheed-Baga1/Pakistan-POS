@@ -142,39 +142,52 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* v2.10.80: Calculator dialog — wider (max-w-sm instead of max-w-xs)
-          to prevent buttons being cut off on the right edge.
-          Also: removed `overflow-hidden` so any overflow is visible
-          instead of being silently clipped (which was making the
-          operator column *, -, +, = look broken). */}
-      <DialogContent className="w-[360px] max-w-[92vw] p-0 overflow-visible border-2 border-emerald-600 shadow-2xl" style={{ zIndex: 99999 }}>
+      {/* v2.10.82: Calculator dialog — fixed size, nothing escapes.
+          ─────────────────────────────────────────────────────────────
+          User complaint (3rd time): "20+ entries → calculator expands,
+          answers go off right side of screen"
+          Root cause: v2.10.80 had `overflow-visible` which let long
+          content (history expression OR result number) push past the
+          dialog's right edge visibly.
+          Fix: `overflow-hidden` on dialog (no content escapes) + each
+          inner section handles its own overflow:
+          - History: max-h-16 overflow-y-auto (scrolls vertically inside)
+          - Display: overflow-x-auto whitespace-nowrap (scrolls horizontally inside)
+          The dialog width is FIXED at 360px (or 95vw on small screens),
+          so it can NEVER expand regardless of how many entries.
+          Width: w-[360px] (fixed, not min-w which could grow)
+          Max-width: max-w-[95vw] (won't exceed 95% viewport on small screens) */}
+      <DialogContent className="w-[360px] max-w-[95vw] p-0 overflow-hidden border-2 border-emerald-600 shadow-2xl flex flex-col" style={{ zIndex: 99999 }}>
         {/* Header bar — emerald gradient */}
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-3 flex items-center justify-between rounded-t-lg">
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-3 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2 text-white">
             <CalculatorIcon className="w-4 h-4" />
             <span className="text-sm font-bold">Calculator</span>
           </div>
-          <span className="text-[10px] text-emerald-100">Ctrl+C / Esc to close</span>
+          <span className="text-[10px] text-emerald-100">Ctrl+C / Esc</span>
         </div>
 
-        <div className="p-3 space-y-2">
-          {/* v2.10.81: History line — FIXED HEIGHT scrollable area
-              Previously: `break-words` made long expressions wrap to
-              multiple lines, which EXPANDED the dialog vertically (user
-              complaint: "زیادہ انٹریز ہو جاتی ہے تو وہ پھیلنا شروع ہو جاتا ہے"
-              = "when many entries, it starts expanding").
-              Now: fixed max-h-16 (64px) with overflow-y-auto — long
-              history scrolls internally without expanding the dialog.
-              Also text-left + text-xs so it reads naturally. */}
-          <div className="text-left text-xs text-muted-foreground max-h-16 overflow-y-auto font-mono px-1 bg-muted/30 rounded min-h-[20px] py-1 break-all">
+        <div className="p-3 space-y-2 flex-1 min-h-0">
+          {/* v2.10.82: History line — STRICT fixed height, scrolls internally.
+              - max-h-12 (48px): hard cap, never grows beyond 2 lines of text-xs
+              - overflow-y-auto: scrolls vertically if longer
+              - break-all: wraps mid-word so content fits horizontally
+              - text-left: natural reading order
+              - bg-muted/30: visual distinction
+              - max-w-full + min-w-0: ensures the box doesn't expand to fit content */}
+          <div className="text-left text-xs text-muted-foreground max-h-12 overflow-y-auto font-mono px-2 bg-muted/30 rounded min-h-[24px] py-1 break-all max-w-full min-w-0">
             {history || "\u00A0"}
           </div>
-          {/* Display — large, prominent.
-              v2.10.81: Use overflow-x-auto so very long numbers scroll
-              horizontally inside the display (instead of breaking layout
-              or wrapping to multiple lines). */}
-          <div className="text-right text-2xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 min-h-[56px] flex items-center justify-end overflow-x-auto border border-emerald-200 whitespace-nowrap">
-            {display}
+          {/* v2.10.82: Display — STRICT fixed width, scrolls horizontally.
+              - w-full: take parent's width (336px after p-3 padding)
+              - max-w-full + min-w-0: don't expand beyond parent
+              - overflow-x-auto: horizontal scroll for long numbers
+              - whitespace-nowrap: don't wrap (so scrolling works)
+              - text-xl: smaller font (was text-2xl) so 7-8 digit numbers fit
+              - text-right: result aligns right (standard calculator)
+              - flex-shrink-0: don't shrink this section */}
+          <div className="text-right text-xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 h-14 flex items-center justify-start overflow-x-auto overflow-y-hidden border border-emerald-200 whitespace-nowrap w-full max-w-full min-w-0 flex-shrink-0">
+            <span className="ml-auto">{display}</span>
           </div>
           {/* Buttons — professional grid (4 columns)
               v2.10.80: Wider buttons (h-14 instead of h-12) and gap-2

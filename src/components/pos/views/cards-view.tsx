@@ -813,13 +813,30 @@ export function CardsView({ userRole }: CardsViewProps) {
 
       {/* Card Detail — FULL SCREEN modal (like a separate page) */}
       <Dialog open={!!detailCard} onOpenChange={(o) => !o && setDetailCard(null)}>
-        {/* v2.10.81: REVERTED v2.10.80's full-screen attempt (it broke the
-            dialog — left column came up blank). Going back to v2.10.79's
-            working layout but slightly larger (max-w-[99vw] h-[96vh])
-            so the user doesn't have to manually maximize as much.
-            The v2.10.79 layout was working perfectly per user feedback:
-            "بہت زیادہ ائی ہے" (much better). */}
-        <DialogContent className="max-w-[99vw] w-full h-[96vh] flex flex-col p-0 gap-0 overflow-hidden">
+        {/* v2.10.82: TRUE FULL-SCREEN — using ONLY Tailwind classes
+            ─────────────────────────────────────────────────────────────
+            v2.10.80 attempt used inline `style={{ top: 0, left: 0,
+            transform: "none" }}` which conflicted with shadcn's
+            data-[state=open]:zoom-in-95 animation — broke the dialog,
+            left column came up blank.
+
+            v2.10.82 uses ONLY Tailwind classes — no inline styles.
+            - `w-screen h-screen`: width and height = 100vw × 100vh
+            - `max-w-none sm:max-w-none`: removes shadcn's default
+              max-w (calc(100%-2rem)) and sm:max-w-lg (512px)
+            - `max-h-none sm:max-h-none`: removes any height constraints
+            - `flex flex-col`: header stays at top, body fills rest
+            - `p-0 gap-0`: no padding/gap (each section has its own)
+            - `overflow-hidden`: no outer scroll (inner sections scroll)
+
+            With shadcn's default `top-[50%] left-[50%] translate-x-[-50%]
+            translate-y-[-50%]` + w-screen h-screen:
+              - top: 50vh, translate-y: -50vh → final top: 0
+              - left: 50vw, translate-x: -50vw → final left: 0
+            So the dialog ends up at top-left corner (0, 0), filling
+            the entire viewport — without needing inline style overrides
+            that would conflict with the CSS animation. */}
+        <DialogContent className="w-screen h-screen max-w-none sm:max-w-none max-h-none sm:max-h-none p-0 gap-0 overflow-hidden flex flex-col rounded-none border-0">
           {/* v2.10.79: REDESIGNED Shop Card Details dialog
               ─────────────────────────────────────────────────────────────
               Two-column layout (responsive: stacks on small screens):
