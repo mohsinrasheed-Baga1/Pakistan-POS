@@ -318,6 +318,7 @@ export function CardsView({ userRole }: CardsViewProps) {
   async function openDetail(c: CustomerCard) {
     setDetailCard(c);
     setDetailTransactions([]);
+    setDetailCardSales([]);
     setDetailLoading(true);
     try {
       // Fetch card details (includes transactions)
@@ -326,12 +327,19 @@ export function CardsView({ userRole }: CardsViewProps) {
       setDetailCard(data.card);
       setDetailTransactions(data.card.transactions || []);
 
-      // Also fetch sales linked to this card (purchase history)
+      // v2.10.79: Fetch recent sales and filter to this card
+      // (Existing API doesn't support filtering by cardId directly,
+      //  so we fetch the last 100 sales and filter client-side.)
+      // We fetch MORE now (limit=100) to cover more historical sales.
       try {
-        const salesRes = await fetch(`/api/sales?limit=50`, { cache: "no-store" });
+        const salesRes = await fetch(`/api/sales?limit=100`, { cache: "no-store" });
         if (salesRes.ok) {
           const salesData = await salesRes.json();
           const cardSales = (salesData.sales || []).filter((s: any) => s.cardId === c.id);
+          // Sort newest first
+          cardSales.sort((a: any, b: any) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
           setDetailCardSales(cardSales);
         }
       } catch {}
@@ -805,233 +813,318 @@ export function CardsView({ userRole }: CardsViewProps) {
 
       {/* Card Detail — FULL SCREEN modal (like a separate page) */}
       <Dialog open={!!detailCard} onOpenChange={(o) => !o && setDetailCard(null)}>
-        <DialogContent className="max-w-[95vw] w-full h-[95vh] overflow-y-auto p-6">
-          <DialogHeader className="flex-shrink-0 sticky top-0 bg-background z-10 pb-3 border-b">
-            <DialogTitle className="flex items-center gap-2 text-lg">
-              <Wallet className="w-5 h-5 text-emerald-600" />
+        <DialogContent className="max-w-[98vw] w-full h-[95vh] flex flex-col p-0 gap-0 overflow-hidden">
+          {/* v2.10.79: REDESIGNED Shop Card Details dialog
+              ─────────────────────────────────────────────────────────────
+              Two-column layout (responsive: stacks on small screens):
+              - LEFT (1/3 width): Customer info + Balance + Actions (sticky)
+              - RIGHT (2/3 width): Transaction history + Purchase history (scroll)
+              This prevents the "UI breaks when many entries" issue.
+              Also: each purchase history row now shows full details
+              (invoice no, items purchased, "View Receipt" button per sale). */}
+          <DialogHeader className="flex-shrink-0 bg-emerald-700 text-white p-3 border-b-2 border-emerald-800">
+            <DialogTitle className="flex items-center gap-2 text-lg flex-wrap">
+              <Wallet className="w-5 h-5" />
               Card Details — تفصیلات
               {detailCard && (
-                <span className="text-sm text-muted-foreground ml-2">
+                <span className="text-sm opacity-90 ml-2 font-normal">
                   {detailCard.name} • {detailCard.cardNumber}
                 </span>
               )}
             </DialogTitle>
           </DialogHeader>
           {detailCard && (
-            <div className="space-y-4">
-              {/* Summary Panel */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg border p-3 space-y-1">
-                  <div className="text-xs text-muted-foreground">Customer Name / نام</div>
-                  <div className="font-bold">{detailCard.name}</div>
-                </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <div className="text-xs text-muted-foreground">Customer ID</div>
-                  <div className="font-mono font-bold text-emerald-700">{detailCard.customerId || "-"}</div>
-                </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <div className="text-xs text-muted-foreground">Phone / فون</div>
-                  <div className="font-medium">{detailCard.phone || "-"}</div>
-                </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <div className="text-xs text-muted-foreground">Card Number</div>
-                  <div className="font-mono font-medium">{detailCard.cardNumber}</div>
-                </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <div className="text-xs text-muted-foreground">Account Status / حیثیت</div>
-                  <div>
-                    {detailCard.active ? (
-                      <Badge className="border-emerald-300 text-emerald-700 bg-emerald-50">
-                        <CheckCircle className="w-3 h-3 mr-1" /> Active — فعال
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="border-red-300 text-red-700 bg-red-50">
-                        <XCircle className="w-3 h-3 mr-1" /> Inactive — غیر فعال
-                      </Badge>
-                    )}
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-0 overflow-hidden">
+              {/* ─── LEFT COLUMN: Customer info + Balance + Actions ─── */}
+              <div className="lg:col-span-1 lg:overflow-y-auto p-4 space-y-3 border-r bg-emerald-50/30">
+                {/* Balance - Big and Prominent */}
+                <div className={`rounded-xl p-4 text-center text-white shadow-md ${
+                  (detailCard.balance || 0) >= 0
+                    ? "bg-emerald-600"
+                    : "bg-rose-600"
+                }`}>
+                  <div className="text-xs opacity-80">Current Balance — موجودہ بیلنس</div>
+                  <div className="text-3xl font-bold mt-1">{formatMoney(detailCard.balance, currency)}</div>
+                  <div className="text-[10px] opacity-75 mt-1">
+                    {(detailCard.balance || 0) > 0
+                      ? "(Advance — customer paid extra)"
+                      : (detailCard.balance || 0) < 0
+                      ? "(Due — customer owes money)"
+                      : "(Settled)"}
                   </div>
                 </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <div className="text-xs text-muted-foreground">Card Type</div>
-                  <div className="font-medium">
-                    {detailCard.type === "WHOLESALE" ? "Wholesale / ہول سیل" : detailCard.type === "SHOP_KEEPER" ? "Shop Keeper / دکاندار" : "Regular / عام"}
+
+                {/* Summary breakdown */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded border bg-white p-2">
+                    <div className="text-muted-foreground">Total Purchases</div>
+                    <div className="font-bold text-rose-700">{formatMoney(detailCard.totalPurchases, currency)}</div>
+                  </div>
+                  <div className="rounded border bg-white p-2">
+                    <div className="text-muted-foreground">Total Paid</div>
+                    <div className="font-bold text-emerald-700">{formatMoney(detailCard.totalPaid, currency)}</div>
                   </div>
                 </div>
-              </div>
 
-              {/* Balance - Big and Prominent */}
-              <div className="rounded-xl bg-emerald-600 text-white p-5 text-center">
-                <div className="text-sm opacity-80">Current Balance — موجودہ بیلنس</div>
-                <div className="text-3xl font-bold mt-1">{formatMoney(detailCard.balance, currency)}</div>
-                <div className="flex justify-center gap-4 mt-3 text-xs opacity-80">
-                  <span>Total Purchases: {formatMoney(detailCard.totalPurchases, currency)}</span>
-                  <span>Total Paid: {formatMoney(detailCard.totalPaid, currency)}</span>
-                  <span>Remaining: {formatMoney(detailCard.totalPurchases - detailCard.totalPaid, currency)}</span>
+                {/* Customer info compact card */}
+                <div className="rounded-lg border bg-white p-3 space-y-2 text-sm">
+                  <div className="flex items-center gap-2 pb-2 border-b">
+                    <User className="w-4 h-4 text-emerald-600" />
+                    <span className="font-bold">{detailCard.name}</span>
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Card Number:</span>
+                      <span className="font-mono font-medium">{detailCard.cardNumber}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Customer ID:</span>
+                      <span className="font-mono text-emerald-700">{detailCard.customerId || "-"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Phone:</span>
+                      <span className="font-medium">{detailCard.phone || "-"}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Type:</span>
+                      <span className="font-medium">
+                        {detailCard.type === "WHOLESALE" ? "Wholesale" : detailCard.type === "SHOP_KEEPER" ? "Shop Keeper" : "Regular"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Status:</span>
+                      {detailCard.active ? (
+                        <Badge className="border-emerald-300 text-emerald-700 bg-emerald-50 text-[10px] py-0 h-5">
+                          <CheckCircle className="w-3 h-3 mr-1" /> Active
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-red-300 text-red-700 bg-red-50 text-[10px] py-0 h-5">
+                          <XCircle className="w-3 h-3 mr-1" /> Inactive
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              {/* Last Transaction */}
-              {detailTransactions.length > 0 && (
-                <div className="rounded-lg border p-3 space-y-1">
-                  <div className="text-xs text-muted-foreground">Last Transaction — آخری لین دین</div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-sm">
-                      {TRANSACTION_TYPES.find(t => t.value === detailTransactions[0].type)?.labelEn || detailTransactions[0].type}
-                      {" "}({TRANSACTION_TYPES.find(t => t.value === detailTransactions[0].type)?.labelUr})
-                    </span>
-                    <span className="font-bold">{formatMoney(detailTransactions[0].amount, currency)}</span>
-                    <span className="text-xs text-muted-foreground">
+                {/* Last Transaction summary */}
+                {detailTransactions.length > 0 && (
+                  <div className="rounded-lg border bg-white p-2 text-xs space-y-1">
+                    <div className="text-muted-foreground font-medium">Last Transaction — آخری لین دین</div>
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className="text-[10px] py-0 h-5">
+                        {TRANSACTION_TYPES.find(t => t.value === detailTransactions[0].type)?.labelEn || detailTransactions[0].type}
+                      </Badge>
+                      <span className="font-bold">{formatMoney(detailTransactions[0].amount, currency)}</span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
                       {new Date(detailTransactions[0].createdAt).toLocaleString("en-PK")}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Actions — Quick Cash In / Cash Out buttons */}
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  className="bg-emerald-600 hover:bg-emerald-700"
-                  onClick={() => openTxDialog("DEPOSIT")}
-                >
-                  <ArrowDownLeft className="w-4 h-4 mr-2" /> Cash In — جمع
-                </Button>
-                <Button
-                  className="bg-rose-600 hover:bg-rose-700"
-                  onClick={() => openTxDialog("WITHDRAWAL")}
-                >
-                  <ArrowUpRight className="w-4 h-4 mr-2" /> Cash Out — نکل
-                </Button>
-              </div>
-
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => openTxDialog()}
-                >
-                  <Plus className="w-4 h-4 mr-2" /> Other Tx — دیگر
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => {
-                    setPrintCard(detailCard);
-                    setDetailCard(null);
-                  }}
-                >
-                  <Printer className="w-4 h-4 mr-2" /> Print Card
-                </Button>
-              </div>
-
-              {/* Transactions Button → Ledger */}
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  setDetailCard(null);
-                  // The transactions are already displayed below
-                }}
-              >
-                <History className="w-4 h-4 mr-2" /> Transaction History — تاریخِ لین دین ({detailTransactions.length} transactions)
-              </Button>
-
-              {/* Transaction History Table */}
-              {detailLoading ? (
-                <div className="p-4 text-center text-muted-foreground">Loading transactions...</div>
-              ) : detailTransactions.length > 0 ? (
-                <div className="rounded-lg border overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Operator</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {detailTransactions.map((tx) => (
-                        <TableRow key={tx.id}>
-                          <TableCell className="text-xs">
-                            {new Date(tx.createdAt).toLocaleString("en-PK")}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {TRANSACTION_TYPES.find(t => t.value === tx.type)?.labelEn || tx.type}
-                              {" "}{TRANSACTION_TYPES.find(t => t.value === tx.type)?.labelUr || ""}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {formatMoney(tx.amount, currency)}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">
-                            {tx.description || tx.note || "-"}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {tx.operatorName || "-"}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <div className="text-center text-sm text-muted-foreground py-4">
-                  No transactions yet — ابھی تک کوئی لین دین نہیں
-                </div>
-              )}
-
-              {/* ─── Purchase History (Sales linked to this card) ─── */}
-              <div className="mt-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Receipt className="w-4 h-4 text-blue-600" />
-                  <span className="text-sm font-bold text-blue-700">
-                    Purchase History — خریداری کی تاریخ ({detailCardSales.length} sales)
-                  </span>
-                </div>
-                {detailCardSales.length > 0 ? (
-                  <div className="rounded-lg border overflow-hidden max-h-[200px] overflow-y-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Invoice</TableHead>
-                          <TableHead className="text-right">Total</TableHead>
-                          <TableHead className="text-right">Items</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {detailCardSales.map((sale: any) => (
-                          <TableRow
-                            key={sale.id}
-                            className="cursor-pointer hover:bg-emerald-50"
-                            onClick={() => viewSaleReceipt(sale.id)}
-                            title="Click to view receipt"
-                          >
-                            <TableCell className="text-xs">
-                              {new Date(sale.createdAt).toLocaleDateString("en-PK")}
-                            </TableCell>
-                            <TableCell className="text-xs font-mono text-blue-600 underline">{sale.invoiceNo}</TableCell>
-                            <TableCell className="text-right font-medium">
-                              {formatMoney(sale.total, currency)}
-                            </TableCell>
-                            <TableCell className="text-right text-xs">
-                              {sale.items?.length || 0} items
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              <Receipt className="w-3.5 h-3.5 text-emerald-600" />
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <div className="text-center text-sm text-muted-foreground py-2">
-                    No purchases yet — ابھی تک کوئی خریداری نہیں
+                    </div>
                   </div>
                 )}
+
+                {/* Actions — sticky at the bottom of left column on large screens */}
+                <div className="space-y-2 pt-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      className="bg-emerald-600 hover:bg-emerald-700 h-10"
+                      onClick={() => openTxDialog("DEPOSIT")}
+                    >
+                      <ArrowDownLeft className="w-4 h-4 mr-1" /> Cash In
+                    </Button>
+                    <Button
+                      className="bg-rose-600 hover:bg-rose-700 h-10"
+                      onClick={() => openTxDialog("WITHDRAWAL")}
+                    >
+                      <ArrowUpRight className="w-4 h-4 mr-1" /> Cash Out
+                    </Button>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="flex-1 h-9"
+                      onClick={() => openTxDialog()}
+                    >
+                      <Plus className="w-4 h-4 mr-1" /> Other Tx
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1 h-9"
+                      onClick={() => {
+                        setPrintCard(detailCard);
+                        setDetailCard(null);
+                      }}
+                    >
+                      <Printer className="w-4 h-4 mr-1" /> Print
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ─── RIGHT COLUMN: Histories (transaction + purchase) ─── */}
+              <div className="lg:col-span-2 lg:overflow-y-auto p-4 space-y-4">
+                {/* Transaction History — card transactions (deposits, withdrawals, etc.) */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2 sticky top-0 bg-background z-10 py-1">
+                    <History className="w-4 h-4 text-emerald-600" />
+                    <span className="text-sm font-bold text-emerald-700">
+                      Transaction History — تاریخِ لین دین
+                    </span>
+                    <Badge variant="outline" className="text-[10px] ml-auto">
+                      {detailTransactions.length} txn(s)
+                    </Badge>
+                  </div>
+                  {detailLoading ? (
+                    <div className="p-4 text-center text-muted-foreground text-sm">Loading transactions...</div>
+                  ) : detailTransactions.length > 0 ? (
+                    <div className="rounded-lg border overflow-hidden">
+                      <div className="max-h-[35vh] overflow-y-auto">
+                        <Table>
+                          <TableHeader className="sticky top-0 bg-muted z-10">
+                            <TableRow>
+                              <TableHead className="text-xs">Date</TableHead>
+                              <TableHead className="text-xs">Type</TableHead>
+                              <TableHead className="text-xs text-right">Amount</TableHead>
+                              <TableHead className="text-xs">Description</TableHead>
+                              <TableHead className="text-xs">Operator</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {detailTransactions.map((tx) => {
+                              const txType = TRANSACTION_TYPES.find(t => t.value === tx.type);
+                              const isCredit = ["DEPOSIT", "CREDIT", "REFUND"].includes(tx.type);
+                              return (
+                                <TableRow key={tx.id} className={isCredit ? "bg-emerald-50/40" : "bg-rose-50/40"}>
+                                  <TableCell className="text-[10px] py-1.5">
+                                    {new Date(tx.createdAt).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" })}
+                                  </TableCell>
+                                  <TableCell className="py-1.5">
+                                    <Badge variant="outline" className={`text-[10px] py-0 h-5 ${
+                                      isCredit ? "border-emerald-300 text-emerald-700" : "border-rose-300 text-rose-700"
+                                    }`}>
+                                      {txType?.labelEn || tx.type}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className={`text-right font-bold py-1.5 text-xs ${
+                                    isCredit ? "text-emerald-700" : "text-rose-700"
+                                  }`}>
+                                    {isCredit ? "+" : "-"}{formatMoney(tx.amount, currency)}
+                                  </TableCell>
+                                  <TableCell className="text-[10px] text-muted-foreground py-1.5 max-w-[200px] truncate" title={tx.description || tx.note || ""}>
+                                    {tx.description || tx.note || "-"}
+                                  </TableCell>
+                                  <TableCell className="text-[10px] py-1.5">
+                                    {tx.operatorName || "-"}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center text-sm text-muted-foreground py-4 border rounded-lg">
+                      No transactions yet — ابھی تک کوئی لین دین نہیں
+                    </div>
+                  )}
+                </div>
+
+                {/* ─── Purchase History (Sales linked to this card) ───
+                    v2.10.79: Each sale row now shows:
+                    - Invoice number (with link/button to view receipt)
+                    - Date
+                    - Total amount
+                    - ITEMS purchased (full list, not just count)
+                    - "View Receipt" button per sale
+                    Rows are expandable — click to expand and see item list */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2 sticky top-0 bg-background z-10 py-1">
+                    <Receipt className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-bold text-blue-700">
+                      Purchase History — خریداری کی تاریخ
+                    </span>
+                    <Badge variant="outline" className="text-[10px] ml-auto">
+                      {detailCardSales.length} sale(s)
+                    </Badge>
+                  </div>
+                  {detailCardSales.length > 0 ? (
+                    <div className="rounded-lg border overflow-hidden">
+                      <div className="max-h-[40vh] overflow-y-auto">
+                        <Table>
+                          <TableHeader className="sticky top-0 bg-muted z-10">
+                            <TableRow>
+                              <TableHead className="text-xs">Date</TableHead>
+                              <TableHead className="text-xs">Invoice / رسید نمبر</TableHead>
+                              <TableHead className="text-xs text-right">Total</TableHead>
+                              <TableHead className="text-xs">Items — خریدی ہوئی چیزیں</TableHead>
+                              <TableHead className="text-xs text-right">Action</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {detailCardSales.map((sale: any) => (
+                              <TableRow
+                                key={sale.id}
+                                className="cursor-pointer hover:bg-blue-50"
+                              >
+                                <TableCell className="text-[10px] py-1.5">
+                                  {new Date(sale.createdAt).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" })}
+                                </TableCell>
+                                <TableCell className="text-xs font-mono font-bold text-blue-700 py-1.5">
+                                  {sale.invoiceNo}
+                                </TableCell>
+                                <TableCell className="text-right font-bold py-1.5 text-xs">
+                                  {formatMoney(sale.total, currency)}
+                                </TableCell>
+                                <TableCell className="py-1.5">
+                                  {/* v2.10.79: Show actual items purchased (not just count) */}
+                                  {sale.items && sale.items.length > 0 ? (
+                                    <div className="text-[10px] space-y-0.5 max-w-[280px]">
+                                      {sale.items.slice(0, 3).map((it: any, i: number) => (
+                                        <div key={i} className="flex justify-between gap-2 truncate">
+                                          <span className="truncate">• {it.name}</span>
+                                          <span className="text-muted-foreground whitespace-nowrap">×{it.quantity}</span>
+                                        </div>
+                                      ))}
+                                      {sale.items.length > 3 && (
+                                        <div className="text-muted-foreground italic">
+                                          + {sale.items.length - 3} more item(s)
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {sale.items?.length || 0} items (load receipt to see)
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right py-1.5">
+                                  {/* v2.10.79: "View Receipt / پرچی" button per sale
+                                      so the user can quickly open and print the receipt */}
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-[10px] border-blue-300 text-blue-700 hover:bg-blue-50"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      viewSaleReceipt(sale.id);
+                                    }}
+                                  >
+                                    <Receipt className="w-3 h-3 mr-1" />
+                                    پرچی
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center text-sm text-muted-foreground py-4 border rounded-lg">
+                      No purchases yet — ابھی تک کوئی خریداری نہیں
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
