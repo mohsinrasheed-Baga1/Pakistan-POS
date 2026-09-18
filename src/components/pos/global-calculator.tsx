@@ -131,7 +131,10 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
     setWaitingForOperand(true);
   }
 
-  const btnClass = "h-12 text-lg font-medium rounded-lg border transition-colors";
+  // v2.10.80: Slightly taller buttons (h-14 instead of h-12) for better
+  // touch targets. Also using text-base instead of text-lg so button labels
+  // don't get squeezed on narrower viewports.
+  const btnClass = "h-14 text-base font-medium rounded-lg border transition-colors";
   const numClass = "bg-card hover:bg-muted border-border";
   const opClass = "bg-blue-50 hover:bg-blue-100 border-blue-300 text-blue-700";
   const eqClass = "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700";
@@ -139,9 +142,14 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xs p-0 overflow-hidden border-2 border-emerald-600 shadow-2xl" style={{ zIndex: 99999 }}>
+      {/* v2.10.80: Calculator dialog — wider (max-w-sm instead of max-w-xs)
+          to prevent buttons being cut off on the right edge.
+          Also: removed `overflow-hidden` so any overflow is visible
+          instead of being silently clipped (which was making the
+          operator column *, -, +, = look broken). */}
+      <DialogContent className="w-[360px] max-w-[92vw] p-0 overflow-visible border-2 border-emerald-600 shadow-2xl" style={{ zIndex: 99999 }}>
         {/* Header bar — emerald gradient */}
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-3 flex items-center justify-between">
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-3 flex items-center justify-between rounded-t-lg">
           <div className="flex items-center gap-2 text-white">
             <CalculatorIcon className="w-4 h-4" />
             <span className="text-sm font-bold">Calculator</span>
@@ -150,16 +158,19 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
         </div>
 
         <div className="p-3 space-y-2">
-          {/* History line */}
-          <div className="text-right text-xs text-muted-foreground min-h-[16px] font-mono truncate px-1">
+          {/* History line — allow wrapping instead of truncate so long
+              expressions don't push the layout */}
+          <div className="text-right text-xs text-muted-foreground min-h-[16px] font-mono px-1 break-words">
             {history || "\u00A0"}
           </div>
           {/* Display — large, prominent */}
-          <div className="text-right text-3xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 min-h-[56px] flex items-center justify-end overflow-hidden border border-emerald-200">
+          <div className="text-right text-2xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 min-h-[56px] flex items-center justify-end overflow-hidden border border-emerald-200 break-all">
             {display}
           </div>
-          {/* Buttons — professional grid */}
-          <div className="grid grid-cols-4 gap-1.5">
+          {/* Buttons — professional grid (4 columns)
+              v2.10.80: Wider buttons (h-14 instead of h-12) and gap-2
+              instead of gap-1.5 for better touch targets and spacing. */}
+          <div className="grid grid-cols-4 gap-2">
             <button className={`${btnClass} ${clearClass}`} onClick={reset}>C</button>
             <button className={`${btnClass} ${opClass}`} onClick={() => backspace()}>⌫</button>
             <button className={`${btnClass} ${opClass}`} onClick={() => performOperation("÷")}>÷</button>
