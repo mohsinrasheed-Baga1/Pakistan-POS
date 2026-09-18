@@ -813,18 +813,13 @@ export function CardsView({ userRole }: CardsViewProps) {
 
       {/* Card Detail — FULL SCREEN modal (like a separate page) */}
       <Dialog open={!!detailCard} onOpenChange={(o) => !o && setDetailCard(null)}>
-        {/* v2.10.80: TRUE FULL-SCREEN dialog
-            ─────────────────────────────────────────────────────────────
-            Previously used `max-w-[98vw] w-full h-[95vh]` which left a
-            small margin around the dialog. User said "make it full size
-            so I don't have to manually maximize it."
-            Now: `w-screen h-screen max-w-none` — fills entire viewport.
-            Also: removed the default DialogContent max-w constraint
-            (max-w-* classes from shadcn) by overriding with max-w-none. */}
-        <DialogContent
-          className="w-screen h-screen max-w-none sm:max-w-none max-h-none sm:max-h-none p-0 sm:p-0 gap-0 overflow-hidden rounded-none border-0 flex flex-col"
-          style={{ top: 0, left: 0, transform: "none", margin: 0, width: "100vw", height: "100vh", maxWidth: "100vw", maxHeight: "100vh" }}
-        >
+        {/* v2.10.81: REVERTED v2.10.80's full-screen attempt (it broke the
+            dialog — left column came up blank). Going back to v2.10.79's
+            working layout but slightly larger (max-w-[99vw] h-[96vh])
+            so the user doesn't have to manually maximize as much.
+            The v2.10.79 layout was working perfectly per user feedback:
+            "بہت زیادہ ائی ہے" (much better). */}
+        <DialogContent className="max-w-[99vw] w-full h-[96vh] flex flex-col p-0 gap-0 overflow-hidden">
           {/* v2.10.79: REDESIGNED Shop Card Details dialog
               ─────────────────────────────────────────────────────────────
               Two-column layout (responsive: stacks on small screens):

@@ -158,13 +158,22 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
         </div>
 
         <div className="p-3 space-y-2">
-          {/* History line — allow wrapping instead of truncate so long
-              expressions don't push the layout */}
-          <div className="text-right text-xs text-muted-foreground min-h-[16px] font-mono px-1 break-words">
+          {/* v2.10.81: History line — FIXED HEIGHT scrollable area
+              Previously: `break-words` made long expressions wrap to
+              multiple lines, which EXPANDED the dialog vertically (user
+              complaint: "زیادہ انٹریز ہو جاتی ہے تو وہ پھیلنا شروع ہو جاتا ہے"
+              = "when many entries, it starts expanding").
+              Now: fixed max-h-16 (64px) with overflow-y-auto — long
+              history scrolls internally without expanding the dialog.
+              Also text-left + text-xs so it reads naturally. */}
+          <div className="text-left text-xs text-muted-foreground max-h-16 overflow-y-auto font-mono px-1 bg-muted/30 rounded min-h-[20px] py-1 break-all">
             {history || "\u00A0"}
           </div>
-          {/* Display — large, prominent */}
-          <div className="text-right text-2xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 min-h-[56px] flex items-center justify-end overflow-hidden border border-emerald-200 break-all">
+          {/* Display — large, prominent.
+              v2.10.81: Use overflow-x-auto so very long numbers scroll
+              horizontally inside the display (instead of breaking layout
+              or wrapping to multiple lines). */}
+          <div className="text-right text-2xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 min-h-[56px] flex items-center justify-end overflow-x-auto border border-emerald-200 whitespace-nowrap">
             {display}
           </div>
           {/* Buttons — professional grid (4 columns)
