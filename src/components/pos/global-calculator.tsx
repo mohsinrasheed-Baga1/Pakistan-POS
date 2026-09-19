@@ -1,16 +1,46 @@
 "use client";
 
 /**
- * Global Calculator Dialog
+ * Global Calculator Dialog (v2.10.83 — REDESIGNED)
  * ─────────────────────────────────────────────────────────────────────────────
- * A simple calculator that opens with Ctrl+C on ANY page.
- * Supports: +, -, ×, ÷, history display, keyboard input.
+ * A cash-register-style calculator that opens with Ctrl+C on ANY page.
  *
- * This is separate from the POS-specific calculator to avoid circular imports.
+ * Design (user spec, v2.10.83):
+ *   ┌────────────────────────────────────┐
+ *   │  Calculator           [Ctrl+C]     │  ← header
+ *   ├────────────────────────────────────┤
+ *   │  ↑↓ navigate history               │  ← hint
+ *   │  ┌──────────────────────────────┐  │
+ *   │  │  + 524         ← older entry │  │  ← visible 2 entries (history window)
+ *   │  │  + 4521        ← newer entry │  │
+ *   │  └──────────────────────────────┘  │
+ *   │  ┌──────────────────────────────┐  │
+ *   │  │  9                           │  │  ← current input display
+ *   │  └──────────────────────────────┘  │
+ *   │  ┌──────────────────────────────┐  │
+ *   │  │  Total: 51452               │  │  ← running total (always visible)
+ *   │  └──────────────────────────────┘  │
+ *   ├────────────────────────────────────┤
+ *   │  C  ⌫  ÷  ×                        │
+ *   │  7  8  9  −                        │  ← buttons grid
+ *   │  4  5  6  +                        │
+ *   │  1  2  3  =                        │
+ *   │  0     .                           │
+ *   └────────────────────────────────────┘
+ *
+ * Behavior:
+ * - Shows ONLY the last 2 entries at the top (history window)
+ * - Shows the running TOTAL at the bottom (always visible)
+ * - All other entries are stored in `entries` array (backend)
+ * - ↑/↓ arrow keys: scroll through history entries (move the window)
+ * - Like a normal calculator's history check feature
+ *
+ * This solves the "expanding UI with many entries" issue — the dialog
+ * size is FIXED, only 2 entries are visible at any time, rest are scrolled.
  */
 
 import * as React from "react";
-import { Calculator as CalculatorIcon } from "lucide-react";
+import { Calculator as CalculatorIcon, ArrowUp, ArrowDown, ChevronUp, ChevronDown } from "lucide-react";
 import {
   Dialog, DialogContent,
 } from "@/components/ui/dialog";
@@ -20,19 +50,35 @@ interface GlobalCalculatorProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface Entry {
+  value: number;        // the operand value (e.g. 524)
+  op: string;           // the operator BEFORE this value (e.g. "+")
+  result: number;       // running total AFTER applying this entry
+  timestamp: number;
+}
+
 export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) {
+  // Current input being typed
   const [display, setDisplay] = React.useState("0");
-  const [previousValue, setPreviousValue] = React.useState<number | null>(null);
-  const [operation, setOperation] = React.useState<string | null>(null);
+  // Pending operation (the next op to apply when next digit is entered)
+  const [pendingOp, setPendingOp] = React.useState<string | null>(null);
+  // Running total (before current input)
+  const [runningTotal, setRunningTotal] = React.useState<number>(0);
+  // History of completed entries (each entry = { value, op, result, timestamp })
+  const [entries, setEntries] = React.useState<Entry[]>([]);
+  // History window scroll position — index of the TOPMOST entry visible
+  // Default: shows the last 2 entries (most recent at bottom of window)
+  const [historyOffset, setHistoryOffset] = React.useState<number>(0);
+  // Flag: are we waiting for the next digit (after an operator was pressed)?
   const [waitingForOperand, setWaitingForOperand] = React.useState(false);
-  const [history, setHistory] = React.useState<string>("");
 
   function reset() {
     setDisplay("0");
-    setPreviousValue(null);
-    setOperation(null);
+    setPendingOp(null);
+    setRunningTotal(0);
+    setEntries([]);
+    setHistoryOffset(0);
     setWaitingForOperand(false);
-    setHistory("");
   }
 
   React.useEffect(() => {
@@ -41,6 +87,21 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
       return () => clearTimeout(t);
     }
   }, [open]);
+
+  // Helper: scroll history window up/down (within bounds)
+  function scrollHistory(direction: "up" | "down") {
+    if (entries.length === 0) return;
+    // Window shows 2 entries: top = entries[offset], bottom = entries[offset+1]
+    // Max offset = entries.length - 2 (so last 2 entries are visible)
+    // Min offset = 0 (oldest 2 entries visible)
+    if (direction === "up") {
+      // Show older entries — increase offset (but cap at length-2)
+      setHistoryOffset((prev) => Math.min(prev + 1, Math.max(0, entries.length - 2)));
+    } else {
+      // Show newer entries — decrease offset (but not below 0)
+      setHistoryOffset((prev) => Math.max(prev - 1, 0));
+    }
+  }
 
   // Keyboard support
   React.useEffect(() => {
@@ -52,6 +113,15 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
         return;
       }
       e.preventDefault();
+      // ↑/↓ arrow keys: navigate history
+      if (e.key === "ArrowUp") {
+        scrollHistory("up");
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        scrollHistory("down");
+        return;
+      }
       if (e.key >= "0" && e.key <= "9") inputDigit(e.key);
       else if (e.key === ".") inputDecimal();
       else if (e.key === "+") performOperation("+");
@@ -64,7 +134,7 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, display, previousValue, operation, waitingForOperand, history]);
+  }, [open, display, pendingOp, runningTotal, entries, historyOffset, waitingForOperand]);
 
   function inputDigit(d: string) {
     if (waitingForOperand) {
@@ -104,36 +174,70 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
 
   function performOperation(nextOp: string) {
     const current = parseFloat(display);
-    if (history === "") {
-      setHistory(`${current} ${nextOp}`);
+    // If there's a pending op, apply it first
+    let newTotal = runningTotal;
+    let appliedOp = pendingOp;
+    if (pendingOp !== null && !waitingForOperand) {
+      newTotal = compute(runningTotal, current, pendingOp);
+    } else if (pendingOp === null) {
+      // First operation — total becomes the current value
+      newTotal = current;
+    }
+
+    // Record this entry in history (op + value + resulting total)
+    if (pendingOp !== null) {
+      // We just applied `pendingOp` to `current`, producing `newTotal`
+      const entry: Entry = {
+        value: current,
+        op: pendingOp,
+        result: newTotal,
+        timestamp: Date.now(),
+      };
+      setEntries((prev) => {
+        const updated = [...prev, entry];
+        // Scroll to show the latest 2 entries
+        setHistoryOffset(Math.max(0, updated.length - 2));
+        return updated;
+      });
     } else {
-      setHistory(`${history} ${current} ${nextOp}`);
+      // First entry — record the starting value (op = "=", value = current, result = current)
+      // Skip recording for the first op press — the entry is created when the next op is pressed
     }
-    if (previousValue === null) {
-      setPreviousValue(current);
-    } else if (operation && !waitingForOperand) {
-      const result = compute(previousValue, current, operation);
-      setDisplay(Number.isFinite(result) ? String(result) : "Error");
-      setPreviousValue(Number.isFinite(result) ? result : null);
-    }
+
+    setRunningTotal(newTotal);
+    setPendingOp(nextOp);
     setWaitingForOperand(true);
-    setOperation(nextOp);
+    // Show the running total in the display so the user sees the intermediate result
+    setDisplay(Number.isFinite(newTotal) ? String(newTotal) : "Error");
   }
 
   function calculate() {
-    if (operation === null || previousValue === null) return;
+    if (pendingOp === null) return;
     const current = parseFloat(display);
-    const result = compute(previousValue, current, operation);
-    setHistory(`${history} ${current} =`);
+    const result = compute(runningTotal, current, pendingOp);
+    // Record the final entry
+    const entry: Entry = {
+      value: current,
+      op: pendingOp,
+      result,
+      timestamp: Date.now(),
+    };
+    setEntries((prev) => {
+      const updated = [...prev, entry];
+      setHistoryOffset(Math.max(0, updated.length - 2));
+      return updated;
+    });
     setDisplay(Number.isFinite(result) ? String(result) : "Error");
-    setPreviousValue(null);
-    setOperation(null);
+    setRunningTotal(0);
+    setPendingOp(null);
     setWaitingForOperand(true);
   }
 
-  // v2.10.80: Slightly taller buttons (h-14 instead of h-12) for better
-  // touch targets. Also using text-base instead of text-lg so button labels
-  // don't get squeezed on narrower viewports.
+  // Get the 2 visible history entries based on offset
+  const visibleEntries = entries.slice(historyOffset, historyOffset + 2);
+  // For display, show entries in chronological order (older at top, newer at bottom)
+  const visibleEntriesDisplay = [...visibleEntries].reverse();
+
   const btnClass = "h-14 text-base font-medium rounded-lg border transition-colors";
   const numClass = "bg-card hover:bg-muted border-border";
   const opClass = "bg-blue-50 hover:bg-blue-100 border-blue-300 text-blue-700";
@@ -142,23 +246,13 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* v2.10.82: Calculator dialog — fixed size, nothing escapes.
-          ─────────────────────────────────────────────────────────────
-          User complaint (3rd time): "20+ entries → calculator expands,
-          answers go off right side of screen"
-          Root cause: v2.10.80 had `overflow-visible` which let long
-          content (history expression OR result number) push past the
-          dialog's right edge visibly.
-          Fix: `overflow-hidden` on dialog (no content escapes) + each
-          inner section handles its own overflow:
-          - History: max-h-16 overflow-y-auto (scrolls vertically inside)
-          - Display: overflow-x-auto whitespace-nowrap (scrolls horizontally inside)
-          The dialog width is FIXED at 360px (or 95vw on small screens),
-          so it can NEVER expand regardless of how many entries.
-          Width: w-[360px] (fixed, not min-w which could grow)
-          Max-width: max-w-[95vw] (won't exceed 95% viewport on small screens) */}
+      {/* v2.10.83: Calculator dialog — FIXED SIZE, cash-register style.
+          - Width: 360px fixed (95vw on small screens)
+          - Height: auto (calculated by content, never expands past viewport)
+          - overflow-hidden: NOTHING escapes the dialog edges
+          - flex flex-col: header + body + buttons stack vertically */}
       <DialogContent className="w-[360px] max-w-[95vw] p-0 overflow-hidden border-2 border-emerald-600 shadow-2xl flex flex-col" style={{ zIndex: 99999 }}>
-        {/* Header bar — emerald gradient */}
+        {/* Header bar */}
         <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-3 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2 text-white">
             <CalculatorIcon className="w-4 h-4" />
@@ -168,30 +262,76 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
         </div>
 
         <div className="p-3 space-y-2 flex-1 min-h-0">
-          {/* v2.10.82: History line — STRICT fixed height, scrolls internally.
-              - max-h-12 (48px): hard cap, never grows beyond 2 lines of text-xs
-              - overflow-y-auto: scrolls vertically if longer
-              - break-all: wraps mid-word so content fits horizontally
-              - text-left: natural reading order
-              - bg-muted/30: visual distinction
-              - max-w-full + min-w-0: ensures the box doesn't expand to fit content */}
-          <div className="text-left text-xs text-muted-foreground max-h-12 overflow-y-auto font-mono px-2 bg-muted/30 rounded min-h-[24px] py-1 break-all max-w-full min-w-0">
-            {history || "\u00A0"}
+          {/* ─── HISTORY WINDOW (top, shows last 2 entries) ───
+              - Fixed height (2 lines)
+              - Shows 2 entries at a time
+              - ↑/↓ arrow keys scroll through history
+              - Each entry: "op value = result" */}
+          <div className="bg-muted/40 border border-muted rounded p-1.5 space-y-0.5 h-[60px] flex flex-col justify-center">
+            <div className="flex items-center justify-between text-[9px] text-muted-foreground px-1">
+              <span className="flex items-center gap-1">
+                <ArrowUp className="w-2.5 h-2.5" />
+                <ArrowDown className="w-2.5 h-2.5" />
+                History ({entries.length} entries)
+              </span>
+              <div className="flex gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => scrollHistory("up")}
+                  disabled={entries.length === 0 || historyOffset >= Math.max(0, entries.length - 2)}
+                  className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+                  title="Show older entries (↑)"
+                >
+                  <ChevronUp className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollHistory("down")}
+                  disabled={entries.length === 0 || historyOffset === 0}
+                  className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+                  title="Show newer entries (↓)"
+                >
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 flex flex-col justify-center text-xs font-mono overflow-hidden">
+              {entries.length === 0 ? (
+                <div className="text-center text-muted-foreground/60 italic">No history yet</div>
+              ) : visibleEntriesDisplay.length === 0 ? (
+                <div className="text-center text-muted-foreground/60 italic">Scroll to see entries</div>
+              ) : (
+                visibleEntriesDisplay.map((e, i) => (
+                  <div key={`${e.timestamp}-${i}`} className="flex justify-between items-center px-2">
+                    <span className="text-muted-foreground">{e.op}</span>
+                    <span className="font-medium">{e.value}</span>
+                    <span className="text-muted-foreground text-[10px]">= {e.result}</span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          {/* v2.10.82: Display — STRICT fixed width, scrolls horizontally.
-              - w-full: take parent's width (336px after p-3 padding)
-              - max-w-full + min-w-0: don't expand beyond parent
-              - overflow-x-auto: horizontal scroll for long numbers
-              - whitespace-nowrap: don't wrap (so scrolling works)
-              - text-xl: smaller font (was text-2xl) so 7-8 digit numbers fit
-              - text-right: result aligns right (standard calculator)
-              - flex-shrink-0: don't shrink this section */}
-          <div className="text-right text-xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 h-14 flex items-center justify-start overflow-x-auto overflow-y-hidden border border-emerald-200 whitespace-nowrap w-full max-w-full min-w-0 flex-shrink-0">
-            <span className="ml-auto">{display}</span>
+
+          {/* ─── CURRENT INPUT DISPLAY (middle, large) ───
+              - Fixed height (56px)
+              - Shows the number being typed or intermediate result
+              - overflow-x-auto for very long numbers (scrolls inside) */}
+          <div className="text-right text-2xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 h-14 flex items-center justify-end overflow-x-auto overflow-y-hidden border border-emerald-200 whitespace-nowrap">
+            {display}
           </div>
-          {/* Buttons — professional grid (4 columns)
-              v2.10.80: Wider buttons (h-14 instead of h-12) and gap-2
-              instead of gap-1.5 for better touch targets and spacing. */}
+
+          {/* ─── RUNNING TOTAL (bottom, always visible) ───
+              - Fixed height (40px)
+              - Shows the running total (sum so far)
+              - Always visible so the user sees the cumulative result */}
+          <div className="bg-emerald-700 text-white rounded-lg p-2 h-10 flex items-center justify-between px-3">
+            <span className="text-[10px] opacity-80 uppercase tracking-wide">Total</span>
+            <span className="text-lg font-bold font-mono">
+              {(pendingOp !== null ? runningTotal : (entries.length > 0 ? entries[entries.length - 1].result : 0)).toLocaleString()}
+            </span>
+          </div>
+
+          {/* ─── BUTTONS GRID (4 columns, fixed) ─── */}
           <div className="grid grid-cols-4 gap-2">
             <button className={`${btnClass} ${clearClass}`} onClick={reset}>C</button>
             <button className={`${btnClass} ${opClass}`} onClick={() => backspace()}>⌫</button>

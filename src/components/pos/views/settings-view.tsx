@@ -253,6 +253,17 @@ export function SettingsView() {
         googleClientSecret: pick("googleClientSecret"),
         googleRefreshToken: pick("googleRefreshToken"),
         enableLoadBill: pick("enableLoadBill"),
+        // v2.10.83: CRITICAL FIX — posServiceTax* fields were MISSING from
+        // savePartial's body. Even though ShopDetailsCard.onSubmit passed
+        // them in the partial arg, they were never forwarded to the API.
+        // Result: user enabled the toggle, clicked Save, but the API never
+        // received the change — preserved the existing (false) value. After
+        // 1 second, parent re-fetched settings → toggle reset to OFF.
+        // Now these fields are explicitly included in the body so the API
+        // actually persists them.
+        posServiceTaxEnabled: pick("posServiceTaxEnabled" as any),
+        posServiceTaxPercent: pick("posServiceTaxPercent" as any),
+        posServiceTaxMinItems: pick("posServiceTaxMinItems" as any),
       };
       const res = await fetch("/api/settings", {
         method: "PUT",
