@@ -256,10 +256,16 @@ async function processSale(userId: string, body: any, items: any[]) {
   // "Field user is required to return data, got null instead" error when
   // the user row is missing from a restored backup DB.
   // We fetch items separately and construct the user field manually.
+  // v2.10.84: CRITICAL FIX — `cardId` and `saleType` were MISSING from
+  // the create call. Even though the body had them, they weren't being
+  // saved to the database. This caused:
+  //   - card info (name, number) NOT appearing on receipt (cardId=null)
+  //   - saleType defaulting to "RETAIL" even when user was in Wholesale mode
   const sale = await db.sale.create({
     data: {
       invoiceNo,
       userId,
+      cardId: body.cardId || null,  // v2.10.84: was missing — link sale to scanned card
       customerName: body.customerName || null,
       customerPhone: body.customerPhone || null,
       subtotal,
@@ -272,6 +278,7 @@ async function processSale(userId: string, body: any, items: any[]) {
       // v2.10.71: Store POS Service Tax
       posServiceTax: Number(body.posServiceTax) || 0,
       paymentMethod: body.paymentMethod || "CASH",
+      saleType: body.saleType || "RETAIL",  // v2.10.84: was missing — preserve RETAIL/WHOLESALE/SHOPKEEPER
       status: "COMPLETED",
       note: body.note || null,
       items: { create: saleItemsData },

@@ -98,13 +98,36 @@ export function PosView({ settings }: PosViewProps) {
 
   // v2.10.71: POS Service Tax calculation
   // Applied when enabled AND items count >= minItems threshold
-  const posServiceTaxEnabled = (settings as any)?.posServiceTaxEnabled;
+  // v2.10.84: Added defensive checks + console log for debugging
+  //   User reported: "tax not applied even with 5+ items"
+  //   Possible causes:
+  //   1. posServiceTaxEnabled is undefined (settings not loaded yet)
+  //   2. posServiceTaxPercent is 0 (user enabled toggle but didn't set %)
+  //   3. posServiceTaxMinItems is too high (default 5, but user may have set higher)
+  //   4. totals.itemCount is 0 (cart is empty)
+  // We log to console so the user can verify what's happening.
+  const posServiceTaxEnabled = (settings as any)?.posServiceTaxEnabled === true;
   const posServiceTaxPercent = Number((settings as any)?.posServiceTaxPercent) || 0;
   const posServiceTaxMinItems = Number((settings as any)?.posServiceTaxMinItems) || 5;
-  const posServiceTaxAmount = (posServiceTaxEnabled && totals.itemCount >= posServiceTaxMinItems)
+  const posServiceTaxApplies = posServiceTaxEnabled && totals.itemCount >= posServiceTaxMinItems && posServiceTaxPercent > 0 && totals.total > 0;
+  const posServiceTaxAmount = posServiceTaxApplies
     ? Math.round(totals.total * posServiceTaxPercent / 100)
     : 0;
   const grandTotalWithServiceTax = totals.total + posServiceTaxAmount;
+  // v2.10.84: Debug log — open browser console (F12) to see why tax is/isn't applying
+  // Helps diagnose: "tax not applied" → check this log for the reason
+  if (typeof window !== "undefined" && cart.items.length > 0) {
+    console.log("[POS Service Tax]", {
+      enabled: posServiceTaxEnabled,
+      percent: posServiceTaxPercent,
+      minItems: posServiceTaxMinItems,
+      itemCount: totals.itemCount,
+      total: totals.total,
+      applies: posServiceTaxApplies,
+      taxAmount: posServiceTaxAmount,
+      grandTotal: grandTotalWithServiceTax,
+    });
+  }
 
   const loadProducts = React.useCallback(async () => {
     setLoading(true);

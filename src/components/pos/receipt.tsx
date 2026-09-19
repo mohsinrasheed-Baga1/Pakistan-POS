@@ -325,28 +325,36 @@ export function Receipt({ sale, settings, open, onOpenChange, onEdit }: ReceiptP
               </span>
             </div>
           )}
-          {/* Received amount (how much customer paid) */}
-          <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
-            <span>Recd:</span>
-            <span>{formatMoney(sale.paidAmount, currency)}</span>
-          </div>
-          {/* v2.10.65: ALWAYS show Change on receipt — user requested it be visible.
-              Change = paidAmount - total (when customer paid more than total).
-              Also show Balance Due when customer paid less. */}
+          {/* v2.10.84: ALWAYS show "Cash Recd", "Change", "Balance Due" lines.
+              User complained that these fields sometimes appear and sometimes
+              don't — they want 100% consistency on EVERY receipt.
+              OLD logic: only showed if (paid > 0) AND (paid != total)
+              NEW logic: always show all three lines (Change shows "0" if exact)
+              For card payments where paidAmount == total, Change = 0 — that's
+              fine, we still show it for consistency. */}
           {(() => {
             const paid = Number(sale.paidAmount) || 0;
             const total = Number(sale.total) || 0;
             const change = Math.max(0, paid - total);
             const balanceDue = Math.max(0, total - paid);
-            if (paid <= 0) return null;
             return (
               <>
-                {change > 0 && (
+                {/* Always show "Cash Recd" — for card payments, this shows
+                    the amount deducted from the card balance. */}
+                <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
+                  <span>{sale.paymentMethod === "SHOP_CARD" ? "Card Charged:" : "Cash Recd:"}</span>
+                  <span>{formatMoney(paid, currency)}</span>
+                </div>
+                {/* Always show "Change" — even if 0, shows the customer
+                    they paid the right amount (no surprise). */}
+                {balanceDue <= 0 && (
                   <div className="row" style={{ fontSize: tableFontSize, fontWeight: "bold" }}>
                     <span>Change:</span>
                     <span>{formatMoney(change, currency)}</span>
                   </div>
                 )}
+                {/* Show "Balance Due" only when customer owes money
+                    (paid < total). In red so it's visible. */}
                 {balanceDue > 0 && (
                   <div className="row bold" style={{ fontSize: tableFontSize, fontWeight: "bold", color: "#dc2626" }}>
                     <span>Balance Due:</span>
