@@ -13,12 +13,14 @@
  * 4. Colors (text, header)
  * 5. Margins & Spacing
  * 6. Content (footer text, item details, subtotal, tax, discount, change)
- * 7. Live Preview
+ * 7. POS Service Tax (v2.10.85 — moved here from Shop Details so users
+ *    can find it where they configure receipts)
+ * 8. Live Preview
  */
 
 import * as React from "react";
 import {
-  Save, Download, Upload, RotateCcw, Eye, RefreshCw, Printer,
+  Save, Download, Upload, RotateCcw, Eye, RefreshCw, Printer, Percent,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +38,58 @@ export function ReceiptSettingsPage() {
   const [saving, setSaving] = React.useState(false);
   const [draft, setDraft] = React.useState<ReceiptSettings>(settings);
   React.useEffect(() => { if (!loading) setDraft(settings); }, [settings, loading]);
+
+  // v2.10.85: POS Service Tax state — fetched from /api/settings (main
+  // settings, not receipt settings). We use a separate state + save flow
+  // because the receipt settings API doesn't have these fields.
+  const [posServiceTax, setPosServiceTax] = React.useState({
+    enabled: false,
+    percent: 0,
+    minItems: 5,
+  });
+  const [posServiceTaxSaving, setPosServiceTaxSaving] = React.useState(false);
+
+  // Fetch POS Service Tax settings from main /api/settings
+  React.useEffect(() => {
+    fetch("/api/settings", { cache: "no-store" })
+      .then(r => r.json())
+      .then(data => {
+        if (data.settings) {
+          setPosServiceTax({
+            enabled: !!(data.settings as any).posServiceTaxEnabled,
+            percent: Number((data.settings as any).posServiceTaxPercent) || 0,
+            minItems: Number((data.settings as any).posServiceTaxMinItems) || 5,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Save POS Service Tax settings to main /api/settings
+  async function handleSavePosServiceTax() {
+    setPosServiceTaxSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          posServiceTaxEnabled: posServiceTax.enabled,
+          posServiceTaxPercent: posServiceTax.percent,
+          posServiceTaxMinItems: posServiceTax.minItems,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to save POS Service Tax");
+        return;
+      }
+      toast.success("POS Service Tax settings saved — tax will now apply to receipts");
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setPosServiceTaxSaving(false);
+    }
+  }
 
   const update = <K extends keyof ReceiptSettings>(key: K, value: ReceiptSettings[K]) => {
     setDraft(prev => ({ ...prev, [key]: value }));
@@ -113,6 +167,13 @@ export function ReceiptSettingsPage() {
   const scale = Math.min(maxPreviewPx / naturalWidthPx, 1);
   const previewWidthPx = naturalWidthPx * scale;
 
+  // v2.10.85: Preview of how POS Service Tax will appear on receipt
+  const previewSubtotal = 1000;
+  const previewTaxAmount = posServiceTax.enabled && posServiceTax.percent > 0
+    ? Math.round(previewSubtotal * posServiceTax.percent / 100)
+    : 0;
+  const previewGrandTotal = previewSubtotal + previewTaxAmount;
+
   return (
     <div className="space-y-3">
       {/* Header */}
@@ -145,6 +206,120 @@ export function ReceiptSettingsPage() {
           </span>
         </div>
       </div>
+
+      {/* v2.10.85: POS SERVICE TAX SECTION — moved here from Shop Details
+          per user request. User said: "اس سیکشن کو رسید والے سیٹنگ کے
+          اندر رکھ دو وہاں سے اگر ہم ان کرتے ہیں تو تصویر کے اندر ٹیکس
+          خود بخود شامل ہو جائے گا" (put this section inside the receipt
+          settings — from there, if we enable it, the tax will automatically
+          be added to the receipt image).
+          This section saves to /api/settings (main settings) because the
+          POS view + sales API read posServiceTax* from there. */}
+      <Card className="border-2 border-amber-300 shadow-sm">
+        <CardHeader className="pb-2 bg-amber-50">
+          <CardTitle className="text-sm flex items-center gap-2 text-amber-900">
+            <Percent className="w-4 h-4" />
+            POS Service Tax — ری پرچی پر ٹیکس
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 pt-3">
+          {/* Toggle */}
+          <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+            <div className="flex-1">
+              <Label htmlFor="posServiceTaxEnabled" className="font-bold text-amber-900 cursor-pointer">
+                Enable POS Service Tax
+              </Label>
+              <p className="text-xs text-amber-700 mt-0.5">
+                جب کارٹ میں {posServiceTax.minItems} یا زیادہ آئٹمز ہوں تو رسید پر فیصد ٹیکس خود بخود شامل ہو جائے گا
+              </p>
+            </div>
+            <Switch
+              id="posServiceTaxEnabled"
+              checked={posServiceTax.enabled}
+              onCheckedChange={(c) => setPosServiceTax(prev => ({ ...prev, enabled: c }))}
+            />
+          </div>
+
+          {/* Percent + Min Items inputs (only show when enabled) */}
+          {posServiceTax.enabled && (
+            <div className="grid grid-cols-2 gap-3 p-3 bg-amber-50/30 rounded-lg border border-amber-200">
+              <div className="space-y-1">
+                <Label className="text-xs font-bold text-amber-900">
+                  Tax Percent — فیصد *
+                </Label>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={posServiceTax.percent || ""}
+                    onChange={(e) => setPosServiceTax(prev => ({ ...prev, percent: Number(e.target.value) || 0 }))}
+                    placeholder="e.g. 5"
+                    className="h-10 text-lg font-bold text-center pr-8"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-700 font-bold">%</span>
+                </div>
+                <p className="text-[10px] text-amber-700">
+                  مثال: 5 = 5% ٹیکس (Rs 1000 پر Rs 50)
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-bold text-amber-900">
+                  Minimum Items — کم از کم آئٹمز
+                </Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={posServiceTax.minItems || ""}
+                  onChange={(e) => setPosServiceTax(prev => ({ ...prev, minItems: Number(e.target.value) || 5 }))}
+                  placeholder="5"
+                  className="h-10 text-lg font-bold text-center"
+                />
+                <p className="text-[10px] text-amber-700">
+                  اس تعداد سے زیادہ آئٹمز پر ٹیکس لاگو ہوگا
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Live preview of how tax will appear on receipt */}
+          {posServiceTax.enabled && posServiceTax.percent > 0 && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm">
+              <div className="text-xs font-bold text-emerald-800 mb-2">
+                ✓ Live Preview — رسید پر یوں نظر آئے گا:
+              </div>
+              <div className="font-mono text-xs space-y-1 text-emerald-900">
+                <div className="flex justify-between"><span>Subtotal:</span><span>Rs {previewSubtotal.toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold"><span>Service Tax ({posServiceTax.percent}%):</span><span>+Rs {previewTaxAmount.toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold border-t border-emerald-300 pt-1 mt-1">
+                  <span>GRAND TOTAL (incl. Tax):</span><span>Rs {previewGrandTotal.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Warning if percent is 0 */}
+          {posServiceTax.enabled && posServiceTax.percent === 0 && (
+            <div className="bg-red-50 border border-red-300 rounded-lg p-3 text-sm text-red-700">
+              <strong>⚠ ٹیکس فیصد 0 ہے!</strong> ٹیکس لاگو کرنے کے لیے اوپر کوئی نمبر درج کریں (مثلاً 5).
+            </div>
+          )}
+
+          {/* Save button for POS Service Tax — separate from main Save */}
+          <div className="flex justify-end pt-2">
+            <Button
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={handleSavePosServiceTax}
+              disabled={posServiceTaxSaving}
+            >
+              <Save className="w-3.5 h-3.5 mr-1" />
+              {posServiceTaxSaving ? "Saving..." : "Save POS Service Tax"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
         {/* LEFT: Settings */}
