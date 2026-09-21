@@ -89,17 +89,26 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
   }, [open]);
 
   // Helper: scroll history window up/down (within bounds)
+  // v2.10.86: Now showing ONE entry at a time (was 2).
+  // - "up" = show OLDER entry → increase offset (towards length-1)
+  // - "down" = show NEWER entry → decrease offset (towards 0)
+  // Wait — we want newest to be the default. So offset=length-1 = newest.
+  // "up" arrow should go to OLDER = decrease offset.
+  // "down" arrow should go to NEWER = increase offset.
+  // Let me re-check the keyboard mapping in the keyboard handler:
+  //   if (e.key === "ArrowUp") scrollHistory("up");
+  //   if (e.key === "ArrowDown") scrollHistory("down");
+  // In a calculator tape, ↑ means "go up to see older entries".
+  // So "up" → older → decrease offset.
+  // "down" → newer → increase offset.
   function scrollHistory(direction: "up" | "down") {
     if (entries.length === 0) return;
-    // Window shows 2 entries: top = entries[offset], bottom = entries[offset+1]
-    // Max offset = entries.length - 2 (so last 2 entries are visible)
-    // Min offset = 0 (oldest 2 entries visible)
     if (direction === "up") {
-      // Show older entries — increase offset (but cap at length-2)
-      setHistoryOffset((prev) => Math.min(prev + 1, Math.max(0, entries.length - 2)));
-    } else {
-      // Show newer entries — decrease offset (but not below 0)
+      // Show older entries — decrease offset (but not below 0)
       setHistoryOffset((prev) => Math.max(prev - 1, 0));
+    } else {
+      // Show newer entries — increase offset (but not above length-1)
+      setHistoryOffset((prev) => Math.min(prev + 1, entries.length - 1));
     }
   }
 
@@ -195,8 +204,8 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
       };
       setEntries((prev) => {
         const updated = [...prev, entry];
-        // Scroll to show the latest 2 entries
-        setHistoryOffset(Math.max(0, updated.length - 2));
+        // v2.10.86: Show the LATEST entry (offset = length-1)
+        setHistoryOffset(Math.max(0, updated.length - 1));
         return updated;
       });
     } else {
@@ -224,7 +233,8 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
     };
     setEntries((prev) => {
       const updated = [...prev, entry];
-      setHistoryOffset(Math.max(0, updated.length - 2));
+      // v2.10.86: Show the LATEST entry (offset = length-1)
+      setHistoryOffset(Math.max(0, updated.length - 1));
       return updated;
     });
     setDisplay(Number.isFinite(result) ? String(result) : "Error");
@@ -233,10 +243,8 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
     setWaitingForOperand(true);
   }
 
-  // Get the 2 visible history entries based on offset
-  const visibleEntries = entries.slice(historyOffset, historyOffset + 2);
-  // For display, show entries in chronological order (older at top, newer at bottom)
-  const visibleEntriesDisplay = [...visibleEntries].reverse();
+  // v2.10.86: No longer needed — we show ONE entry at a time
+  // (using entries[historyOffset] directly in the JSX)
 
   const btnClass = "h-14 text-base font-medium rounded-lg border transition-colors";
   const numClass = "bg-card hover:bg-muted border-border";
@@ -262,68 +270,92 @@ export function GlobalCalculator({ open, onOpenChange }: GlobalCalculatorProps) 
         </div>
 
         <div className="p-3 space-y-2 flex-1 min-h-0">
-          {/* ─── HISTORY WINDOW (top, shows last 2 entries) ───
-              - Fixed height (2 lines)
-              - Shows 2 entries at a time
-              - ↑/↓ arrow keys scroll through history
-              - Each entry: "op value = result" */}
-          <div className="bg-muted/40 border border-muted rounded p-1.5 space-y-0.5 h-[60px] flex flex-col justify-center">
-            <div className="flex items-center justify-between text-[9px] text-muted-foreground px-1">
+          {/* ─── HISTORY DISPLAY (top, shows ONE entry at a time, BIG) ───
+              v2.10.86: REDESIGNED per user spec — show only ONE entry at
+              a time (big), use ↑/↓ arrow keys to navigate through history.
+              Like a normal calculator's history check feature.
+              - Shows the entry: "op value = result" (e.g., "+ 524 = 51928")
+              - ↑ arrow: show previous (older) entry
+              - ↓ arrow: show next (newer) entry
+              - Navigation wraps around if at end of history
+              - Empty state: "No history yet" */}
+          <div className="bg-muted/40 border border-muted rounded p-2 space-y-1 h-[80px] flex flex-col justify-center">
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground px-1">
               <span className="flex items-center gap-1">
-                <ArrowUp className="w-2.5 h-2.5" />
-                <ArrowDown className="w-2.5 h-2.5" />
-                History ({entries.length} entries)
+                <ArrowUp className="w-3 h-3" />
+                <ArrowDown className="w-3 h-3" />
+                History ({entries.length} {entries.length === 1 ? "entry" : "entries"})
+              </span>
+              <span className="text-[10px]">
+                {entries.length > 0
+                  ? `Showing ${historyOffset + 1} of ${entries.length}`
+                  : ""}
               </span>
               <div className="flex gap-0.5">
                 <button
                   type="button"
                   onClick={() => scrollHistory("up")}
-                  disabled={entries.length === 0 || historyOffset >= Math.max(0, entries.length - 2)}
-                  className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
-                  title="Show older entries (↑)"
+                  disabled={entries.length === 0}
+                  className="rounded p-1 hover:bg-muted disabled:opacity-30"
+                  title="Previous entry (↑)"
                 >
-                  <ChevronUp className="w-3 h-3" />
+                  <ChevronUp className="w-4 h-4" />
                 </button>
                 <button
                   type="button"
                   onClick={() => scrollHistory("down")}
-                  disabled={entries.length === 0 || historyOffset === 0}
-                  className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
-                  title="Show newer entries (↓)"
+                  disabled={entries.length === 0}
+                  className="rounded p-1 hover:bg-muted disabled:opacity-30"
+                  title="Next entry (↓)"
                 >
-                  <ChevronDown className="w-3 h-3" />
+                  <ChevronDown className="w-4 h-4" />
                 </button>
               </div>
             </div>
-            <div className="flex-1 flex flex-col justify-center text-xs font-mono overflow-hidden">
+            {/* Show ONE entry BIG (centered) */}
+            <div className="flex-1 flex items-center justify-center overflow-hidden">
               {entries.length === 0 ? (
-                <div className="text-center text-muted-foreground/60 italic">No history yet</div>
-              ) : visibleEntriesDisplay.length === 0 ? (
-                <div className="text-center text-muted-foreground/60 italic">Scroll to see entries</div>
-              ) : (
-                visibleEntriesDisplay.map((e, i) => (
-                  <div key={`${e.timestamp}-${i}`} className="flex justify-between items-center px-2">
-                    <span className="text-muted-foreground">{e.op}</span>
-                    <span className="font-medium">{e.value}</span>
-                    <span className="text-muted-foreground text-[10px]">= {e.result}</span>
+                <span className="text-sm text-muted-foreground/60 italic">
+                  No history yet — start calculating
+                </span>
+              ) : (() => {
+                // Get the entry at the current offset
+                // We store entries oldest→newest. historyOffset=0 means
+                // we're showing the OLDEST entry. To show the LATEST by
+                // default, we set offset = length-1 initially.
+                // But scrollHistory("up") increases offset (showing older),
+                // and scrollHistory("down") decreases offset (showing newer).
+                // So if offset = length-1, we're showing the newest.
+                // If offset = 0, we're showing the oldest.
+                const entry = entries[historyOffset];
+                if (!entry) return <span className="text-xs text-muted-foreground">—</span>;
+                return (
+                  <div className="text-center w-full">
+                    {/* BIG entry display */}
+                    <div className="text-xl font-bold font-mono text-foreground">
+                      <span className="text-muted-foreground mr-1">{entry.op}</span>
+                      <span>{entry.value}</span>
+                    </div>
+                    {/* Running result after this entry */}
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      = <span className="font-bold text-emerald-700">{entry.result.toLocaleString()}</span>
+                    </div>
+                    {/* Timestamp */}
+                    <div className="text-[9px] text-muted-foreground/60 mt-0.5">
+                      {new Date(entry.timestamp).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    </div>
                   </div>
-                ))
-              )}
+                );
+              })()}
             </div>
           </div>
 
-          {/* ─── CURRENT INPUT DISPLAY (middle, large) ───
-              - Fixed height (56px)
-              - Shows the number being typed or intermediate result
-              - overflow-x-auto for very long numbers (scrolls inside) */}
+          {/* ─── CURRENT INPUT DISPLAY (middle, large) ─── */}
           <div className="text-right text-2xl font-mono font-bold bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-3 h-14 flex items-center justify-end overflow-x-auto overflow-y-hidden border border-emerald-200 whitespace-nowrap">
             {display}
           </div>
 
-          {/* ─── RUNNING TOTAL (bottom, always visible) ───
-              - Fixed height (40px)
-              - Shows the running total (sum so far)
-              - Always visible so the user sees the cumulative result */}
+          {/* ─── RUNNING TOTAL (bottom, always visible) ─── */}
           <div className="bg-emerald-700 text-white rounded-lg p-2 h-10 flex items-center justify-between px-3">
             <span className="text-[10px] opacity-80 uppercase tracking-wide">Total</span>
             <span className="text-lg font-bold font-mono">

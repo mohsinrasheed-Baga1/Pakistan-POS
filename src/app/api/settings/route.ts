@@ -80,6 +80,16 @@ export async function PUT(req: NextRequest) {
   if (body.posServiceTaxMinItems !== undefined) {
     data.posServiceTaxMinItems = Number(body.posServiceTaxMinItems) || 5;
   }
+  // v2.10.86: POS Service Tax type + fixed amount
+  // - type: "percentage" (default) or "fixed"
+  // - fixedAmount: Rs amount applied when itemCount >= minItems
+  if (body.posServiceTaxType !== undefined) {
+    const t = String(body.posServiceTaxType);
+    data.posServiceTaxType = (t === "fixed" || t === "percentage") ? t : "percentage";
+  }
+  if (body.posServiceTaxFixedAmount !== undefined) {
+    data.posServiceTaxFixedAmount = Number(body.posServiceTaxFixedAmount) || 0;
+  }
   const settings = await db.settings.upsert({
     where: { id: "shop" },
     update: data,

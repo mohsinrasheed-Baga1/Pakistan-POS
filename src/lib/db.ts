@@ -606,6 +606,9 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["posServiceTaxEnabled", "BOOLEAN NOT NULL DEFAULT 0"],
     ["posServiceTaxPercent", "REAL NOT NULL DEFAULT 0"],
     ["posServiceTaxMinItems", "INTEGER NOT NULL DEFAULT 5"],
+    // v2.10.86: POS Service Tax type + fixed amount (for "Rs X on N items" mode)
+    ["posServiceTaxType", "TEXT NOT NULL DEFAULT 'percentage'"],
+    ["posServiceTaxFixedAmount", "REAL NOT NULL DEFAULT 0"],
   ],
   // Load & Bill module — new columns added in v2.7.47
   MobileLoadTxn: [

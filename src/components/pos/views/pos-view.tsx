@@ -106,12 +106,28 @@ export function PosView({ settings }: PosViewProps) {
   //   3. posServiceTaxMinItems is too high (default 5, but user may have set higher)
   //   4. totals.itemCount is 0 (cart is empty)
   // We log to console so the user can verify what's happening.
+  //
+  // v2.10.86: Added "fixed" tax type — user can choose:
+  //   - "percentage": tax = round(total × percent / 100)  [existing]
+  //   - "fixed": tax = fixedAmount (e.g., Rs 20 on 5+ items)  [new]
+  // Both modes only apply when itemCount >= minItems.
   const posServiceTaxEnabled = (settings as any)?.posServiceTaxEnabled === true;
   const posServiceTaxPercent = Number((settings as any)?.posServiceTaxPercent) || 0;
   const posServiceTaxMinItems = Number((settings as any)?.posServiceTaxMinItems) || 5;
-  const posServiceTaxApplies = posServiceTaxEnabled && totals.itemCount >= posServiceTaxMinItems && posServiceTaxPercent > 0 && totals.total > 0;
+  // v2.10.86: New fields for fixed-amount tax mode
+  const posServiceTaxType = (settings as any)?.posServiceTaxType === "fixed" ? "fixed" : "percentage";
+  const posServiceTaxFixedAmount = Number((settings as any)?.posServiceTaxFixedAmount) || 0;
+
+  // Determine which value to use based on tax type
+  const posServiceTaxApplies = posServiceTaxEnabled
+    && totals.itemCount >= posServiceTaxMinItems
+    && totals.total > 0
+    && (posServiceTaxType === "percentage" ? posServiceTaxPercent > 0 : posServiceTaxFixedAmount > 0);
+
   const posServiceTaxAmount = posServiceTaxApplies
-    ? Math.round(totals.total * posServiceTaxPercent / 100)
+    ? (posServiceTaxType === "fixed"
+        ? posServiceTaxFixedAmount  // Fixed: just use the fixed amount
+        : Math.round(totals.total * posServiceTaxPercent / 100))  // Percentage: round(total × % / 100)
     : 0;
   const grandTotalWithServiceTax = totals.total + posServiceTaxAmount;
   // v2.10.84: Debug log — open browser console (F12) to see why tax is/isn't applying
@@ -119,7 +135,9 @@ export function PosView({ settings }: PosViewProps) {
   if (typeof window !== "undefined" && cart.items.length > 0) {
     console.log("[POS Service Tax]", {
       enabled: posServiceTaxEnabled,
+      type: posServiceTaxType,  // v2.10.86
       percent: posServiceTaxPercent,
+      fixedAmount: posServiceTaxFixedAmount,  // v2.10.86
       minItems: posServiceTaxMinItems,
       itemCount: totals.itemCount,
       total: totals.total,
@@ -235,6 +253,18 @@ export function PosView({ settings }: PosViewProps) {
     //
     // For loose items (kg, gram, litre, etc.) we skip the check entirely
     // — the shopkeeper can sell fractional amounts from a bulk bin.
+    //
+    // v2.10.86: CRITICAL FIX — When selling a PIECE product, if piece
+    // stock is insufficient, ALSO check if there's a linked BOX product
+    // with available boxes. The auto-box-open logic in /api/sales will
+    // open boxes on the server side when the sale is completed.
+    //
+    // Example: User has 5 boxes of bottles (each box = 12 bottles).
+    // Piece stock = 0 (no loose bottles). User tries to sell 1 bottle.
+    // OLD behavior: "Low stock! Only 0 pieces available" → BLOCKED
+    // NEW behavior: Check linked box stock — 5 boxes × 12 = 60 bottles
+    //   available. Allow the sale. /api/sales auto-opens 1 box when sale
+    //   is processed → piece stock becomes 12, then 11 after sale.
     const isBoxProduct = !!product.packBarcode && product.packQuantity > 0;
     if (!isLooseUnit(product.unit)) {
       if (isBoxProduct) {
@@ -245,9 +275,37 @@ export function PosView({ settings }: PosViewProps) {
         }
       } else {
         // Piece product: stock is in pieces. Check piece count.
-        if (currentInCart + qty > product.stock) {
-          toast.error(`Low stock! Only ${product.stock} ${unitLabel(product.unit)} available`);
+        // v2.10.86: Also check linked box stock for auto-open coverage.
+        const pieceStock = product.stock || 0;
+        // Find linked box product (where packBarcode === this product's barcode)
+        // We search the products list (already loaded on POS page)
+        const linkedBoxProduct = products.find(
+          (p) => p.packBarcode === product.barcode && p.packQuantity > 0
+        );
+        const boxStock = linkedBoxProduct?.stock || 0;
+        const packQty = linkedBoxProduct?.packQuantity || 0;
+        const totalAvailableFromBoxes = boxStock * packQty;
+        const totalAvailable = pieceStock + totalAvailableFromBoxes;
+        if (currentInCart + qty > totalAvailable) {
+          // Not enough even with boxes
+          if (totalAvailable === 0) {
+            toast.error(`No stock available — piece stock is 0 and no linked boxes found`);
+          } else {
+            toast.error(
+              `Low stock! Only ${totalAvailable} ${unitLabel(product.unit)} available ` +
+              `(piece: ${pieceStock} + boxes: ${boxStock} × ${packQty} = ${totalAvailableFromBoxes})`
+            );
+          }
           return;
+        }
+        // v2.10.86: If piece stock is insufficient but boxes can cover it,
+        // show a heads-up toast so the user knows a box will be auto-opened.
+        if (currentInCart + qty > pieceStock && boxStock > 0) {
+          const shortfall = (currentInCart + qty) - pieceStock;
+          const boxesToOpen = Math.ceil(shortfall / packQty);
+          toast.info(
+            `Auto-opening ${boxesToOpen} box(es) of ${linkedBoxProduct?.name || "linked box"} when sale completes (+${boxesToOpen * packQty} ${unitLabel(product.unit)})`
+          );
         }
       }
     }

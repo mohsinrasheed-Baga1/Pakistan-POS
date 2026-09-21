@@ -388,6 +388,11 @@ model Settings {
   posServiceTaxEnabled Boolean @default(false)
   posServiceTaxPercent Float  @default(0)
   posServiceTaxMinItems Int   @default(5)
+  // v2.10.86: Tax type — "percentage" (default) or "fixed"
+  // - "percentage": tax = round(total × percent / 100) when itemCount >= minItems
+  // - "fixed": tax = fixedAmount when itemCount >= minItems (e.g., Rs 20 on 5+ items)
+  posServiceTaxType       String  @default("percentage")
+  posServiceTaxFixedAmount Float  @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

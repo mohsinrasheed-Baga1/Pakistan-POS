@@ -42,9 +42,12 @@ export function ReceiptSettingsPage() {
   // v2.10.85: POS Service Tax state — fetched from /api/settings (main
   // settings, not receipt settings). We use a separate state + save flow
   // because the receipt settings API doesn't have these fields.
+  // v2.10.86: Added `type` and `fixedAmount` fields for fixed-amount tax mode.
   const [posServiceTax, setPosServiceTax] = React.useState({
     enabled: false,
+    type: "percentage" as "percentage" | "fixed",  // v2.10.86
     percent: 0,
+    fixedAmount: 0,  // v2.10.86
     minItems: 5,
   });
   const [posServiceTaxSaving, setPosServiceTaxSaving] = React.useState(false);
@@ -57,7 +60,9 @@ export function ReceiptSettingsPage() {
         if (data.settings) {
           setPosServiceTax({
             enabled: !!(data.settings as any).posServiceTaxEnabled,
+            type: (data.settings as any).posServiceTaxType === "fixed" ? "fixed" : "percentage",
             percent: Number((data.settings as any).posServiceTaxPercent) || 0,
+            fixedAmount: Number((data.settings as any).posServiceTaxFixedAmount) || 0,
             minItems: Number((data.settings as any).posServiceTaxMinItems) || 5,
           });
         }
@@ -74,7 +79,9 @@ export function ReceiptSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           posServiceTaxEnabled: posServiceTax.enabled,
+          posServiceTaxType: posServiceTax.type,  // v2.10.86
           posServiceTaxPercent: posServiceTax.percent,
+          posServiceTaxFixedAmount: posServiceTax.fixedAmount,  // v2.10.86
           posServiceTaxMinItems: posServiceTax.minItems,
         }),
       });
@@ -168,9 +175,14 @@ export function ReceiptSettingsPage() {
   const previewWidthPx = naturalWidthPx * scale;
 
   // v2.10.85: Preview of how POS Service Tax will appear on receipt
+  // v2.10.86: Updated to support both percentage and fixed-amount modes
   const previewSubtotal = 1000;
-  const previewTaxAmount = posServiceTax.enabled && posServiceTax.percent > 0
-    ? Math.round(previewSubtotal * posServiceTax.percent / 100)
+  const previewTaxAmount = posServiceTax.enabled
+    ? (posServiceTax.type === "fixed"
+        ? posServiceTax.fixedAmount  // Fixed: just use the amount
+        : (posServiceTax.percent > 0
+            ? Math.round(previewSubtotal * posServiceTax.percent / 100)
+            : 0))
     : 0;
   const previewGrandTotal = previewSubtotal + previewTaxAmount;
 
@@ -242,57 +254,121 @@ export function ReceiptSettingsPage() {
 
           {/* Percent + Min Items inputs (only show when enabled) */}
           {posServiceTax.enabled && (
-            <div className="grid grid-cols-2 gap-3 p-3 bg-amber-50/30 rounded-lg border border-amber-200">
+            <div className="space-y-3 p-3 bg-amber-50/30 rounded-lg border border-amber-200">
+              {/* v2.10.86: Tax Type selector — Percentage OR Fixed amount */}
               <div className="space-y-1">
                 <Label className="text-xs font-bold text-amber-900">
-                  Tax Percent — فیصد *
+                  Tax Type — ٹیکس کی قسم *
                 </Label>
-                <div className="relative">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPosServiceTax(prev => ({ ...prev, type: "percentage" }))}
+                    className={`flex flex-col items-center gap-0.5 py-2 px-2 rounded-lg border-2 transition-all ${
+                      posServiceTax.type === "percentage"
+                        ? "border-amber-600 bg-white text-amber-700 shadow-sm"
+                        : "border-amber-200 bg-white/50 text-amber-600 hover:bg-white"
+                    }`}
+                  >
+                    <Percent className="w-4 h-4" />
+                    <span className="text-xs font-bold">Percentage — فیصد</span>
+                    <span className="text-[10px] opacity-80">مثلاً 5% = Rs 50</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPosServiceTax(prev => ({ ...prev, type: "fixed" }))}
+                    className={`flex flex-col items-center gap-0.5 py-2 px-2 rounded-lg border-2 transition-all ${
+                      posServiceTax.type === "fixed"
+                        ? "border-blue-600 bg-white text-blue-700 shadow-sm"
+                        : "border-blue-200 bg-white/50 text-blue-600 hover:bg-white"
+                    }`}
+                  >
+                    <span className="text-base font-bold">Rs</span>
+                    <span className="text-xs font-bold">Fixed Amount — فکس رقم</span>
+                    <span className="text-[10px] opacity-80">مثلاً Rs 20 فی بل</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Conditional input — percent OR fixed amount */}
+              <div className="grid grid-cols-2 gap-3">
+                {posServiceTax.type === "percentage" ? (
+                  <div className="space-y-1">
+                    <Label className="text-xs font-bold text-amber-900">
+                      Tax Percent — فیصد *
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.5"
+                        value={posServiceTax.percent || ""}
+                        onChange={(e) => setPosServiceTax(prev => ({ ...prev, percent: Number(e.target.value) || 0 }))}
+                        placeholder="e.g. 5"
+                        className="h-10 text-lg font-bold text-center pr-8"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-700 font-bold">%</span>
+                    </div>
+                    <p className="text-[10px] text-amber-700">
+                      مثال: 5 = 5% ٹیکس (Rs 1000 پر Rs 50)
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <Label className="text-xs font-bold text-blue-900">
+                      Fixed Amount — فکس رقم *
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={posServiceTax.fixedAmount || ""}
+                        onChange={(e) => setPosServiceTax(prev => ({ ...prev, fixedAmount: Number(e.target.value) || 0 }))}
+                        placeholder="e.g. 20"
+                        className="h-10 text-lg font-bold text-center pr-10"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-700 font-bold">Rs</span>
+                    </div>
+                    <p className="text-[10px] text-blue-700">
+                      مثال: 20 = Rs 20 ٹیکس (مٹھے ہوئے آئٹمز پر)
+                    </p>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <Label className="text-xs font-bold text-amber-900">
+                    Minimum Items — کم از کم آئٹمز
+                  </Label>
                   <Input
                     type="number"
-                    min="0"
-                    max="100"
-                    step="0.5"
-                    value={posServiceTax.percent || ""}
-                    onChange={(e) => setPosServiceTax(prev => ({ ...prev, percent: Number(e.target.value) || 0 }))}
-                    placeholder="e.g. 5"
-                    className="h-10 text-lg font-bold text-center pr-8"
+                    min="1"
+                    step="1"
+                    value={posServiceTax.minItems || ""}
+                    onChange={(e) => setPosServiceTax(prev => ({ ...prev, minItems: Number(e.target.value) || 5 }))}
+                    placeholder="5"
+                    className="h-10 text-lg font-bold text-center"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-700 font-bold">%</span>
+                  <p className="text-[10px] text-amber-700">
+                    اس تعداد سے زیادہ آئٹمز پر ٹیکس لاگو ہوگا
+                  </p>
                 </div>
-                <p className="text-[10px] text-amber-700">
-                  مثال: 5 = 5% ٹیکس (Rs 1000 پر Rs 50)
-                </p>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-bold text-amber-900">
-                  Minimum Items — کم از کم آئٹمز
-                </Label>
-                <Input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={posServiceTax.minItems || ""}
-                  onChange={(e) => setPosServiceTax(prev => ({ ...prev, minItems: Number(e.target.value) || 5 }))}
-                  placeholder="5"
-                  className="h-10 text-lg font-bold text-center"
-                />
-                <p className="text-[10px] text-amber-700">
-                  اس تعداد سے زیادہ آئٹمز پر ٹیکس لاگو ہوگا
-                </p>
               </div>
             </div>
           )}
 
           {/* Live preview of how tax will appear on receipt */}
-          {posServiceTax.enabled && posServiceTax.percent > 0 && (
+          {posServiceTax.enabled && previewTaxAmount > 0 && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm">
               <div className="text-xs font-bold text-emerald-800 mb-2">
                 ✓ Live Preview — رسید پر یوں نظر آئے گا:
               </div>
               <div className="font-mono text-xs space-y-1 text-emerald-900">
                 <div className="flex justify-between"><span>Subtotal:</span><span>Rs {previewSubtotal.toLocaleString()}</span></div>
-                <div className="flex justify-between font-bold"><span>Service Tax ({posServiceTax.percent}%):</span><span>+Rs {previewTaxAmount.toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold">
+                  <span>Service Tax ({posServiceTax.type === "fixed" ? `Rs ${posServiceTax.fixedAmount}` : `${posServiceTax.percent}%`}):</span>
+                  <span>+Rs {previewTaxAmount.toLocaleString()}</span>
+                </div>
                 <div className="flex justify-between font-bold border-t border-emerald-300 pt-1 mt-1">
                   <span>GRAND TOTAL (incl. Tax):</span><span>Rs {previewGrandTotal.toLocaleString()}</span>
                 </div>
@@ -300,10 +376,17 @@ export function ReceiptSettingsPage() {
             </div>
           )}
 
-          {/* Warning if percent is 0 */}
-          {posServiceTax.enabled && posServiceTax.percent === 0 && (
+          {/* Warning if amount is 0 (percent for percentage mode, fixedAmount for fixed mode) */}
+          {posServiceTax.enabled && (
+            (posServiceTax.type === "percentage" && posServiceTax.percent === 0) ||
+            (posServiceTax.type === "fixed" && posServiceTax.fixedAmount === 0)
+          ) && (
             <div className="bg-red-50 border border-red-300 rounded-lg p-3 text-sm text-red-700">
-              <strong>⚠ ٹیکس فیصد 0 ہے!</strong> ٹیکس لاگو کرنے کے لیے اوپر کوئی نمبر درج کریں (مثلاً 5).
+              <strong>⚠ ٹیکس کی قدر 0 ہے!</strong>{" "}
+              {posServiceTax.type === "percentage"
+                ? "فیصد درج کریں (مثلاً 5)"
+                : "فکس رقم درج کریں (مثلاً 20)"}
+              .
             </div>
           )}
 
