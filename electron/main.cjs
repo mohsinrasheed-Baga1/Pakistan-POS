@@ -487,10 +487,10 @@ if (!gotLock) {
 
   ipcMain.handle("gdrive:save-config", async (event, clientId, clientSecret) => {
     try {
-      const isDev = !app.isPackaged;
-      const configPath = isDev
-        ? path.join(__dirname, "..", "google-oauth.config.json")
-        : path.join(process.resourcesPath, "google-oauth.config.json");
+      // v2.10.88: CRITICAL FIX — was writing to process.resourcesPath
+      // (Program Files) which is protected on Windows. EPERM error.
+      // Now writes to app.getPath("userData") which is always writable.
+      const configPath = path.join(app.getPath("userData"), "google-oauth.config.json");
       const currentConfig = gdrive.getConfig();
       const newConfig = {
         ...(currentConfig || {}),
@@ -525,12 +525,48 @@ if (!gotLock) {
   });
 
   // ---- Auto backup scheduler ----
+  // v2.10.88: Changed from 4 hours to 24 hours per user spec
+  //   "24 گھنٹے میں ایک بار ا بیکن اپ لوڈ کریں ڈرائی کر"
+  //   (upload a backup to Drive once every 24 hours)
+  // Also: persist lastAutoBackup to disk so it survives app restarts.
+  // If the app was closed and reopened within 24 hours, it should NOT
+  // immediately backup again — it should wait until 24 hours have
+  // passed since the last successful backup.
   let backupTimer = null;
   let lastAutoBackup = 0;
   let lastBackupError = null;
-  const AUTO_BACKUP_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
-  const AUTO_BACKUP_RETRY_MS = 5 * 60 * 1000; // retry after 5 minutes on failure
-  const AUTO_BACKUP_INITIAL_DELAY_MS = 30 * 1000; // 30 seconds after app start
+  const AUTO_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // v2.10.88: 24 hours (was 4)
+  const AUTO_BACKUP_RETRY_MS = 30 * 60 * 1000; // retry after 30 minutes on failure (was 5 min)
+  const AUTO_BACKUP_INITIAL_DELAY_MS = 60 * 1000; // 60 seconds after app start (was 30 sec)
+
+  // v2.10.88: Persist last backup timestamp to userData so it survives restarts
+  function getLastBackupPath() {
+    return path.join(app.getPath("userData"), "last-gdrive-backup.json");
+  }
+  function loadLastBackupTime() {
+    try {
+      const p = getLastBackupPath();
+      if (fs.existsSync(p)) {
+        const data = JSON.parse(fs.readFileSync(p, "utf-8"));
+        return data.timestamp || 0;
+      }
+    } catch {}
+    return 0;
+  }
+  function saveLastBackupTime(timestamp) {
+    try {
+      fs.writeFileSync(getLastBackupPath(), JSON.stringify({
+        timestamp,
+        isoString: new Date(timestamp).toISOString(),
+      }, null, 2));
+    } catch (e) {
+      console.warn("[POS] Could not save last backup time:", e?.message);
+    }
+  }
+
+  // Load the persisted last backup time on startup
+  lastAutoBackup = loadLastBackupTime();
+  console.log(`[POS] Last Google Drive backup: ${lastAutoBackup > 0 ? new Date(lastAutoBackup).toLocaleString() : "never"}`);
 
   async function performAutoBackup(reason = "scheduled") {
     try {
@@ -550,6 +586,8 @@ if (!gotLock) {
       const result = await gdrive.uploadBackup(dbPath);
       lastAutoBackup = Date.now();
       lastBackupError = null;
+      // v2.10.88: Persist the timestamp so it survives app restarts
+      saveLastBackupTime(lastAutoBackup);
       console.log(`[POS] Auto cloud backup completed (${reason}):`, result.name);
       // Notify the renderer so it can update the UI
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -580,11 +618,17 @@ if (!gotLock) {
 
   function startBackupScheduler() {
     if (backupTimer) clearInterval(backupTimer);
-    // Initial backup after 30 seconds (if connected)
+    // v2.10.88: Initial backup after 60 seconds — but ONLY if 24 hours
+    // have passed since the last successful backup (checked via the
+    // persisted lastAutoBackup value loaded on startup).
     setTimeout(async () => {
       const status = gdrive.getStatus();
       if (status.connected && Date.now() - lastAutoBackup > AUTO_BACKUP_INTERVAL_MS) {
-        await performAutoBackup("initial");
+        console.log("[POS] 24 hours passed since last backup — triggering initial backup");
+        await performAutoBackup("initial_24h");
+      } else if (status.connected) {
+        const hoursUntilNext = Math.ceil((AUTO_BACKUP_INTERVAL_MS - (Date.now() - lastAutoBackup)) / (60 * 60 * 1000));
+        console.log(`[POS] Last backup was recent — next backup in ~${hoursUntilNext} hours`);
       }
     }, AUTO_BACKUP_INITIAL_DELAY_MS);
 
@@ -594,13 +638,13 @@ if (!gotLock) {
       if (!status.connected) return;
       const now = Date.now();
       const timeSinceLast = now - lastAutoBackup;
-      // Normal schedule: 4 hours since last successful backup
-      // Retry schedule: if last backup failed, retry after 5 minutes
+      // v2.10.88: Normal schedule: 24 hours since last successful backup
+      // Retry schedule: if last backup failed, retry after 30 minutes
       const shouldRetry =
         lastBackupError && timeSinceLast > AUTO_BACKUP_RETRY_MS;
       const shouldSchedule = !lastBackupError && timeSinceLast > AUTO_BACKUP_INTERVAL_MS;
       if (shouldRetry || shouldSchedule) {
-        await performAutoBackup(shouldRetry ? "retry" : "scheduled");
+        await performAutoBackup(shouldRetry ? "retry" : "scheduled_24h");
       }
     }, 60 * 60 * 1000); // check every hour
   }

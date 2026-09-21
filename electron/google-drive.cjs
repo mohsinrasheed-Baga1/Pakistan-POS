@@ -12,15 +12,36 @@ let config = null;
 let mainWindow = null;
 
 // Load OAuth config from google-oauth.config.json
+// v2.10.88: CRITICAL FIX — was reading from process.resourcesPath
+// (Program Files) which is a protected directory on Windows. EPERM
+// error when trying to write. Now reads from user's app data directory
+// (app.getPath("userData")) which is always writable. On first run,
+// copies the config from resources to userData if it exists in
+// resources but not in userData.
 function loadConfig() {
   if (config) return config;
   const isDev = !app.isPackaged;
-  const configPath = isDev
+  // v2.10.88: Primary config path is now in userData (writable)
+  const userDataConfigPath = path.join(app.getPath("userData"), "google-oauth.config.json");
+  // Fallback: resources path (read-only, for initial install)
+  const resourcesConfigPath = isDev
     ? path.join(__dirname, "..", "google-oauth.config.json")
     : path.join(process.resourcesPath, "google-oauth.config.json");
+
   try {
-    if (fs.existsSync(configPath)) {
-      config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    // First, try to read from userData (the writable location)
+    if (fs.existsSync(userDataConfigPath)) {
+      config = JSON.parse(fs.readFileSync(userDataConfigPath, "utf-8"));
+    } else if (fs.existsSync(resourcesConfigPath)) {
+      // Config exists in resources (read-only) but not in userData yet.
+      // Copy it to userData so future writes succeed.
+      config = JSON.parse(fs.readFileSync(resourcesConfigPath, "utf-8"));
+      try {
+        fs.writeFileSync(userDataConfigPath, JSON.stringify(config, null, 2));
+      } catch (copyErr) {
+        // Non-fatal — we have the config in memory, just can't persist it yet
+        console.warn("[gdrive] Could not copy config to userData:", copyErr?.message);
+      }
     } else {
       config = null;
     }
