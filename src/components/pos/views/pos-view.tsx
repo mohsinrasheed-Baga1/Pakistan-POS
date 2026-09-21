@@ -937,14 +937,64 @@ export function PosView({ settings }: PosViewProps) {
     // ─── STOCK VALIDATION — Prevent selling more than available ──────
     // v2.10.15: Each product's quantity in cart must not exceed its stock
     // Negative stock is NOT allowed — sale is blocked if any item exceeds stock
+    //
+    // v2.10.87: CRITICAL FIX — This stock check was ONLY looking at piece
+    //   stock, ignoring linked box stock. So when piece stock = 0 but
+    //   there are boxes available to auto-open, the sale was blocked
+    //   with "Stock limit: only 0 pc available".
+    //
+    //   User report: "Auto-opening 1 box(es) of g cola 2.25 (Box) when
+    //   sale completes (+4 pc)" shows in addToCart, BUT checkout fails
+    //   with "Stock limit: 'g cola 2.25' — only 0 pc available, but 1
+    //   in cart".
+    //
+    //   Fix: Same logic as addToCart — find linked box product and
+    //   consider (boxStock × packQty) as additional available stock.
     for (const item of cart.items) {
-      const stock = item.product.stock || 0;
-      if (item.quantity > stock) {
-        toast.error(
-          `Stock limit: "${item.product.name}" — only ${stock} ${unitLabel(item.product.unit)} available, but ${item.quantity} in cart`,
-          { duration: 6000 }
+      const product = item.product;
+      const isBoxProduct = !!product.packBarcode && product.packQuantity > 0;
+      // Skip stock check for loose items (kg, gram, litre, etc.)
+      if (isLooseUnit(product.unit)) continue;
+
+      if (isBoxProduct) {
+        // Box product: stock is in boxes. Check box count directly.
+        if (item.quantity > (product.stock || 0)) {
+          toast.error(
+            `Stock limit: "${product.name}" — only ${product.stock} boxes available, but ${item.quantity} in cart`,
+            { duration: 6000 }
+          );
+          return; // Block the sale
+        }
+      } else {
+        // Piece product: check piece stock + linked box stock
+        const pieceStock = product.stock || 0;
+        // Find linked box product (where packBarcode === this product's barcode)
+        const linkedBoxProduct = products.find(
+          (p) => p.packBarcode === product.barcode && p.packQuantity > 0
         );
-        return; // Block the sale
+        const boxStock = linkedBoxProduct?.stock || 0;
+        const packQty = linkedBoxProduct?.packQuantity || 0;
+        const totalAvailableFromBoxes = boxStock * packQty;
+        const totalAvailable = pieceStock + totalAvailableFromBoxes;
+        if (item.quantity > totalAvailable) {
+          if (totalAvailable === 0) {
+            toast.error(
+              `Stock limit: "${product.name}" — no stock available (piece: 0, no linked boxes)`,
+              { duration: 6000 }
+            );
+          } else {
+            toast.error(
+              `Stock limit: "${product.name}" — only ${totalAvailable} ${unitLabel(product.unit)} available ` +
+              `(piece: ${pieceStock} + boxes: ${boxStock} × ${packQty} = ${totalAvailableFromBoxes}), ` +
+              `but ${item.quantity} in cart`,
+              { duration: 6000 }
+            );
+          }
+          return; // Block the sale
+        }
+        // v2.10.87: If piece stock is insufficient but boxes can cover,
+        // allow the sale. The auto-open will happen server-side in
+        // /api/sales when the sale is processed.
       }
     }
 
