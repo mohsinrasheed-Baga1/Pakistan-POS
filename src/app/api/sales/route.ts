@@ -321,8 +321,28 @@ async function processSale(userId: string, body: any, items: any[]) {
 
     if (isBoxSale) {
       // ─── BOX SALE ─────────────────────────────────────────────────────────
-      // 1. Decrement BOX product stock by number of boxes sold
+      // v2.10.89: CRITICAL FIX — Selling a box should ONLY decrement box
+      //   stock. Previously, it ALSO decremented piece stock by
+      //   packQuantity × boxQty (e.g., -12 pieces). But with v2.10.77
+      //   logic, piece stock only contains loose pieces from opened
+      //   boxes — it's NOT pre-filled with all pieces from all boxes.
+      //   So selling a box made piece stock go NEGATIVE (e.g., -12).
+      //
+      //   User report: "ایک بکس میں 12 پیس ہیں ہم ایک پورا بکس سیل کرتے
+      //   ہیں تو جو بکس ہے وہ منفی 12 چلا جاتا ہے" (1 box has 12 pieces,
+      //   we sell 1 whole box, the box goes to -12).
+      //
+      //   Correct accounting with v2.10.77+ logic:
+      //   - Box stock: 5 boxes × 12 = 60 pieces worth
+      //   - Piece stock: 5 (loose pieces from previously opened box)
+      //   - Total: 60 + 5 = 65 pieces
+      //   - Sell 1 box → box stock: 4, piece stock: 5 (unchanged)
+      //   - New total: 4×12 + 5 = 53 ✓ (decreased by 12, correct)
+      //
+      //   The piece stock is ONLY changed when pieces are sold directly
+      //   (handled in the PIECE SALE section below with auto-box-open).
       const boxQty = it.quantity;
+      // 1. Decrement BOX product stock by number of boxes sold
       await db.product.update({
         where: { id: product.id },
         data: { stock: { decrement: boxQty } },
@@ -336,23 +356,22 @@ async function processSale(userId: string, body: any, items: any[]) {
         },
       });
 
-      // 2. Find the linked PIECE product by its barcode (= packBarcode)
-      //    and decrement its stock by packQuantity × boxQty
+      // v2.10.89: DO NOT decrement piece stock on box sale.
+      // The piece stock only represents loose pieces from opened boxes.
+      // Selling a sealed box just reduces the box count — the loose
+      // pieces (if any) are unaffected.
+      // Log a note on the piece product for audit trail (quantity = 0,
+      // so stock doesn't change):
       const pieceProduct = await db.product.findUnique({
         where: { barcode: product.packBarcode! },
       });
       if (pieceProduct) {
-        const pieceDeduction = product.packQuantity * boxQty;
-        await db.product.update({
-          where: { id: pieceProduct.id },
-          data: { stock: { decrement: pieceDeduction } },
-        });
         await db.stockLog.create({
           data: {
             productId: pieceProduct.id,
             type: "SALE",
-            quantity: -pieceDeduction,
-            note: `Box sale ${invoiceNo} (sold as ${boxQty} box × ${product.packQuantity} pcs)`,
+            quantity: 0,  // v2.10.89: zero — no piece stock change
+            note: `Box sale ${invoiceNo} (sold as ${boxQty} box × ${product.packQuantity} pcs — piece stock NOT affected, only box stock decreased)`,
           },
         });
       }

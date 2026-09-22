@@ -1187,6 +1187,11 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
   const [boxBarcodeAuto, setBoxBarcodeAuto] = React.useState(false);
   const [piecesPerBox, setPiecesPerBox] = React.useState("");
   const [boxQty, setBoxQty] = React.useState("");
+  // v2.10.89: "Add New Boxes" — in EDIT mode, user can enter how many
+  // NEW boxes they bought. On save, this INCREMENTS the existing box
+  // stock (via /api/stock/box-purchase) instead of overwriting it.
+  // Piece stock (loose) stays unchanged.
+  const [addNewBoxes, setAddNewBoxes] = React.useState("");
   const [boxCostPrice, setBoxCostPrice] = React.useState("");
   const [boxSalePrice, setBoxSalePrice] = React.useState("");
   const [boxWholesalePrice, setBoxWholesalePrice] = React.useState("");
@@ -1234,7 +1239,7 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
     setPieceCostPrice(""); setPieceSalePrice(""); setPieceWholesalePrice(""); setPieceShopkeeperPrice("");
     setPieceStock(""); setPieceMinStock("");
     setBoxBarcode(""); setBoxBarcodeAuto(false);
-    setPiecesPerBox(""); setBoxQty("");
+    setPiecesPerBox(""); setBoxQty(""); setAddNewBoxes("");
     setBoxCostPrice(""); setBoxSalePrice(""); setBoxWholesalePrice(""); setBoxShopkeeperPrice("");
     setEditId(null);
     // Reset user-edited flags so auto-calc works again on next open
@@ -1540,12 +1545,21 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
       // v2.10.25: Strip existing "(Box)" suffix to prevent duplication
       // e.g. "Rice (Box)" → "Rice", then add "(Box)" → "Rice (Box)"
       // Without this, editing saves "Rice (Box) (Box)" then "(Box) (Box) (Box)"
+      //
+      // v2.10.89: In EDIT mode, DON'T include `stock` in boxBody — the
+      // user uses "Add New Boxes" field to increment stock (via
+      // /api/stock/box-purchase). Sending stock in the PUT body would
+      // OVERWRITE the existing stock (destroying sales made since last
+      // edit). In ADD mode, stock = boxQty (initial stock).
       const cleanName = name.replace(/\s*\(Box\)\s*$/i, "").trim();
-      const boxBody = isBox ? {
+      const boxBody: any = isBox ? {
         name: `${cleanName} (Box)`, barcode: finalBoxBarcode, categoryId: categoryId || null,
         costPrice: Number(boxCostPrice) || 0, salePrice: Number(boxSalePrice) || 0,
         wholesalePrice: Number(boxWholesalePrice) || 0, shopkeeperPrice: Number(boxShopkeeperPrice) || 0,
-        unit: "piece", stock: Number(boxQty) || 0,
+        unit: "piece",
+        // v2.10.89: Only include stock for ADD mode (initial stock).
+        // In EDIT mode, omit stock so the API preserves the existing value.
+        ...(editId ? {} : { stock: Number(boxQty) || 0 }),
         minStock: Number(pieceMinStock) || 0,
         expiryDate: expiryDate || null, manufacturingDate: manufacturingDate || null,
         hasBarcode: true, active: true, image,
@@ -1635,6 +1649,39 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
           toast.success(`${name} added!`);
         }
       }
+
+      // v2.10.89: If in EDIT mode and user entered "Add New Boxes",
+      // call /api/stock/box-purchase to INCREMENT the box stock.
+      // This preserves the existing stock and adds the new boxes.
+      // Piece stock (loose) is NOT affected (v2.10.77 box-purchase logic).
+      if (editId && isBox && Number(addNewBoxes) > 0) {
+        const newBoxCount = Number(addNewBoxes);
+        const boxBarcodeForPurchase = finalBoxBarcode;
+        try {
+          const purchaseRes = await fetch("/api/stock/box-purchase", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              barcode: boxBarcodeForPurchase,
+              boxCount: newBoxCount,
+              purchasePrice: Number(boxCostPrice) || undefined,
+              recalcPrices: false,  // Don't recalc prices on add — user already set them
+            }),
+          });
+          if (purchaseRes.ok) {
+            const data = await purchaseRes.json();
+            toast.success(
+              `Added ${newBoxCount} new box(es) to "${name}" — total boxes now: ${(Number(boxQty) || 0) + newBoxCount}. Loose pieces unchanged.`
+            );
+          } else {
+            const d = await purchaseRes.json().catch(() => ({}));
+            toast.warning(`Product saved, but could not add new boxes: ${d.error || "Unknown error"}`);
+          }
+        } catch (e: any) {
+          toast.warning(`Product saved, but box purchase failed: ${e?.message || "Network error"}`);
+        }
+      }
+
       onDone();
       onOpenChange(false);
     } catch { toast.error("Network error"); } finally { setSaving(false); }
@@ -1781,8 +1828,42 @@ function ProductWizard({ open, onOpenChange, categories, onDone, editProduct }: 
                 <Input type="number" value={piecesPerBox} onChange={(e) => setPiecesPerBox(e.target.value)} placeholder="e.g. 6" className="text-left" />
               </div>
               <div className="space-y-2">
-                <Label>Number of Boxes</Label>
-                <Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" />
+                {/* v2.10.89: In EDIT mode, show "Current Stock (read-only)"
+                    + "Add New Boxes" input. In ADD mode, show "Number of
+                    Boxes" (initial stock). */}
+                {editId ? (
+                  <>
+                    <Label>Current Box Stock</Label>
+                    <Input
+                      type="number"
+                      value={boxQty}
+                      readOnly
+                      className="text-left bg-muted/50 cursor-not-allowed"
+                      placeholder="0"
+                    />
+                    <Label className="text-emerald-700 font-bold mt-2">
+                      + Add New Boxes
+                    </Label>
+                    <Input
+                      type="number"
+                      value={addNewBoxes}
+                      onChange={(e) => setAddNewBoxes(e.target.value)}
+                      placeholder="0 (how many NEW boxes?)"
+                      className="text-left border-emerald-400"
+                    />
+                    {Number(addNewBoxes) > 0 && (
+                      <p className="text-[10px] text-emerald-700">
+                        ✓ Adding {addNewBoxes} new boxes to existing {boxQty || 0} → total: {(Number(boxQty) || 0) + Number(addNewBoxes)} boxes.
+                        Loose pieces unaffected.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Label>Number of Boxes (initial)</Label>
+                    <Input type="number" value={boxQty} onChange={(e) => setBoxQty(e.target.value)} placeholder="e.g. 10" className="text-left" />
+                  </>
+                )}
               </div>
             </div>
 
