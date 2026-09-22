@@ -134,15 +134,34 @@ function startOAuthFlow(win) {
       `&prompt=consent` +
       `&state=${state}`;
 
+    // v2.10.90: Log the OAuth details for debugging
+    console.log("[gdrive] OAuth flow starting:");
+    console.log("  clientId:", cfg.clientId?.substring(0, 20) + "...");
+    console.log("  redirectUri:", cfg.redirectUri);
+    console.log("  redirectPort:", redirectPort);
+    console.log("  scope:", scope);
+
     // Local server to capture the redirect
+    let oauthClosed = false;  // v2.10.90: Track if window was closed by user vs error
     const server = http.createServer((req, res) => {
       const url = new URL(req.url, cfg.redirectUri);
       const code = url.searchParams.get("code");
       const returnedState = url.searchParams.get("state");
+      const error = url.searchParams.get("error");
+
+      if (error) {
+        // Google returned an error (e.g., user denied consent)
+        res.writeHead(400, { "Content-Type": "text/html" });
+        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Authentication Failed</h2><p>Google returned error: ${error}</p></body></html>`);
+        server.close();
+        reject(new Error(`Google OAuth error: ${error}`));
+        return;
+      }
 
       if (code && returnedState === state) {
+        oauthClosed = true;  // Mark as completed so the "closed" handler doesn't reject
         res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Connected!</h2><p>You can close this window and return to Shop POS System.</p><script>window.close()</script></body></html>`);
+        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Connected!</h2><p>You can close this window and return to Pakistan POS.</p><script>window.close()</script></body></html>`);
         server.close();
         exchangeCodeForTokens(code)
           .then((tokens) => {
@@ -158,6 +177,19 @@ function startOAuthFlow(win) {
       }
     });
 
+    server.on("error", (e) => {
+      // v2.10.90: Better error message for port-in-use errors
+      if (e.code === "EADDRINUSE") {
+        reject(new Error(
+          `Cannot start OAuth server: Port ${redirectPort} is already in use. ` +
+          `Please close any other instances of Pakistan POS and try again. ` +
+          `(If the problem persists, restart your computer.)`
+        ));
+      } else {
+        reject(new Error("Cannot start OAuth server: " + e.message));
+      }
+    });
+
     server.listen(redirectPort, "127.0.0.1", () => {
       // Open the OAuth window
       const oauthWin = new BrowserWindow({
@@ -170,14 +202,45 @@ function startOAuthFlow(win) {
       });
       oauthWin.loadURL(authUrl);
 
+      // v2.10.90: Handle page load failures (e.g., network error, invalid URL)
+      oauthWin.webContents.on("did-fail-load", (_evt, errorCode, errorDescription, validatedURL) => {
+        console.error("[gdrive] OAuth page failed to load:", errorCode, errorDescription, validatedURL);
+        // Don't close the window here — let the user see the error
+        // But show a helpful message
+        oauthWin.webContents.executeJavaScript(`
+          document.body.innerHTML = '<div style="font-family:sans-serif;text-align:center;padding:40px">' +
+            '<h2>Connection Error</h2>' +
+            '<p>Could not load Google login page.</p>' +
+            '<p>Error: ${errorDescription || errorCode}</p>' +
+            '<p>Please check your internet connection and try again.</p>' +
+            '</div>';
+        `).catch(() => {});
+      });
+
+      // v2.10.90: Detect Google error pages (redirect to error URL)
+      oauthWin.webContents.on("did-navigate", (_evt, url) => {
+        // Google returns error pages with specific patterns
+        if (url.includes("error") && !url.includes("accounts.google.com")) {
+          console.log("[gdrive] OAuth navigated to error page:", url);
+        }
+      });
+
       oauthWin.on("closed", () => {
         try { server.close(); } catch {}
-        reject(new Error("OAuth window closed"));
+        if (!oauthClosed) {
+          // v2.10.90: Better error message with troubleshooting steps
+          reject(new Error(
+            "OAuth window closed before authentication completed.\n\n" +
+            "Possible causes:\n" +
+            "1. You closed the Google login window before completing sign-in\n" +
+            "2. Your Google Cloud Console doesn't have the redirect URI '" + cfg.redirectUri + "' in Authorized redirect URIs\n" +
+            "3. Your OAuth client ID/secret are incorrect\n" +
+            "4. Your internet connection was interrupted\n\n" +
+            "Please check Settings → Google Drive → verify your Client ID and Secret, " +
+            "and ensure the redirect URI '" + cfg.redirectUri + "' is added in your Google Cloud Console."
+          ));
+        }
       });
-    });
-
-    server.on("error", (e) => {
-      reject(new Error("Cannot start OAuth server: " + e.message));
     });
   });
 }
