@@ -2115,16 +2115,15 @@ export function PosView({ settings }: PosViewProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Checkout dialog */}
+      {/* Checkout dialog — v2.10.93: MERGED Shop Card + Amount into one section */}
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Payment</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
+            {/* Total Bill display */}
             <div className="bg-emerald-50 rounded-lg p-4 text-center space-y-1">
-              {/* v2.10.78: Show grand total (with service tax) prominently
-                  + breakdown so the user sees service tax is included */}
               <div className="text-sm text-muted-foreground">Total Bill</div>
               <div className="text-3xl font-bold text-emerald-700">
                 {formatMoney(grandTotalWithServiceTax, currency)}
@@ -2143,173 +2142,192 @@ export function PosView({ settings }: PosViewProps) {
               )}
             </div>
 
-            {/* ─── Shop Card selector with search ─── */}
-            {/* User can search for a customer's shop card and link it to the sale */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-1">
-                <CreditCard className="w-3 h-3" />
-                Shop Card (optional)
-              </Label>
-              {scannedCard ? (
-                <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-2">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-emerald-600" />
-                    <div>
-                      <div className="text-sm font-medium">{scannedCard.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {scannedCard.cardNumber} • Balance: Rs {(scannedCard.balance || 0).toLocaleString()}
+            {/* ─── v2.10.93: MERGED SECTION — Shop Card + Amount Received ───
+                User spec: "شاپ کارڈ اور اماؤنٹ ریسیو ان دونوں کو مرج کر کے
+                ایک بنا دو جب ہم نیم سرچ کریں تو کھاتا شو ہو جائے نہیں تو
+                اماؤنٹ لکھ کے ہم سیل کمپلیٹ کر دیں"
+                (Merge Shop Card + Amount into one. Search name → card ledger
+                shows. Enter amount → complete sale.)
+
+                Layout (all in ONE bordered card):
+                ┌─────────────────────────────────────────────┐
+                │  📇 Shop Card (search by name or number)    │
+                │  [Search input or selected card display]    │
+                │                                              │
+                │  💵 Amount Received                          │
+                │  [Amount input]                              │
+                │                                              │
+                │  [Cash] [Card] [Mobile]  (only if no card)   │
+                │                                              │
+                │  Change: Rs XXX  /  Balance Due: Rs XXX     │
+                │  [Exact] [500] [1000] [2000] [5000]         │
+                │  [↑100] [↑500] [↑1000]                       │
+                └─────────────────────────────────────────────┘ */}
+            <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/30 p-3 space-y-3">
+              {/* Shop Card search — inside the same card as amount */}
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1 text-xs font-bold text-emerald-800">
+                  <CreditCard className="w-3 h-3" />
+                  Shop Card — کھاتا (search name or leave empty for cash)
+                </Label>
+                {scannedCard ? (
+                  <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-50 p-2">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-emerald-600" />
+                      <div>
+                        <div className="text-sm font-medium">{scannedCard.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {scannedCard.cardNumber} • Balance: Rs {(scannedCard.balance || 0).toLocaleString()}
+                        </div>
                       </div>
                     </div>
+                    <Button size="sm" variant="ghost" className="h-7 text-red-600" onClick={() => { setScannedCard(null); setCardLastTxn(null); cart.setSaleType("RETAIL"); }}>
+                      <X className="w-3 h-3" />
+                    </Button>
                   </div>
-                  <Button size="sm" variant="ghost" className="h-7 text-red-600" onClick={() => { setScannedCard(null); setCardLastTxn(null); cart.setSaleType("RETAIL"); }}>
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                  <Input
-                    placeholder="Search customer card by name or number..."
-                    value={cardSearch}
-                    onChange={(e) => setCardSearch(e.target.value)}
-                    className="pl-8 h-9 text-sm"
-                  />
-                  {cardSearch && cardSearchResults.length > 0 && (
-                    <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border bg-white shadow-lg">
-                      {cardSearchResults.map((c: any) => (
-                        <button
-                          key={c.id}
-                          className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b last:border-0"
-                          onClick={() => {
-                            setScannedCard(c);
-                            setCardSearch("");
-                            // Auto-select sale mode based on card type
-                            if (c.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
-                            else if (c.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
-                            else cart.setSaleType("RETAIL");
-                            // Fetch last transaction
-                            fetch(`/api/cards/${c.id}/transactions?limit=1`, { cache: "no-store" })
-                              .then(r => r.json())
-                              .then(d => setCardLastTxn(d.transactions?.[0] || null))
-                              .catch(() => {});
-                          }}
-                        >
-                          <div className="text-sm font-medium">{c.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {c.cardNumber} • {c.type === "SHOP_KEEPER" ? "Shopkeeper" : c.type === "WHOLESALE" ? "Wholesale" : "Regular"}
-                            {" • Bal: Rs "}{(c.balance || 0).toLocaleString()}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                ) : (
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <Input
+                      placeholder="Search customer card... (e.g. Arshad)"
+                      value={cardSearch}
+                      onChange={(e) => setCardSearch(e.target.value)}
+                      className="pl-8 h-10 text-sm"
+                    />
+                    {cardSearch && cardSearchResults.length > 0 && (
+                      <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border bg-white shadow-lg">
+                        {cardSearchResults.map((c: any) => (
+                          <button
+                            key={c.id}
+                            className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b last:border-0"
+                            onClick={() => {
+                              setScannedCard(c);
+                              setCardSearch("");
+                              if (c.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
+                              else if (c.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
+                              else cart.setSaleType("RETAIL");
+                              fetch(`/api/cards/${c.id}/transactions?limit=1`, { cache: "no-store" })
+                                .then(r => r.json())
+                                .then(d => setCardLastTxn(d.transactions?.[0] || null))
+                                .catch(() => {});
+                            }}
+                          >
+                            <div className="text-sm font-medium">{c.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {c.cardNumber} • {c.type === "SHOP_KEEPER" ? "Shopkeeper" : c.type === "WHOLESALE" ? "Wholesale" : "Regular"}
+                              {" • Bal: Rs "}{(c.balance || 0).toLocaleString()}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Payment method buttons — only show if NO card linked */}
+              {!scannedCard && (
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { v: "CASH", label: "Cash", icon: Banknote },
+                    { v: "CARD", label: "Card", icon: CreditCard },
+                    { v: "MOBILE", label: "Mobile", icon: Smartphone },
+                  ].map((m) => {
+                    const Icon = m.icon;
+                    return (
+                      <button
+                        key={m.v}
+                        onClick={() => cart.setPaymentMethod(m.v as any)}
+                        className={`flex flex-col items-center gap-1 py-2 rounded-lg border-2 transition-colors ${
+                          cart.paymentMethod === m.v
+                            ? "border-emerald-600 bg-emerald-50 text-emerald-700"
+                            : "border-border hover:bg-muted"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span className="text-xs">{m.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
-            </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { v: "CASH", label: "Cash", icon: Banknote },
-                { v: "CARD", label: "Card", icon: CreditCard },
-                { v: "MOBILE", label: "Mobile", icon: Smartphone },
-              ].map((m) => {
-                const Icon = m.icon;
-                return (
-                  <button
-                    key={m.v}
-                    onClick={() => cart.setPaymentMethod(m.v as any)}
-                    className={`flex flex-col items-center gap-1 py-3 rounded-lg border-2 transition-colors ${
-                      cart.paymentMethod === m.v
-                        ? "border-emerald-600 bg-emerald-50 text-emerald-700"
-                        : "border-border hover:bg-muted"
-                    }`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span className="text-xs">{m.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Amount Received</Label>
-              <Input
-                type="number"
-                value={paidAmount}
-                onChange={(e) => setPaidAmount(e.target.value)}
-                placeholder={grandTotalWithServiceTax.toString()}
-                className="h-12 text-lg text-left"
-                autoFocus
-              />
-            </div>
-
-            {Number(paidAmount) > 0 && change >= 0 && (
-              <div className="flex justify-between items-center bg-emerald-50 rounded-lg p-3">
-                <span className="text-sm font-medium">Change</span>
-                <span className="text-xl font-bold text-emerald-700">
-                  {formatMoney(change, currency)}
-                </span>
+              {/* Amount Received — in the SAME section as the card search */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-emerald-800">
+                  {scannedCard ? "Card Payment (auto-deduct from balance)" : "Amount Received — رقم"}
+                </Label>
+                <Input
+                  type="number"
+                  value={paidAmount}
+                  onChange={(e) => setPaidAmount(e.target.value)}
+                  placeholder={grandTotalWithServiceTax.toString()}
+                  className="h-12 text-lg text-left font-bold"
+                  autoFocus
+                  disabled={!!scannedCard}
+                />
+                {scannedCard && (
+                  <p className="text-[10px] text-emerald-700">
+                    ✓ Card linked — Rs {formatMoney(grandTotalWithServiceTax, currency)} will be auto-deducted from card balance
+                  </p>
+                )}
               </div>
-            )}
-            {Number(paidAmount) > 0 && change < 0 && (
-              <div className="flex justify-between items-center bg-red-50 rounded-lg p-3 border border-red-200">
-                <span className="text-sm font-medium text-red-700">Balance Due (Customer owes)</span>
-                <span className="text-xl font-bold text-red-700">
-                  {formatMoney(balanceDue, currency)}
-                </span>
-              </div>
-            )}
 
-            <div className="grid grid-cols-4 gap-2">
-              {/* v2.10.78: "Exact" button — fills in the exact grand total
-                  (with service tax) so the cashier can quickly mark paid
-                  in full without doing mental math. */}
-              <Button
-                variant="default"
-                size="sm"
-                className="bg-emerald-600 hover:bg-emerald-700"
-                onClick={() => setPaidAmount(grandTotalWithServiceTax.toString())}
-                title="Fill in exact grand total (with service tax)"
-              >
-                Exact
-              </Button>
-              {[500, 1000, 2000, 5000].map((amt) => (
+              {/* Change / Balance Due display */}
+              {Number(paidAmount) > 0 && change >= 0 && (
+                <div className="flex justify-between items-center bg-emerald-100 rounded-lg p-2">
+                  <span className="text-xs font-medium text-emerald-800">Change — واپسی</span>
+                  <span className="text-lg font-bold text-emerald-700">
+                    {formatMoney(change, currency)}
+                  </span>
+                </div>
+              )}
+              {Number(paidAmount) > 0 && change < 0 && (
+                <div className="flex justify-between items-center bg-red-50 rounded-lg p-2 border border-red-200">
+                  <span className="text-xs font-medium text-red-700">Balance Due — بقایا</span>
+                  <span className="text-lg font-bold text-red-700">
+                    {formatMoney(balanceDue, currency)}
+                  </span>
+                </div>
+              )}
+
+              {/* Quick amount buttons — inside the same section */}
+              <div className="grid grid-cols-5 gap-1.5">
                 <Button
-                  key={amt}
-                  variant="outline"
+                  variant="default"
                   size="sm"
-                  onClick={() => setPaidAmount(amt.toString())}
+                  className="bg-emerald-600 hover:bg-emerald-700 h-8"
+                  onClick={() => setPaidAmount(grandTotalWithServiceTax.toString())}
+                  title="Fill in exact grand total"
                 >
-                  {amt}
+                  Exact
                 </Button>
-              ))}
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {/* v2.10.78: Quick "round up" buttons relative to grand total */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 100) * 100))}
-                title="Round up to nearest 100"
-              >
-                ↑100
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 500) * 500))}
-                title="Round up to nearest 500"
-              >
-                ↑500
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 1000) * 1000))}
-                title="Round up to nearest 1000"
-              >
-                ↑1000
-              </Button>
+                {[500, 1000, 2000, 5000].map((amt) => (
+                  <Button
+                    key={amt}
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => setPaidAmount(amt.toString())}
+                  >
+                    {amt}
+                  </Button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <Button variant="outline" size="sm" className="h-8"
+                  onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 100) * 100))}>
+                  ↑100
+                </Button>
+                <Button variant="outline" size="sm" className="h-8"
+                  onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 500) * 500))}>
+                  ↑500
+                </Button>
+                <Button variant="outline" size="sm" className="h-8"
+                  onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 1000) * 1000))}>
+                  ↑1000
+                </Button>
+              </div>
             </div>
           </div>
           <DialogFooter>
