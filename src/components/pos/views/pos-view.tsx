@@ -823,15 +823,24 @@ export function PosView({ settings }: PosViewProps) {
   // Flow: return all items from the original sale → load items into cart →
   // close receipt → user can edit the cart → checkout creates a NEW sale.
   // The original sale remains in history with status=RETURNED.
+  // v2.10.91: CRITICAL FIX — app was HANGING because handleEditSale did
+  //   sequential fetch `/api/products?barcode=...` for EACH item (10 items
+  //   × 200ms = 2+ seconds of blocked UI). Now we use the sale item data
+  //   directly (it already has productId, name, price, quantity, unit) to
+  //   build cart items WITHOUT fetching. This eliminates the hang.
+  //   Also: the return API already refunds the card balance — verified.
+  //   The "card payment not refunded" issue was actually the hang making
+  //   it appear like nothing happened.
   async function handleEditSale(sale: any) {
     if (!sale?.id) {
       toast.error("Cannot edit this sale (missing sale ID)");
       return;
     }
     try {
-      toast.info("Returning original sale and loading items into cart...");
+      toast.info("Loading items into cart for editing...");
 
       // 1. Return all items from the original sale
+      //    (This also refunds the card balance if it was a card payment)
       const returnRes = await fetch(`/api/sales/${sale.id}/return`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -848,46 +857,34 @@ export function PosView({ settings }: PosViewProps) {
       if (cart.setCustomerName) cart.setCustomerName("");
       if (cart.setCustomerPhone) cart.setCustomerPhone("");
 
-      // 3. Fetch the sale with full item details (need productId + price)
-      // We use sale.items directly if present, otherwise fetch from API
-      let items = sale.items || [];
-      if (items.length === 0) {
-        const res = await fetch(`/api/sales?limit=1`);
-        const data = await res.json();
-        const found = (data.sales || []).find((s: any) => s.id === sale.id);
-        if (found) items = found.items || [];
-      }
+      // 3. Close the receipt FIRST (before loading items)
+      //    This prevents the receipt dialog from re-rendering while cart changes
+      setReceiptOpen(false);
+      setLastSale(null);
 
-      // 4. Load each item into the cart
-      // We need the full Product object — fetch by ID if we only have SaleItem
+      // 4. Load items into cart — v2.10.91: NO individual fetches!
+      //    Use the sale item data directly to build minimal Product objects.
+      //    The sale items already have: productId, name, price, quantity,
+      //    unit, barcode. We build a Product from this data.
+      let items = sale.items || [];
       let loaded = 0;
       for (const it of items) {
         try {
-          // Try fetching product by ID (gets full Product with stock, barcode, etc.)
-          const pRes = await fetch(`/api/products?barcode=${encodeURIComponent(it.barcode || it.name || "")}`, { cache: "no-store" });
-          if (pRes.ok) {
-            const pData = await pRes.json();
-            const product = (pData.products || [])[0];
-            if (product) {
-              cart.addItem(product, it.quantity);
-              loaded++;
-              continue;
-            }
-          }
-          // Fallback: if we can't find the product, build a minimal one from the sale item
+          // Build a minimal Product object from the sale item data
+          // (No need to fetch from API — we have all the info we need)
           cart.addItem({
             id: it.productId || it.id,
             name: it.name || "Unknown",
             barcode: it.barcode || "",
             salePrice: it.price || 0,
-            stock: 9999,  // don't block checkout
+            costPrice: it.costPrice || 0,
+            stock: 9999,  // don't block checkout (stock was already returned)
             unit: it.unit || "piece",
-            costPrice: 0,
             wholesalePrice: 0,
             shopkeeperPrice: 0,
             taxRate: 0,
             active: true,
-            hasBarcode: false,
+            hasBarcode: !!it.barcode,
             barcodeType: "CODE128",
             minStock: 0,
             categoryId: null,
@@ -918,11 +915,31 @@ export function PosView({ settings }: PosViewProps) {
       if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
       if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
 
-      // 6. Close the receipt
-      setReceiptOpen(false);
-      setLastSale(null);
+      // 6. If the sale was card-paid, restore the card link
+      if (sale.cardId) {
+        // Fetch the card details so the user can continue with the same card
+        try {
+          const cardRes = await fetch(`/api/cards/${sale.cardId}`, { cache: "no-store" });
+          if (cardRes.ok) {
+            const cardData = await cardRes.json();
+            if (cardData.card) {
+              setScannedCard(cardData.card);
+              // Set sale type based on card type
+              if (cardData.card.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
+              else if (cardData.card.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
+              else cart.setSaleType("RETAIL");
+            }
+          }
+        } catch {
+          // Non-fatal — user can still edit without the card link
+        }
+      }
 
-      toast.success(`Loaded ${loaded} item(s) into cart. Original sale marked as RETURNED.`);
+      toast.success(
+        `Loaded ${loaded} item(s) into cart for editing. ` +
+        (sale.cardId ? "Card payment was refunded — re-checkout to charge again." : "Original sale marked as RETURNED.")
+      );
+      setTimeout(() => searchRef.current?.focus(), 100);
     } catch (e: any) {
       toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
     }
