@@ -265,6 +265,26 @@ export function PosView({ settings }: PosViewProps) {
     // NEW behavior: Check linked box stock — 5 boxes × 12 = 60 bottles
     //   available. Allow the sale. /api/sales auto-opens 1 box when sale
     //   is processed → piece stock becomes 12, then 11 after sale.
+    //
+    // v2.10.92: CRITICAL FIX — When the linked box product is NOT found
+    //   in the products list (because the list is stale, filtered by
+    //   search, or the box product has a different name), DON'T block
+    //   the sale. Instead, be OPTIMISTIC and allow it — the server-side
+    //   auto-open in /api/sales will handle it. If the server can't cover
+    //   it (no boxes left), the server will return an error.
+    //
+    //   User report: "10 boxes × 12 = 120 pieces. Sold 11. Now 1 piece
+    //   left. Try to sell 3 more → 'Low Stock' error. Second box doesn't
+    //   auto-open. Only opens after completing a receipt and trying again."
+    //
+    //   Root cause: `products.find()` couldn't find the linked box because
+    //   the products list was stale (not yet refreshed after the previous
+    //   sale). So `linkedBoxProduct` was null → `boxStock = 0` → check
+    //   failed → "Low Stock" error.
+    //
+    //   Fix: If `linkedBoxProduct` is NOT found, DON'T block the sale.
+    //   Only block if we KNOW the total is insufficient (both piece AND
+    //   box found, and total < qty).
     const isBoxProduct = !!product.packBarcode && product.packQuantity > 0;
     if (!isLooseUnit(product.unit)) {
       if (isBoxProduct) {
@@ -278,7 +298,6 @@ export function PosView({ settings }: PosViewProps) {
         // v2.10.86: Also check linked box stock for auto-open coverage.
         const pieceStock = product.stock || 0;
         // Find linked box product (where packBarcode === this product's barcode)
-        // We search the products list (already loaded on POS page)
         const linkedBoxProduct = products.find(
           (p) => p.packBarcode === product.barcode && p.packQuantity > 0
         );
@@ -286,26 +305,42 @@ export function PosView({ settings }: PosViewProps) {
         const packQty = linkedBoxProduct?.packQuantity || 0;
         const totalAvailableFromBoxes = boxStock * packQty;
         const totalAvailable = pieceStock + totalAvailableFromBoxes;
-        if (currentInCart + qty > totalAvailable) {
-          // Not enough even with boxes
-          if (totalAvailable === 0) {
-            toast.error(`No stock available — piece stock is 0 and no linked boxes found`);
-          } else {
-            toast.error(
-              `Low stock! Only ${totalAvailable} ${unitLabel(product.unit)} available ` +
-              `(piece: ${pieceStock} + boxes: ${boxStock} × ${packQty} = ${totalAvailableFromBoxes})`
+
+        // v2.10.92: Only block if we're SURE there's not enough stock.
+        // If piece stock is sufficient → allow (normal case).
+        // If piece stock is insufficient AND linked box found → check total.
+        // If piece stock is insufficient AND linked box NOT found → ALLOW
+        //   (optimistic — server-side auto-open will handle it. The server
+        //   can find the linked box via database query, which is always
+        //   accurate. The frontend products list might be stale/filtered.)
+        if (currentInCart + qty > pieceStock) {
+          // Piece stock alone is insufficient
+          if (linkedBoxProduct) {
+            // We found the linked box — check if total is sufficient
+            if (currentInCart + qty > totalAvailable) {
+              // Both piece AND box stock are insufficient
+              toast.error(
+                `Low stock! Only ${totalAvailable} ${unitLabel(product.unit)} available ` +
+                `(piece: ${pieceStock} + boxes: ${boxStock} × ${packQty} = ${totalAvailableFromBoxes})`
+              );
+              return;
+            }
+            // Total is sufficient — show heads-up that a box will auto-open
+            const shortfall = (currentInCart + qty) - pieceStock;
+            const boxesToOpen = Math.ceil(shortfall / packQty);
+            toast.info(
+              `Auto-opening ${boxesToOpen} box(es) of ${linkedBoxProduct.name} when sale completes (+${boxesToOpen * packQty} ${unitLabel(product.unit)})`
             );
+          } else {
+            // v2.10.92: Linked box NOT found in products list.
+            // DON'T block — be optimistic. The server-side auto-open
+            // in /api/sales will find the linked box via DB query and
+            // open it if needed. If no boxes are available, the server
+            // will handle the negative stock (or return an error).
+            // This fixes the "stale products list" issue where the
+            // frontend can't find the box but the server can.
+            console.log("[addToCart] Piece stock insufficient but linked box not in products list — allowing sale (server will auto-open if needed)");
           }
-          return;
-        }
-        // v2.10.86: If piece stock is insufficient but boxes can cover it,
-        // show a heads-up toast so the user knows a box will be auto-opened.
-        if (currentInCart + qty > pieceStock && boxStock > 0) {
-          const shortfall = (currentInCart + qty) - pieceStock;
-          const boxesToOpen = Math.ceil(shortfall / packQty);
-          toast.info(
-            `Auto-opening ${boxesToOpen} box(es) of ${linkedBoxProduct?.name || "linked box"} when sale completes (+${boxesToOpen * packQty} ${unitLabel(product.unit)})`
-          );
         }
       }
     }
@@ -984,8 +1019,9 @@ export function PosView({ settings }: PosViewProps) {
         }
       } else {
         // Piece product: check piece stock + linked box stock
+        // v2.10.92: Same optimistic approach as addToCart — if linked box
+        //   not found in products list, DON'T block (server will auto-open).
         const pieceStock = product.stock || 0;
-        // Find linked box product (where packBarcode === this product's barcode)
         const linkedBoxProduct = products.find(
           (p) => p.packBarcode === product.barcode && p.packQuantity > 0
         );
@@ -993,25 +1029,28 @@ export function PosView({ settings }: PosViewProps) {
         const packQty = linkedBoxProduct?.packQuantity || 0;
         const totalAvailableFromBoxes = boxStock * packQty;
         const totalAvailable = pieceStock + totalAvailableFromBoxes;
-        if (item.quantity > totalAvailable) {
-          if (totalAvailable === 0) {
-            toast.error(
-              `Stock limit: "${product.name}" — no stock available (piece: 0, no linked boxes)`,
-              { duration: 6000 }
-            );
+
+        // v2.10.92: Only block if we KNOW stock is insufficient.
+        if (item.quantity > pieceStock) {
+          // Piece stock insufficient
+          if (linkedBoxProduct) {
+            // Linked box found — check total
+            if (item.quantity > totalAvailable) {
+              toast.error(
+                `Stock limit: "${product.name}" — only ${totalAvailable} ${unitLabel(product.unit)} available ` +
+                `(piece: ${pieceStock} + boxes: ${boxStock} × ${packQty} = ${totalAvailableFromBoxes}), ` +
+                `but ${item.quantity} in cart`,
+                { duration: 6000 }
+              );
+              return; // Block the sale
+            }
+            // Total sufficient — allow (server will auto-open)
           } else {
-            toast.error(
-              `Stock limit: "${product.name}" — only ${totalAvailable} ${unitLabel(product.unit)} available ` +
-              `(piece: ${pieceStock} + boxes: ${boxStock} × ${packQty} = ${totalAvailableFromBoxes}), ` +
-              `but ${item.quantity} in cart`,
-              { duration: 6000 }
-            );
+            // v2.10.92: Linked box NOT found — DON'T block.
+            // Server-side auto-open will handle it.
+            console.log("[handleCheckout] Piece stock insufficient but linked box not in products list — allowing sale");
           }
-          return; // Block the sale
         }
-        // v2.10.87: If piece stock is insufficient but boxes can cover,
-        // allow the sale. The auto-open will happen server-side in
-        // /api/sales when the sale is processed.
       }
     }
 
