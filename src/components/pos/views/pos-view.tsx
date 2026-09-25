@@ -682,18 +682,46 @@ export function PosView({ settings }: PosViewProps) {
             e.preventDefault();
             const lastItem = cart.items[cart.items.length - 1];
             const step = isLooseUnit(lastItem.product.unit) ? 0.5 : 1;
-            // v2.10.16: Stock check on keyboard + as well
-            const stock = lastItem.product.stock || 0;
-            if (lastItem.quantity + step > stock) {
-              if (!e.repeat) {
-                toast.error(`Stock limit: only ${stock} ${unitLabel(lastItem.product.unit)} available`);
-              }
+            // v2.10.95: Same OPTIMISTIC stock check as + button — consider
+            // linked box stock. Don't block just because piece stock is low.
+            const pieceStock = lastItem.product.stock || 0;
+            const isBoxProduct = !!lastItem.product.packBarcode && lastItem.product.packQuantity > 0;
+            if (isLooseUnit(lastItem.product.unit)) {
+              cart.incrementLastItem(step);
+              if (!e.repeat) toast.success(`${lastItem.product.name}: ${lastItem.quantity + step}`);
               return;
             }
-            cart.incrementLastItem(step);
-            if (!e.repeat) {
-              const updatedQty = lastItem.quantity + step;
-              toast.success(`${lastItem.product.name}: ${updatedQty}`);
+            if (isBoxProduct) {
+              if (lastItem.quantity + step > pieceStock) {
+                if (!e.repeat) toast.error(`Stock limit: only ${pieceStock} boxes available`);
+                return;
+              }
+              cart.incrementLastItem(step);
+              if (!e.repeat) toast.success(`${lastItem.product.name}: ${lastItem.quantity + step}`);
+              return;
+            }
+            // Piece product — check piece + linked box stock
+            if (lastItem.quantity + step <= pieceStock) {
+              cart.incrementLastItem(step);
+              if (!e.repeat) toast.success(`${lastItem.product.name}: ${lastItem.quantity + step}`);
+              return;
+            }
+            // Piece stock insufficient — check linked box
+            const linkedBoxProduct = products.find(
+              (p) => p.packBarcode === lastItem.product.barcode && p.packQuantity > 0
+            );
+            if (linkedBoxProduct) {
+              const totalAvailable = pieceStock + ((linkedBoxProduct.stock || 0) * (linkedBoxProduct.packQuantity || 0));
+              if (lastItem.quantity + step > totalAvailable) {
+                if (!e.repeat) toast.error(`Stock limit: only ${totalAvailable} ${unitLabel(lastItem.product.unit)} available`);
+                return;
+              }
+              cart.incrementLastItem(step);
+              if (!e.repeat) toast.success(`${lastItem.product.name}: ${lastItem.quantity + step}`);
+            } else {
+              // v2.10.95: Linked box not found — ALLOW (optimistic)
+              cart.incrementLastItem(step);
+              if (!e.repeat) toast.success(`${lastItem.product.name}: ${lastItem.quantity + step}`);
             }
             return;
           }
@@ -1682,13 +1710,60 @@ export function PosView({ settings }: PosViewProps) {
                                   className="h-6 w-6"
                                   onClick={() => {
                                     const step = isLooseUnit(item.product.unit) ? 0.5 : 1;
-                                    // v2.10.16: Stock check — don't allow incrementing beyond stock
-                                    const stock = item.product.stock || 0;
-                                    if (item.quantity + step > stock) {
-                                      toast.error(`Stock limit: only ${stock} ${unitLabel(item.product.unit)} available`);
+                                    // v2.10.95: CRITICAL FIX — The + button had its OWN
+                                    // stock check that ONLY looked at piece stock, ignoring
+                                    // linked box stock. So pressing + when piece stock = 1
+                                    // gave "Stock limit: only 1 pc available" even though
+                                    // there were 9 sealed boxes (9×12=108 pieces) available.
+                                    //
+                                    // Now uses the same OPTIMISTIC approach as addToCart:
+                                    // 1. If piece stock sufficient → allow (normal)
+                                    // 2. If piece stock insufficient AND linked box found
+                                    //    → check total → allow if total sufficient
+                                    // 3. If piece stock insufficient AND linked box NOT found
+                                    //    → ALLOW (optimistic — server auto-opens)
+                                    // 4. Only block if we KNOW total is insufficient
+                                    const pieceStock = item.product.stock || 0;
+                                    const isBoxProduct = !!item.product.packBarcode && item.product.packQuantity > 0;
+                                    if (isLooseUnit(item.product.unit)) {
+                                      // Loose items — no stock check
+                                      cart.incrementItem(item.product.id, step);
                                       return;
                                     }
-                                    cart.incrementItem(item.product.id, step);
+                                    if (isBoxProduct) {
+                                      // Box product — check box stock directly
+                                      if (item.quantity + step > pieceStock) {
+                                        toast.error(`Stock limit: only ${pieceStock} boxes available`);
+                                        return;
+                                      }
+                                      cart.incrementItem(item.product.id, step);
+                                      return;
+                                    }
+                                    // Piece product — check piece + linked box stock
+                                    if (item.quantity + step <= pieceStock) {
+                                      // Piece stock sufficient — allow
+                                      cart.incrementItem(item.product.id, step);
+                                      return;
+                                    }
+                                    // Piece stock insufficient — check linked box
+                                    const linkedBoxProduct = products.find(
+                                      (p) => p.packBarcode === item.product.barcode && p.packQuantity > 0
+                                    );
+                                    if (linkedBoxProduct) {
+                                      const boxStock = linkedBoxProduct.stock || 0;
+                                      const packQty = linkedBoxProduct.packQuantity || 0;
+                                      const totalAvailable = pieceStock + (boxStock * packQty);
+                                      if (item.quantity + step > totalAvailable) {
+                                        toast.error(`Stock limit: only ${totalAvailable} ${unitLabel(item.product.unit)} available`);
+                                        return;
+                                      }
+                                      // Total sufficient — allow (+ button auto-opens box on checkout)
+                                      cart.incrementItem(item.product.id, step);
+                                    } else {
+                                      // v2.10.95: Linked box NOT in products list (stale/filtered)
+                                      // → ALLOW (optimistic). Server will auto-open on checkout.
+                                      cart.incrementItem(item.product.id, step);
+                                    }
                                   }}
                                 >
                                   <Plus className="w-3 h-3" />
