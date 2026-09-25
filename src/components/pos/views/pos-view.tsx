@@ -61,6 +61,9 @@ export function PosView({ settings }: PosViewProps) {
   const [cardLastTxn, setCardLastTxn] = React.useState<any>(null);
   const [cardSearch, setCardSearch] = React.useState("");
   const [cardSearchResults, setCardSearchResults] = React.useState<any[]>([]);
+  // v2.10.97: Unified input — ONE field for both card name search AND amount entry
+  const [unifiedInput, setUnifiedInput] = React.useState("");
+  const unifiedInputRef = React.useRef<HTMLInputElement>(null);
   const [receiptOpen, setReceiptOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [returnOpen, setReturnOpen] = React.useState(false);
@@ -2190,7 +2193,7 @@ export function PosView({ settings }: PosViewProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Checkout dialog — v2.10.96: TRULY merged — card search + amount SIDE BY SIDE */}
+      {/* Checkout dialog — v2.10.97: SINGLE input for card search OR amount */}
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -2217,25 +2220,24 @@ export function PosView({ settings }: PosViewProps) {
               )}
             </div>
 
-            {/* v2.10.96: TRULY MERGED — Shop Card + Amount in ONE row
-                User spec (repeated multiple times):
-                "ان دونوں کو مرج کر کے ایک سنگل کر دو تاکہ اگر نیم سرچ کریں
-                تو کھاتا آ جائے تو اگر ماؤنٹ لکھیں تو پھر چیک آؤٹ"
-                (Merge into ONE single. Search name → ledger shows.
-                Write amount → checkout.)
+            {/* v2.10.97: TRULY SINGLE INPUT — user wants ONE field where they
+                can EITHER type a card name (to link card) OR type amount (to
+                pay cash). Not two inputs side by side — ONE input.
 
-                NEW layout — BOTH inputs in ONE row, no separate labels:
-                ┌──────────────────────────────────────────────────────┐
-                │ 📇 [Search card name...     ] 💵 [Amount...    ]      │
-                │ (if card found → shows card info)                    │
-                │ (if amount entered → shows change)                    │
-                │ [Cash] [Card] [Mobile] (only if no card linked)      │
-                │ Change: Rs XXX / Balance Due: Rs XXX                │
-                │ [Exact] [500] [1000] [2000] [5000] [↑100] [↑500]    │
-                └──────────────────────────────────────────────────────┘ */}
+                User spec (5th time!):
+                "ایک ہی جہاں پر ہم پیمنٹ لکھیں یا فعل کمپلیٹ کر لیں یا پھر
+                کارڈ سرچ کر لیں"
+                (ONE place where we write payment or complete sale or
+                search card)
+
+                How it works:
+                - If input has LETTERS → search cards, show dropdown
+                - If input is NUMBERS → treat as cash amount
+                - If card selected → show card info, auto-deduct
+                - If amount entered → show change, Complete Sale */}
             <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/30 p-3 space-y-2">
-              {/* v2.10.96: If card is linked → show card info (full width) */}
               {scannedCard ? (
+                /* Card is linked → show card info full width */
                 <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-50 p-2">
                   <div className="flex items-center gap-2">
                     <CreditCard className="w-4 h-4 text-emerald-600" />
@@ -2246,58 +2248,86 @@ export function PosView({ settings }: PosViewProps) {
                       </div>
                     </div>
                   </div>
-                  <Button size="sm" variant="ghost" className="h-7 text-red-600" onClick={() => { setScannedCard(null); setCardLastTxn(null); cart.setSaleType("RETAIL"); }}>
+                  <Button size="sm" variant="ghost" className="h-7 text-red-600" onClick={() => { setScannedCard(null); setCardLastTxn(null); cart.setSaleType("RETAIL"); setUnifiedInput(""); setPaidAmount(""); }}>
                     <X className="w-3 h-3" />
                   </Button>
                 </div>
               ) : (
-                /* v2.10.96: BOTH inputs in ONE row — side by side */
-                <div className="grid grid-cols-2 gap-2">
-                  {/* LEFT: Card search */}
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                    <Input
-                      placeholder="Card name... (Arshad)"
-                      value={cardSearch}
-                      onChange={(e) => setCardSearch(e.target.value)}
-                      className="pl-7 h-11 text-sm"
-                    />
-                    {cardSearch && cardSearchResults.length > 0 && (
-                      <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border bg-white shadow-lg">
-                        {cardSearchResults.map((c: any) => (
-                          <button
-                            key={c.id}
-                            className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b last:border-0"
-                            onClick={() => {
-                              setScannedCard(c);
-                              setCardSearch("");
-                              if (c.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
-                              else if (c.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
-                              else cart.setSaleType("RETAIL");
-                              fetch(`/api/cards/${c.id}/transactions?limit=1`, { cache: "no-store" })
-                                .then(r => r.json())
-                                .then(d => setCardLastTxn(d.transactions?.[0] || null))
-                                .catch(() => {});
-                            }}
-                          >
-                            <div className="text-sm font-medium">{c.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {c.cardNumber} • Bal: Rs {(c.balance || 0).toLocaleString()}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {/* RIGHT: Amount received */}
+                /* v2.10.97: SINGLE INPUT — type card name OR amount */
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
-                    type="number"
-                    value={paidAmount}
-                    onChange={(e) => setPaidAmount(e.target.value)}
-                    placeholder={`Rs ${grandTotalWithServiceTax.toLocaleString()}`}
-                    className="h-11 text-base font-bold text-left"
+                    ref={unifiedInputRef}
+                    placeholder="Card name (Arshad) or amount (Rs 890)..."
+                    value={unifiedInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setUnifiedInput(val);
+                      // If input is numeric (or empty) → treat as amount
+                      if (val === "" || /^\d+$/.test(val)) {
+                        setPaidAmount(val);
+                        setCardSearch(""); // clear card search
+                      } else {
+                        // Input has letters → treat as card search
+                        setCardSearch(val);
+                        setPaidAmount(""); // clear amount
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        // If numeric → complete sale
+                        if (unifiedInput && /^\d+$/.test(unifiedInput)) {
+                          handleCheckout();
+                        }
+                        // If text and a card result is showing → select first result
+                        if (unifiedInput && cardSearchResults.length > 0 && !/^\d+$/.test(unifiedInput)) {
+                          const c = cardSearchResults[0];
+                          setScannedCard(c);
+                          setCardSearch("");
+                          setUnifiedInput("");
+                          if (c.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
+                          else if (c.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
+                          else cart.setSaleType("RETAIL");
+                          fetch(`/api/cards/${c.id}/transactions?limit=1`, { cache: "no-store" })
+                            .then(r => r.json())
+                            .then(d => setCardLastTxn(d.transactions?.[0] || null))
+                            .catch(() => {});
+                        }
+                      }
+                    }}
+                    className="pl-10 h-12 text-base font-medium"
                     autoFocus
                   />
+                  {/* Card search dropdown — shows when typing letters */}
+                  {cardSearch && cardSearchResults.length > 0 && (
+                    <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border bg-white shadow-lg">
+                      {cardSearchResults.map((c: any) => (
+                        <button
+                          key={c.id}
+                          className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b last:border-0"
+                          onClick={() => {
+                            setScannedCard(c);
+                            setCardSearch("");
+                            setUnifiedInput("");
+                            setPaidAmount("");
+                            if (c.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
+                            else if (c.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
+                            else cart.setSaleType("RETAIL");
+                            fetch(`/api/cards/${c.id}/transactions?limit=1`, { cache: "no-store" })
+                              .then(r => r.json())
+                              .then(d => setCardLastTxn(d.transactions?.[0] || null))
+                              .catch(() => {});
+                          }}
+                        >
+                          <div className="text-sm font-medium">{c.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {c.cardNumber} • Bal: Rs {(c.balance || 0).toLocaleString()}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2331,7 +2361,7 @@ export function PosView({ settings }: PosViewProps) {
               {/* Card linked message */}
               {scannedCard && (
                 <div className="text-[10px] text-emerald-700 text-center bg-emerald-50 rounded py-1">
-                  ✓ Rs {formatMoney(grandTotalWithServiceTax, currency)} will be auto-deducted from card balance
+                  ✓ Rs {formatMoney(grandTotalWithServiceTax, currency)} auto-deduct from card • Press Enter to complete
                 </div>
               )}
 
@@ -2354,32 +2384,36 @@ export function PosView({ settings }: PosViewProps) {
               )}
 
               {/* Quick amount buttons */}
-              <div className="grid grid-cols-5 gap-1.5">
-                <Button variant="default" size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8"
-                  onClick={() => setPaidAmount(grandTotalWithServiceTax.toString())}>
-                  Exact
-                </Button>
-                {[500, 1000, 2000, 5000].map((amt) => (
-                  <Button key={amt} variant="outline" size="sm" className="h-8"
-                    onClick={() => setPaidAmount(amt.toString())}>
-                    {amt}
-                  </Button>
-                ))}
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                <Button variant="outline" size="sm" className="h-8"
-                  onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 100) * 100))}>
-                  ↑100
-                </Button>
-                <Button variant="outline" size="sm" className="h-8"
-                  onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 500) * 500))}>
-                  ↑500
-                </Button>
-                <Button variant="outline" size="sm" className="h-8"
-                  onClick={() => setPaidAmount(String(Math.ceil(grandTotalWithServiceTax / 1000) * 1000))}>
-                  ↑1000
-                </Button>
-              </div>
+              {!scannedCard && (
+                <>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    <Button variant="default" size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8"
+                      onClick={() => { setPaidAmount(grandTotalWithServiceTax.toString()); setUnifiedInput(grandTotalWithServiceTax.toString()); }}>
+                      Exact
+                    </Button>
+                    {[500, 1000, 2000, 5000].map((amt) => (
+                      <Button key={amt} variant="outline" size="sm" className="h-8"
+                        onClick={() => { setPaidAmount(amt.toString()); setUnifiedInput(amt.toString()); }}>
+                        {amt}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <Button variant="outline" size="sm" className="h-8"
+                      onClick={() => { const v = String(Math.ceil(grandTotalWithServiceTax / 100) * 100); setPaidAmount(v); setUnifiedInput(v); }}>
+                      ↑100
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8"
+                      onClick={() => { const v = String(Math.ceil(grandTotalWithServiceTax / 500) * 500); setPaidAmount(v); setUnifiedInput(v); }}>
+                      ↑500
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8"
+                      onClick={() => { const v = String(Math.ceil(grandTotalWithServiceTax / 1000) * 1000); setPaidAmount(v); setUnifiedInput(v); }}>
+                      ↑1000
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           <DialogFooter>
