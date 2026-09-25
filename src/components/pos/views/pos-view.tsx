@@ -2190,7 +2190,7 @@ export function PosView({ settings }: PosViewProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Checkout dialog — v2.10.93: MERGED Shop Card + Amount into one section */}
+      {/* Checkout dialog — v2.10.96: TRULY merged — card search + amount SIDE BY SIDE */}
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -2217,57 +2217,50 @@ export function PosView({ settings }: PosViewProps) {
               )}
             </div>
 
-            {/* ─── v2.10.93: MERGED SECTION — Shop Card + Amount Received ───
-                User spec: "شاپ کارڈ اور اماؤنٹ ریسیو ان دونوں کو مرج کر کے
-                ایک بنا دو جب ہم نیم سرچ کریں تو کھاتا شو ہو جائے نہیں تو
-                اماؤنٹ لکھ کے ہم سیل کمپلیٹ کر دیں"
-                (Merge Shop Card + Amount into one. Search name → card ledger
-                shows. Enter amount → complete sale.)
+            {/* v2.10.96: TRULY MERGED — Shop Card + Amount in ONE row
+                User spec (repeated multiple times):
+                "ان دونوں کو مرج کر کے ایک سنگل کر دو تاکہ اگر نیم سرچ کریں
+                تو کھاتا آ جائے تو اگر ماؤنٹ لکھیں تو پھر چیک آؤٹ"
+                (Merge into ONE single. Search name → ledger shows.
+                Write amount → checkout.)
 
-                Layout (all in ONE bordered card):
-                ┌─────────────────────────────────────────────┐
-                │  📇 Shop Card (search by name or number)    │
-                │  [Search input or selected card display]    │
-                │                                              │
-                │  💵 Amount Received                          │
-                │  [Amount input]                              │
-                │                                              │
-                │  [Cash] [Card] [Mobile]  (only if no card)   │
-                │                                              │
-                │  Change: Rs XXX  /  Balance Due: Rs XXX     │
-                │  [Exact] [500] [1000] [2000] [5000]         │
-                │  [↑100] [↑500] [↑1000]                       │
-                └─────────────────────────────────────────────┘ */}
-            <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/30 p-3 space-y-3">
-              {/* Shop Card search — inside the same card as amount */}
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1 text-xs font-bold text-emerald-800">
-                  <CreditCard className="w-3 h-3" />
-                  Shop Card — کھاتا (search name or leave empty for cash)
-                </Label>
-                {scannedCard ? (
-                  <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-50 p-2">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="w-4 h-4 text-emerald-600" />
-                      <div>
-                        <div className="text-sm font-medium">{scannedCard.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {scannedCard.cardNumber} • Balance: Rs {(scannedCard.balance || 0).toLocaleString()}
-                        </div>
+                NEW layout — BOTH inputs in ONE row, no separate labels:
+                ┌──────────────────────────────────────────────────────┐
+                │ 📇 [Search card name...     ] 💵 [Amount...    ]      │
+                │ (if card found → shows card info)                    │
+                │ (if amount entered → shows change)                    │
+                │ [Cash] [Card] [Mobile] (only if no card linked)      │
+                │ Change: Rs XXX / Balance Due: Rs XXX                │
+                │ [Exact] [500] [1000] [2000] [5000] [↑100] [↑500]    │
+                └──────────────────────────────────────────────────────┘ */}
+            <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/30 p-3 space-y-2">
+              {/* v2.10.96: If card is linked → show card info (full width) */}
+              {scannedCard ? (
+                <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-50 p-2">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-emerald-600" />
+                    <div>
+                      <div className="text-sm font-medium">{scannedCard.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {scannedCard.cardNumber} • Balance: Rs {(scannedCard.balance || 0).toLocaleString()}
                       </div>
                     </div>
-                    <Button size="sm" variant="ghost" className="h-7 text-red-600" onClick={() => { setScannedCard(null); setCardLastTxn(null); cart.setSaleType("RETAIL"); }}>
-                      <X className="w-3 h-3" />
-                    </Button>
                   </div>
-                ) : (
+                  <Button size="sm" variant="ghost" className="h-7 text-red-600" onClick={() => { setScannedCard(null); setCardLastTxn(null); cart.setSaleType("RETAIL"); }}>
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              ) : (
+                /* v2.10.96: BOTH inputs in ONE row — side by side */
+                <div className="grid grid-cols-2 gap-2">
+                  {/* LEFT: Card search */}
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                     <Input
-                      placeholder="Search customer card... (e.g. Arshad)"
+                      placeholder="Card name... (Arshad)"
                       value={cardSearch}
                       onChange={(e) => setCardSearch(e.target.value)}
-                      className="pl-8 h-10 text-sm"
+                      className="pl-7 h-11 text-sm"
                     />
                     {cardSearch && cardSearchResults.length > 0 && (
                       <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border bg-white shadow-lg">
@@ -2289,20 +2282,28 @@ export function PosView({ settings }: PosViewProps) {
                           >
                             <div className="text-sm font-medium">{c.name}</div>
                             <div className="text-xs text-muted-foreground">
-                              {c.cardNumber} • {c.type === "SHOP_KEEPER" ? "Shopkeeper" : c.type === "WHOLESALE" ? "Wholesale" : "Regular"}
-                              {" • Bal: Rs "}{(c.balance || 0).toLocaleString()}
+                              {c.cardNumber} • Bal: Rs {(c.balance || 0).toLocaleString()}
                             </div>
                           </button>
                         ))}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
+                  {/* RIGHT: Amount received */}
+                  <Input
+                    type="number"
+                    value={paidAmount}
+                    onChange={(e) => setPaidAmount(e.target.value)}
+                    placeholder={`Rs ${grandTotalWithServiceTax.toLocaleString()}`}
+                    className="h-11 text-base font-bold text-left"
+                    autoFocus
+                  />
+                </div>
+              )}
 
-              {/* Payment method buttons — only show if NO card linked */}
+              {/* Payment method buttons — only if no card linked */}
               {!scannedCard && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1.5">
                   {[
                     { v: "CASH", label: "Cash", icon: Banknote },
                     { v: "CARD", label: "Card", icon: CreditCard },
@@ -2313,40 +2314,26 @@ export function PosView({ settings }: PosViewProps) {
                       <button
                         key={m.v}
                         onClick={() => cart.setPaymentMethod(m.v as any)}
-                        className={`flex flex-col items-center gap-1 py-2 rounded-lg border-2 transition-colors ${
+                        className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg border-2 transition-colors text-xs ${
                           cart.paymentMethod === m.v
                             ? "border-emerald-600 bg-emerald-50 text-emerald-700"
                             : "border-border hover:bg-muted"
                         }`}
                       >
-                        <Icon className="w-4 h-4" />
-                        <span className="text-xs">{m.label}</span>
+                        <Icon className="w-3.5 h-3.5" />
+                        {m.label}
                       </button>
                     );
                   })}
                 </div>
               )}
 
-              {/* Amount Received — in the SAME section as the card search */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-emerald-800">
-                  {scannedCard ? "Card Payment (auto-deduct from balance)" : "Amount Received — رقم"}
-                </Label>
-                <Input
-                  type="number"
-                  value={paidAmount}
-                  onChange={(e) => setPaidAmount(e.target.value)}
-                  placeholder={grandTotalWithServiceTax.toString()}
-                  className="h-12 text-lg text-left font-bold"
-                  autoFocus
-                  disabled={!!scannedCard}
-                />
-                {scannedCard && (
-                  <p className="text-[10px] text-emerald-700">
-                    ✓ Card linked — Rs {formatMoney(grandTotalWithServiceTax, currency)} will be auto-deducted from card balance
-                  </p>
-                )}
-              </div>
+              {/* Card linked message */}
+              {scannedCard && (
+                <div className="text-[10px] text-emerald-700 text-center bg-emerald-50 rounded py-1">
+                  ✓ Rs {formatMoney(grandTotalWithServiceTax, currency)} will be auto-deducted from card balance
+                </div>
+              )}
 
               {/* Change / Balance Due display */}
               {Number(paidAmount) > 0 && change >= 0 && (
@@ -2366,25 +2353,15 @@ export function PosView({ settings }: PosViewProps) {
                 </div>
               )}
 
-              {/* Quick amount buttons — inside the same section */}
+              {/* Quick amount buttons */}
               <div className="grid grid-cols-5 gap-1.5">
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 h-8"
-                  onClick={() => setPaidAmount(grandTotalWithServiceTax.toString())}
-                  title="Fill in exact grand total"
-                >
+                <Button variant="default" size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8"
+                  onClick={() => setPaidAmount(grandTotalWithServiceTax.toString())}>
                   Exact
                 </Button>
                 {[500, 1000, 2000, 5000].map((amt) => (
-                  <Button
-                    key={amt}
-                    variant="outline"
-                    size="sm"
-                    className="h-8"
-                    onClick={() => setPaidAmount(amt.toString())}
-                  >
+                  <Button key={amt} variant="outline" size="sm" className="h-8"
+                    onClick={() => setPaidAmount(amt.toString())}>
                     {amt}
                   </Button>
                 ))}
@@ -2406,18 +2383,10 @@ export function PosView({ settings }: PosViewProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setCheckoutOpen(false)}
-              disabled={submitting}
-            >
+            <Button variant="outline" onClick={() => setCheckoutOpen(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button
-              className="bg-emerald-600 hover:bg-emerald-700"
-              onClick={handleCheckout}
-              disabled={submitting}
-            >
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleCheckout} disabled={submitting}>
               {submitting ? "Processing..." : "Complete Sale"}
             </Button>
           </DialogFooter>
