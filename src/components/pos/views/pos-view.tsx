@@ -1011,11 +1011,24 @@ export function PosView({ settings }: PosViewProps) {
     }
   }
 
+  // v2.10.98: Ref to prevent double-submit (keyboard Enter + button click
+  // race condition caused duplicate sales in history — "double counting" bug)
+  const submittingRef = React.useRef(false);
+
   async function handleCheckout() {
+    // v2.10.98: CRITICAL FIX — Guard against double-submit.
+    // If handleCheckout is called again while already processing, return immediately.
+    // This prevents duplicate sales in history (user reported "double counting").
+    if (submittingRef.current) {
+      console.log("[handleCheckout] Already processing — ignoring duplicate call");
+      return;
+    }
     if (cart.items.length === 0) {
       toast.error("Cart is empty");
       return;
     }
+
+    submittingRef.current = true;  // v2.10.98: Set ref BEFORE setSubmitting
 
     // ─── STOCK VALIDATION — Prevent selling more than available ──────
     // v2.10.15: Each product's quantity in cart must not exceed its stock
@@ -1205,6 +1218,8 @@ export function PosView({ settings }: PosViewProps) {
       cart.clear();
       setScannedCard(null);
       setPaidAmount("");
+      setUnifiedInput("");  // v2.10.98: Clear unified input too
+      setCardSearch("");    // v2.10.98: Clear card search
       toast.success("Sale completed!");
       loadProducts();
       // v2.10.20: Sync sale to shop's Supabase (for online portal)
@@ -1260,6 +1275,7 @@ export function PosView({ settings }: PosViewProps) {
       // True network error (server unreachable, DNS failure, etc.)
       toast.error(`Network error: ${e.message || "Could not reach server"}`);
     } finally {
+      submittingRef.current = false;  // v2.10.98: Reset ref guard
       setSubmitting(false);
     }
   }
