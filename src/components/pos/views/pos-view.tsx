@@ -64,6 +64,8 @@ export function PosView({ settings }: PosViewProps) {
   // v2.10.97: Unified input — ONE field for both card name search AND amount entry
   const [unifiedInput, setUnifiedInput] = React.useState("");
   const unifiedInputRef = React.useRef<HTMLInputElement>(null);
+  // v2.10.100: Card search highlight index — for keyboard navigation (↑↓ + Enter)
+  const [cardHighlightIdx, setCardHighlightIdx] = React.useState(-1);
   const [receiptOpen, setReceiptOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [returnOpen, setReturnOpen] = React.useState(false);
@@ -2272,6 +2274,8 @@ export function PosView({ settings }: PosViewProps) {
                     onChange={(e) => {
                       const val = e.target.value;
                       setUnifiedInput(val);
+                      // v2.10.100: Reset highlight when input changes
+                      setCardHighlightIdx(-1);
                       // If input is numeric (or empty) → treat as amount
                       if (val === "" || /^\d+$/.test(val)) {
                         setPaidAmount(val);
@@ -2283,42 +2287,75 @@ export function PosView({ settings }: PosViewProps) {
                       }
                     }}
                     onKeyDown={(e) => {
+                      // v2.10.100: Arrow navigation through card search results
+                      const isCardSearch = unifiedInput && cardSearchResults.length > 0 && !/^\d+$/.test(unifiedInput);
+
+                      if (isCardSearch && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                        e.preventDefault();
+                        if (e.key === "ArrowDown") {
+                          setCardHighlightIdx((prev) =>
+                            prev < 0 ? 0 : Math.min(prev + 1, cardSearchResults.length - 1)
+                          );
+                        } else {
+                          setCardHighlightIdx((prev) =>
+                            prev <= 0 ? cardSearchResults.length - 1 : prev - 1
+                          );
+                        }
+                        return;
+                      }
+
                       if (e.key === "Enter") {
                         e.preventDefault();
                         // If numeric → complete sale
                         if (unifiedInput && /^\d+$/.test(unifiedInput)) {
                           handleCheckout();
+                          return;
                         }
-                        // If text and a card result is showing → select first result
-                        if (unifiedInput && cardSearchResults.length > 0 && !/^\d+$/.test(unifiedInput)) {
-                          const c = cardSearchResults[0];
-                          setScannedCard(c);
-                          setCardSearch("");
-                          setUnifiedInput("");
-                          if (c.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
-                          else if (c.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
-                          else cart.setSaleType("RETAIL");
-                          fetch(`/api/cards/${c.id}/transactions?limit=1`, { cache: "no-store" })
-                            .then(r => r.json())
-                            .then(d => setCardLastTxn(d.transactions?.[0] || null))
-                            .catch(() => {});
+                        // v2.10.100: If card search results showing → select highlighted (or first)
+                        if (isCardSearch) {
+                          const idx = cardHighlightIdx >= 0 && cardHighlightIdx < cardSearchResults.length
+                            ? cardHighlightIdx
+                            : 0;
+                          const c = cardSearchResults[idx];
+                          if (c) {
+                            setScannedCard(c);
+                            setCardSearch("");
+                            setUnifiedInput("");
+                            setCardHighlightIdx(-1);
+                            if (c.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
+                            else if (c.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
+                            else cart.setSaleType("RETAIL");
+                            fetch(`/api/cards/${c.id}/transactions?limit=1`, { cache: "no-store" })
+                              .then(r => r.json())
+                              .then(d => setCardLastTxn(d.transactions?.[0] || null))
+                              .catch(() => {});
+                          }
                         }
                       }
                     }}
                     className="pl-10 h-12 text-base font-medium"
                     autoFocus
                   />
-                  {/* Card search dropdown — shows when typing letters */}
+                  {/* Card search dropdown — shows when typing letters.
+                      v2.10.100: First result is auto-highlighted. User can
+                      press Enter to select it, or use ↑↓ to navigate. */}
                   {cardSearch && cardSearchResults.length > 0 && (
                     <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border bg-white shadow-lg">
-                      {cardSearchResults.map((c: any) => (
+                      {cardSearchResults.map((c: any, idx: number) => (
                         <button
                           key={c.id}
-                          className="w-full text-left px-3 py-2 hover:bg-emerald-50 border-b last:border-0"
+                          // v2.10.100: Highlight selected result (first by default)
+                          className={`w-full text-left px-3 py-2 border-b last:border-0 transition-colors ${
+                            idx === cardHighlightIdx || (cardHighlightIdx < 0 && idx === 0)
+                              ? "bg-emerald-100 border-emerald-300"
+                              : "hover:bg-emerald-50"
+                          }`}
+                          onMouseEnter={() => setCardHighlightIdx(idx)}
                           onClick={() => {
                             setScannedCard(c);
                             setCardSearch("");
                             setUnifiedInput("");
+                            setCardHighlightIdx(-1);
                             setPaidAmount("");
                             if (c.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
                             else if (c.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
@@ -2335,6 +2372,10 @@ export function PosView({ settings }: PosViewProps) {
                           </div>
                         </button>
                       ))}
+                      {/* v2.10.100: Hint at bottom of dropdown */}
+                      <div className="px-3 py-1 text-[10px] text-muted-foreground bg-muted/30 border-t">
+                        ↑↓ navigate • Enter select • {cardSearchResults.length} result(s)
+                      </div>
                     </div>
                   )}
                 </div>
