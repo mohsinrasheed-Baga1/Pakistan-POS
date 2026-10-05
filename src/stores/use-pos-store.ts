@@ -277,7 +277,15 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
     let subtotal = 0;
     let taxTotal = 0;
     items.forEach((i) => {
-      const price = effectivePrice(i.product, saleType);
+      // v2.10.101: CRITICAL FIX — Consider priceOverride if set.
+      //   Previously used effectivePrice() only, which respects saleType
+      //   but does NOT consider per-item priceOverride. When user changes
+      //   sale type (Regular→Wholesale), the individual item display
+      //   changed price but the TOTAL stayed at regular price because
+      //   the totals function wasn't using priceOverride.
+      //   Now: use priceOverride if set, otherwise effectivePrice.
+      const basePrice = effectivePrice(i.product, saleType);
+      const price = i.priceOverride != null ? i.priceOverride : basePrice;
       const line = price * i.quantity;
       subtotal += line;
       if (taxEnabled) {

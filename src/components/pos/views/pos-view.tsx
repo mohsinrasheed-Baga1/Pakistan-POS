@@ -931,10 +931,8 @@ export function PosView({ settings }: PosViewProps) {
       setLastSale(null);
 
       // 4. v2.10.99: Defer cart operations to next tick to prevent UI freeze.
-      //    The receipt dialog close + cart clear + addItem calls all happening
-      //    in the same tick caused React to freeze (user reported "stuck/hang").
-      //    By deferring to setTimeout, React processes the receipt close first,
-      //    then the cart operations happen smoothly.
+      //    v2.10.101: Also clear ALL dialog states + reload products + longer
+      //    focus delay. User reported search bar not clickable after Edit Sale.
       const items = sale.items || [];
       setTimeout(() => {
         let loaded = 0;
@@ -998,9 +996,29 @@ export function PosView({ settings }: PosViewProps) {
             .catch(() => {});
         }
 
+        // v2.10.101: Clear ALL dialog states to prevent stuck overlays
+        setCheckoutOpen(false);
+        setReturnOpen(false);
+        setCalcOpen(false);
+        setQtyOpen(false);
+        setLoadDialogOpen(false);
+        setWalletDialogOpen(false);
+
+        // v2.10.101: Reload products to refresh the product list
+        loadProducts();
+
         toast.success(`Loaded ${loaded} item(s) into cart for editing.`);
-        setTimeout(() => searchRef.current?.focus(), 50);
-      }, 100);  // 100ms delay — enough for React to process receipt close
+        // v2.10.101: Longer delay (300ms) for search bar focus
+        // Previous 50ms was too short — search bar wasn't clickable
+        setTimeout(() => {
+          if (searchRef.current) {
+            searchRef.current.disabled = false;
+            searchRef.current.readOnly = false;
+            searchRef.current.focus();
+            searchRef.current.select();
+          }
+        }, 300);
+      }, 100);
     } catch (e: any) {
       toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
     }
