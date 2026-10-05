@@ -928,84 +928,77 @@ export function PosView({ settings }: PosViewProps) {
       setReceiptOpen(false);
       setLastSale(null);
 
-      // 4. Load items into cart — v2.10.91: NO individual fetches!
-      //    Use the sale item data directly to build minimal Product objects.
-      //    The sale items already have: productId, name, price, quantity,
-      //    unit, barcode. We build a Product from this data.
-      let items = sale.items || [];
-      let loaded = 0;
-      for (const it of items) {
-        try {
-          // Build a minimal Product object from the sale item data
-          // (No need to fetch from API — we have all the info we need)
-          cart.addItem({
-            id: it.productId || it.id,
-            name: it.name || "Unknown",
-            barcode: it.barcode || "",
-            salePrice: it.price || 0,
-            costPrice: it.costPrice || 0,
-            stock: 9999,  // don't block checkout (stock was already returned)
-            unit: it.unit || "piece",
-            wholesalePrice: 0,
-            shopkeeperPrice: 0,
-            taxRate: 0,
-            active: true,
-            hasBarcode: !!it.barcode,
-            barcodeType: "CODE128",
-            minStock: 0,
-            categoryId: null,
-            vendorId: null,
-            storeStock: 0,
-            image: null,
-            expiryDate: null,
-            manufacturingDate: null,
-            packBarcode: null,
-            packQuantity: 0,
-            packPrice: 0,
-            productCode: null,
-            barcodeSvg: null,
-            barcodePng: null,
-            barcodeVerified: false,
-            stickerSize: "50x30",
-            packingDate: null,
-            inventorySource: "SHOP",
-            linkedStoreProductId: null,
-          } as any, it.quantity);
-          loaded++;
-        } catch (e) {
-          console.warn("Failed to load sale item into cart:", it, e);
-        }
-      }
-
-      // 5. Set customer info if present
-      if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
-      if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
-
-      // 6. If the sale was card-paid, restore the card link
-      if (sale.cardId) {
-        // Fetch the card details so the user can continue with the same card
-        try {
-          const cardRes = await fetch(`/api/cards/${sale.cardId}`, { cache: "no-store" });
-          if (cardRes.ok) {
-            const cardData = await cardRes.json();
-            if (cardData.card) {
-              setScannedCard(cardData.card);
-              // Set sale type based on card type
-              if (cardData.card.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
-              else if (cardData.card.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
-              else cart.setSaleType("RETAIL");
-            }
+      // 4. v2.10.99: Defer cart operations to next tick to prevent UI freeze.
+      //    The receipt dialog close + cart clear + addItem calls all happening
+      //    in the same tick caused React to freeze (user reported "stuck/hang").
+      //    By deferring to setTimeout, React processes the receipt close first,
+      //    then the cart operations happen smoothly.
+      const items = sale.items || [];
+      setTimeout(() => {
+        let loaded = 0;
+        for (const it of items) {
+          try {
+            cart.addItem({
+              id: it.productId || it.id,
+              name: it.name || "Unknown",
+              barcode: it.barcode || "",
+              salePrice: it.price || 0,
+              costPrice: it.costPrice || 0,
+              stock: 9999,
+              unit: it.unit || "piece",
+              wholesalePrice: 0,
+              shopkeeperPrice: 0,
+              taxRate: 0,
+              active: true,
+              hasBarcode: !!it.barcode,
+              barcodeType: "CODE128",
+              minStock: 0,
+              categoryId: null,
+              vendorId: null,
+              storeStock: 0,
+              image: null,
+              expiryDate: null,
+              manufacturingDate: null,
+              packBarcode: null,
+              packQuantity: 0,
+              packPrice: 0,
+              productCode: null,
+              barcodeSvg: null,
+              barcodePng: null,
+              barcodeVerified: false,
+              stickerSize: "50x30",
+              packingDate: null,
+              inventorySource: "SHOP",
+              linkedStoreProductId: null,
+            } as any, it.quantity);
+            loaded++;
+          } catch (e) {
+            console.warn("Failed to load sale item into cart:", it, e);
           }
-        } catch {
-          // Non-fatal — user can still edit without the card link
         }
-      }
 
-      toast.success(
-        `Loaded ${loaded} item(s) into cart for editing. ` +
-        (sale.cardId ? "Card payment was refunded — re-checkout to charge again." : "Original sale marked as RETURNED.")
-      );
-      setTimeout(() => searchRef.current?.focus(), 100);
+        // 5. Set customer info if present
+        if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
+        if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
+
+        // 6. If the sale was card-paid, restore the card link
+        if (sale.cardId) {
+          fetch(`/api/cards/${sale.cardId}`, { cache: "no-store" })
+            .then(r => r.json())
+            .then(cardData => {
+              if (cardData.card) {
+                setScannedCard(cardData.card);
+                if (cardData.card.type === "SHOP_KEEPER") cart.setSaleType("SHOPKEEPER");
+                else if (cardData.card.type === "WHOLESALE") cart.setSaleType("WHOLESALE");
+                else cart.setSaleType("RETAIL");
+              }
+            })
+            .catch(() => {});
+        }
+
+        toast.success(`Loaded ${loaded} item(s) into cart for editing.`);
+        setTimeout(() => searchRef.current?.focus(), 50);
+      }, 100);  // 100ms delay — enough for React to process receipt close
     } catch (e: any) {
       toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
     }

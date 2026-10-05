@@ -10,6 +10,7 @@ import {
   Wallet,
   RefreshCw,
   RotateCcw,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +51,8 @@ export function SalesView() {
   const [customDate, setCustomDate] = React.useState<string>("");
   const [selected, setSelected] = React.useState<Sale | null>(null);
   const [receiptOpen, setReceiptOpen] = React.useState(false);
+  // v2.10.99: Flag to enable Edit button on receipt from Sales History
+  const [canEdit, setCanEdit] = React.useState(false);
   const [returnTarget, setReturnTarget] = React.useState<Sale | null>(null);
   const [returnReason, setReturnReason] = React.useState("");
   const [returnSubmitting, setReturnSubmitting] = React.useState(false);
@@ -104,6 +107,7 @@ export function SalesView() {
 
   function viewReceipt(sale: Sale) {
     setSelected(sale);
+    setCanEdit(false);  // v2.10.99: Reset edit flag
     setReceiptOpen(true);
   }
 
@@ -327,11 +331,32 @@ export function SalesView() {
                           >
                             <Eye className="w-4 h-4" />
                           </Button>
+                          {/* v2.10.99: Edit button in Sales History — allows
+                              editing any past bill. Clicks through to receipt
+                              dialog where the Edit button can be used to load
+                              items back into cart for editing. */}
                           {s.status === "COMPLETED" && (
                             <Button
                               size="icon"
                               variant="ghost"
                               className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                              onClick={() => {
+                                // Open receipt with Edit option enabled
+                                viewReceipt(s);
+                                // Set a flag so the receipt shows the Edit button
+                                setCanEdit(true);
+                              }}
+                              aria-label="Edit sale"
+                              title="Edit sale — edit bill"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {s.status === "COMPLETED" && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
                               onClick={() => openReturnDialog(s)}
                               aria-label="Return sale"
                               title="Return / Refund"
@@ -350,11 +375,27 @@ export function SalesView() {
         </CardContent>
       </Card>
 
+      {/* v2.10.99: Pass onEdit callback so the Edit button shows on the receipt.
+          When clicked, it navigates to POS with the sale loaded in cart for editing. */}
       <ReceiptComponent
         sale={selected}
         settings={settings}
         open={receiptOpen}
         onOpenChange={setReceiptOpen}
+        onEdit={canEdit ? (sale: any) => {
+          // Navigate to POS and load the sale for editing
+          // We use window.location to switch views
+          setReceiptOpen(false);
+          // Store the sale in localStorage so PosView can pick it up
+          try {
+            localStorage.setItem("pendingEditSale", JSON.stringify(sale));
+          } catch {}
+          // Navigate to POS
+          window.location.hash = "pos";
+          // Also try the app's internal navigation
+          const event = new CustomEvent("pos:edit-sale", { detail: sale });
+          window.dispatchEvent(event);
+        } : undefined}
       />
 
       {/* Return / Refund confirmation */}
