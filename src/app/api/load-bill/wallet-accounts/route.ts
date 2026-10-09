@@ -32,6 +32,54 @@ export async function POST(req: NextRequest) {
         balance: Number(balance) || 0,
       },
     });
+
+    // v2.10.102: AUTO-SYNC — immediately create the POS Product mirror
+    //   so the wallet account is searchable in POS without needing to
+    //   manually click "Sync to POS". Previously, new wallet accounts
+    //   didn't appear in POS until a manual sync was triggered.
+    //   User reported: "جیز کیش اکاؤنٹ شامل کیے ہیں تو وہ میں نے
+    //   پی او ایس کے اندر سرچ کرنے کی کوشش کی تو یہاں پر ان ایکٹو
+    //   اکاؤنٹ شو کر رہا ہے" (added JazzCash accounts, searched in POS,
+    //   shows as inactive account).
+    try {
+      const barcode = `WALLET-${account.name.toUpperCase().replace(/\s+/g, "")}`;
+      const existingProduct = await db.product.findUnique({ where: { barcode } });
+      const productData: any = {
+        name: account.name,
+        barcode,
+        barcodeType: "CODE128",
+        salePrice: 0,
+        costPrice: 0,
+        wholesalePrice: 0,
+        shopkeeperPrice: 0,
+        unit: "txn",
+        stock: Math.floor(account.balance),
+        minStock: 0,
+        taxRate: 0,
+        hasBarcode: true,
+        active: true,  // v2.10.102: ALWAYS active when created
+        inventorySource: "WALLET_ACCOUNT",
+        linkedStoreProductId: account.id,
+      };
+      if (existingProduct) {
+        // Reactivate if it was previously deactivated
+        await db.product.update({
+          where: { id: existingProduct.id },
+          data: {
+            name: productData.name,
+            stock: productData.stock,
+            active: true,  // Force active
+            linkedStoreProductId: account.id,
+          },
+        });
+      } else {
+        await db.product.create({ data: productData });
+      }
+      console.log(`[wallet-accounts POST] Auto-synced wallet account "${account.name}" to POS (active=true)`);
+    } catch (syncErr: any) {
+      console.warn("[wallet-accounts POST] Auto-sync failed (non-fatal):", syncErr?.message);
+    }
+
     return NextResponse.json({ account }, { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
