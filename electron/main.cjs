@@ -525,21 +525,18 @@ if (!gotLock) {
   });
 
   // ---- Auto backup scheduler ----
-  // v2.10.88: Changed from 4 hours to 24 hours per user spec
-  //   "24 گھنٹے میں ایک بار ا بیکن اپ لوڈ کریں ڈرائی کر"
-  //   (upload a backup to Drive once every 24 hours)
-  // Also: persist lastAutoBackup to disk so it survives app restarts.
-  // If the app was closed and reopened within 24 hours, it should NOT
-  // immediately backup again — it should wait until 24 hours have
-  // passed since the last successful backup.
+  // v2.10.103: Backup at SPECIFIC TIMES: 12pm and 8pm daily.
+  //   User: "ایک دن 12 بجے اور ایک رات اٹھ بجے بیک اپ انٹرنیٹ پہ بھیجنا چاہیے"
+  //   Also: removed "after each sale" trigger that was causing hourly backups.
+  //   Also: removed the hourly interval check — now checks every 10 min.
   let backupTimer = null;
   let lastAutoBackup = 0;
   let lastBackupError = null;
-  const AUTO_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // v2.10.88: 24 hours (was 4)
-  const AUTO_BACKUP_RETRY_MS = 30 * 60 * 1000; // retry after 30 minutes on failure (was 5 min)
-  const AUTO_BACKUP_INITIAL_DELAY_MS = 60 * 1000; // 60 seconds after app start (was 30 sec)
+  const BACKUP_HOURS = [12, 20]; // 12pm and 8pm
+  const BACKUP_CHECK_INTERVAL_MS = 10 * 60 * 1000; // Check every 10 min
+  const BACKUP_TIME_TOLERANCE_MS = 5 * 60 * 1000; // 5 min window
+  const AUTO_BACKUP_RETRY_MS = 30 * 60 * 1000; // Retry after 30 min on failure
 
-  // v2.10.88: Persist last backup timestamp to userData so it survives restarts
   function getLastBackupPath() {
     return path.join(app.getPath("userData"), "last-gdrive-backup.json");
   }
@@ -564,9 +561,9 @@ if (!gotLock) {
     }
   }
 
-  // Load the persisted last backup time on startup
   lastAutoBackup = loadLastBackupTime();
   console.log(`[POS] Last Google Drive backup: ${lastAutoBackup > 0 ? new Date(lastAutoBackup).toLocaleString() : "never"}`);
+  console.log(`[POS] Backup schedule: ${BACKUP_HOURS.map(h => h + ":00").join(" and ")} daily`);
 
   async function performAutoBackup(reason = "scheduled") {
     try {
@@ -575,27 +572,15 @@ if (!gotLock) {
         lastBackupError = "Google Drive not connected";
         return { ok: false, reason: "not_connected" };
       }
-      // Rate limit: don't backup more than once per 5 minutes
-      // (prevents excessive backups if many sales happen quickly)
-      const now = Date.now();
-      const MIN_BACKUP_GAP_MS = 5 * 60 * 1000; // 5 minutes
-      if (now - lastAutoBackup < MIN_BACKUP_GAP_MS && reason !== "manual") {
-        return { ok: false, reason: "rate_limited", message: "Backup too recent" };
-      }
       console.log(`[POS] Auto backup starting (${reason})...`);
       const result = await gdrive.uploadBackup(dbPath);
       lastAutoBackup = Date.now();
       lastBackupError = null;
-      // v2.10.88: Persist the timestamp so it survives app restarts
       saveLastBackupTime(lastAutoBackup);
       console.log(`[POS] Auto cloud backup completed (${reason}):`, result.name);
-      // Notify the renderer so it can update the UI
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("gdrive:auto-backup-done", {
-          ok: true,
-          reason,
-          fileName: result.name,
-          size: result.size,
+          ok: true, reason, fileName: result.name, size: result.size,
           timestamp: new Date().toISOString(),
         });
       }
@@ -603,50 +588,61 @@ if (!gotLock) {
     } catch (e) {
       lastBackupError = e.message;
       console.log(`[POS] Auto backup failed (${reason}):`, e.message);
-      // Notify renderer about failure
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("gdrive:auto-backup-failed", {
-          ok: false,
-          reason,
-          error: e.message,
-          timestamp: new Date().toISOString(),
+          ok: false, reason, error: e.message, timestamp: new Date().toISOString(),
         });
       }
       return { ok: false, error: e.message };
     }
   }
 
+  // v2.10.103: Check if current time is within tolerance of a backup hour
+  function isScheduledBackupTime() {
+    const now = new Date();
+    const currentTotalMin = now.getHours() * 60 + now.getMinutes();
+    for (const backupHour of BACKUP_HOURS) {
+      if (Math.abs(currentTotalMin - backupHour * 60) <= 5) {
+        // Check if already backed up at this time today
+        const lastDate = new Date(lastAutoBackup);
+        const sameDay = lastDate.getDate() === now.getDate() &&
+                       lastDate.getMonth() === now.getMonth() &&
+                       lastDate.getFullYear() === now.getFullYear();
+        const lastHour = lastDate.getHours();
+        if (!sameDay || Math.abs(lastHour - backupHour) > 1) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function startBackupScheduler() {
     if (backupTimer) clearInterval(backupTimer);
-    // v2.10.88: Initial backup after 60 seconds — but ONLY if 24 hours
-    // have passed since the last successful backup (checked via the
-    // persisted lastAutoBackup value loaded on startup).
     setTimeout(async () => {
       const status = gdrive.getStatus();
-      if (status.connected && Date.now() - lastAutoBackup > AUTO_BACKUP_INTERVAL_MS) {
-        console.log("[POS] 24 hours passed since last backup — triggering initial backup");
-        await performAutoBackup("initial_24h");
+      if (status.connected && isScheduledBackupTime()) {
+        console.log("[POS] Scheduled backup time — triggering backup");
+        await performAutoBackup("scheduled_time");
       } else if (status.connected) {
-        const hoursUntilNext = Math.ceil((AUTO_BACKUP_INTERVAL_MS - (Date.now() - lastAutoBackup)) / (60 * 60 * 1000));
-        console.log(`[POS] Last backup was recent — next backup in ~${hoursUntilNext} hours`);
+        console.log("[POS] Not backup time. Schedule:", BACKUP_HOURS.map(h => h + ":00").join(", "));
       }
-    }, AUTO_BACKUP_INITIAL_DELAY_MS);
+    }, 60 * 1000);
 
-    // Then check every hour
     backupTimer = setInterval(async () => {
       const status = gdrive.getStatus();
       if (!status.connected) return;
-      const now = Date.now();
-      const timeSinceLast = now - lastAutoBackup;
-      // v2.10.88: Normal schedule: 24 hours since last successful backup
-      // Retry schedule: if last backup failed, retry after 30 minutes
-      const shouldRetry =
-        lastBackupError && timeSinceLast > AUTO_BACKUP_RETRY_MS;
-      const shouldSchedule = !lastBackupError && timeSinceLast > AUTO_BACKUP_INTERVAL_MS;
-      if (shouldRetry || shouldSchedule) {
-        await performAutoBackup(shouldRetry ? "retry" : "scheduled_24h");
+      if (isScheduledBackupTime()) {
+        console.log("[POS] Scheduled backup time — triggering backup");
+        await performAutoBackup("scheduled_time");
+        return;
       }
-    }, 60 * 60 * 1000); // check every hour
+      const now = Date.now();
+      if (lastBackupError && now - lastAutoBackup > AUTO_BACKUP_RETRY_MS) {
+        console.log("[POS] Retrying failed backup");
+        await performAutoBackup("retry");
+      }
+    }, BACKUP_CHECK_INTERVAL_MS);
   }
 
   // IPC: Manual trigger for backup (used by Settings > Backup Now button)

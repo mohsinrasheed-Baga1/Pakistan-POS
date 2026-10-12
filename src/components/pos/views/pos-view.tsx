@@ -1273,17 +1273,13 @@ export function PosView({ settings }: PosViewProps) {
       } catch {
         // Silent — don't interrupt sale flow
       }
-      // Trigger Google Drive auto-backup after each sale (silent, non-blocking)
-      // This ensures backups are taken frequently throughout the day as sales happen
-      try {
-        if (typeof window !== "undefined" && window.posElectron?.googleDrive?.triggerBackup) {
-          window.posElectron.googleDrive.triggerBackup("after_sale").catch(() => {
-            // Silent failure — don't interrupt the user with backup errors
-          });
-        }
-      } catch {
-        // Silently ignore — backup is best-effort
-      }
+      // v2.10.103: REMOVED "after each sale" backup trigger.
+      //   This was causing excessive backups (every sale = 1 backup)
+      //   which filled up Google Drive storage.
+      //   Backups now happen at scheduled times: 12pm and 8pm only.
+      // if (typeof window !== "undefined" && window.posElectron?.googleDrive?.triggerBackup) {
+      //   window.posElectron.googleDrive.triggerBackup("after_sale").catch(() => {});
+      // }
     } catch (e: any) {
       // True network error (server unreachable, DNS failure, etc.)
       toast.error(`Network error: ${e.message || "Could not reach server"}`);
