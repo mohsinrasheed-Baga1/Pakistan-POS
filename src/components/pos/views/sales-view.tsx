@@ -98,6 +98,17 @@ export function SalesView() {
     load();
   }, [load]);
 
+  // v2.10.104: Debounced auto-search — when user types in search box,
+  // results filter automatically after 200ms (no need to press Enter).
+  // The `load` function already includes `q` as a dependency, but the
+  // useCallback wraps it. This explicit debounce ensures smooth UX.
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      load();
+    }, 200);
+    return () => clearTimeout(t);
+  }, [q, load]);
+
   const totalRevenue = sales.reduce((s, x) => s + x.total, 0);
   const totalItems = sales.reduce(
     (s, x) => s + x.items.reduce((c, i) => c + i.quantity, 0),
@@ -208,10 +219,21 @@ export function SalesView() {
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          {/* v2.10.104: Auto-search with debounce — typing invoice number
+              immediately filters results without needing to press Enter.
+              User: "جب بھی سچ کرں تو رسید نمبر پورا لکھتے ہی فورا رسید
+              ہسٹری نکل انی چاہیے" (when searching, as soon as invoice number
+              is typed, receipt history should appear immediately) */}
           <Input
-            placeholder="Invoice number or customer name..."
+            placeholder="Invoice number or customer name... (auto-search)"
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                load();
+              }
+            }}
             className="pl-10"
           />
         </div>

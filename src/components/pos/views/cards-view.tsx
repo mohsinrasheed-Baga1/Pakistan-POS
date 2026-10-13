@@ -801,50 +801,12 @@ export function CardsView({ userRole }: CardsViewProps) {
         onClose={() => setPrintCard(null)}
       />
 
-      {/* Receipt Dialog — shows full sale receipt when clicked from purchase history */}
-      {receiptSale && (
-        <ReceiptComponent
-          sale={receiptSale}
-          settings={settings}
-          open={!!receiptSale}
-          onOpenChange={(o) => !o && setReceiptSale(null)}
-        />
-      )}
+      {/* v2.10.104: Old receipt dialog removed from here — moved to AFTER
+          the card detail dialog (line ~1132) so it renders on TOP. */}
 
       {/* Card Detail — FULL SCREEN modal (like a separate page) */}
       <Dialog open={!!detailCard} onOpenChange={(o) => !o && setDetailCard(null)}>
-        {/* v2.10.82: TRUE FULL-SCREEN — using ONLY Tailwind classes
-            ─────────────────────────────────────────────────────────────
-            v2.10.80 attempt used inline `style={{ top: 0, left: 0,
-            transform: "none" }}` which conflicted with shadcn's
-            data-[state=open]:zoom-in-95 animation — broke the dialog,
-            left column came up blank.
-
-            v2.10.82 uses ONLY Tailwind classes — no inline styles.
-            - `w-screen h-screen`: width and height = 100vw × 100vh
-            - `max-w-none sm:max-w-none`: removes shadcn's default
-              max-w (calc(100%-2rem)) and sm:max-w-lg (512px)
-            - `max-h-none sm:max-h-none`: removes any height constraints
-            - `flex flex-col`: header stays at top, body fills rest
-            - `p-0 gap-0`: no padding/gap (each section has its own)
-            - `overflow-hidden`: no outer scroll (inner sections scroll)
-
-            With shadcn's default `top-[50%] left-[50%] translate-x-[-50%]
-            translate-y-[-50%]` + w-screen h-screen:
-              - top: 50vh, translate-y: -50vh → final top: 0
-              - left: 50vw, translate-x: -50vw → final left: 0
-            So the dialog ends up at top-left corner (0, 0), filling
-            the entire viewport — without needing inline style overrides
-            that would conflict with the CSS animation. */}
         <DialogContent className="w-screen h-screen max-w-none sm:max-w-none max-h-none sm:max-h-none p-0 gap-0 overflow-hidden flex flex-col rounded-none border-0">
-          {/* v2.10.79: REDESIGNED Shop Card Details dialog
-              ─────────────────────────────────────────────────────────────
-              Two-column layout (responsive: stacks on small screens):
-              - LEFT (1/3 width): Customer info + Balance + Actions (sticky)
-              - RIGHT (2/3 width): Transaction history + Purchase history (scroll)
-              This prevents the "UI breaks when many entries" issue.
-              Also: each purchase history row now shows full details
-              (invoice no, items purchased, "View Receipt" button per sale). */}
           <DialogHeader className="flex-shrink-0 bg-emerald-700 text-white p-3 border-b-2 border-emerald-800">
             <DialogTitle className="flex items-center gap-2 text-lg flex-wrap">
               <Wallet className="w-5 h-5" />
@@ -1153,6 +1115,21 @@ export function CardsView({ userRole }: CardsViewProps) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* v2.10.104: Receipt Dialog — renders AFTER card detail dialog so it
+          appears on TOP when user clicks "پرچی" button in Purchase History.
+          User: "جو بھی کارڈ سے پرچیزنگ ہو اس کی رسید ساتھ اٹیچ ہونی چاہیے
+          جب بھی ہم کھاتا کھولیں تو اس میں رسید پر کلک کر کے ہم رسید دیکھ سکیں"
+          (Every card purchase should have the receipt attached. When we open
+          the ledger, we should be able to click the receipt and view it.) */}
+      {receiptSale && (
+        <ReceiptComponent
+          sale={receiptSale}
+          settings={settings}
+          open={!!receiptSale}
+          onOpenChange={(o) => !o && setReceiptSale(null)}
+        />
+      )}
 
       {/* New Transaction Dialog */}
       <Dialog open={txDialogOpen} onOpenChange={setTxDialogOpen}>
