@@ -29,33 +29,33 @@ export async function GET(req: NextRequest) {
     start = new Date(0);
   }
 
-  // v2.10.99: Include RETURNED and PARTIAL_RETURN sales as NEGATIVE amounts.
-  //   Previously only COMPLETED sales were included — returned sales were
-  //   invisible in reports. User complaint: "ریٹرن میں چلی جاتی ہیں لیکن
-  //   رپورٹ میں وہ سیل دکھا رہا ہوتا ہے" (items go to return but the
-  //   report still shows the sale). Now returned sales are subtracted.
+  // v2.10.105: REVERTED v2.10.99 changes that included RETURNED/PARTIAL_RETURN
+  //   sales as negative amounts. This was causing NEGATIVE PROFIT in morning
+  //   reports — when a sale was returned (e.g., via Edit), the RETURNED sale
+  //   showed as negative revenue, making the total profit negative.
+  //   User: "صبح صبح اکاؤنٹ یعنی منفی میں جا رہا ہے ... پرافٹ منفی میں
+  //   جا رہا ہے" (in the morning, the account goes negative... profit goes
+  //   negative).
+  //   Root cause: When user edits a sale, the original is marked RETURNED.
+  //   The report subtracted the RETURNED sale's total from revenue, but the
+  //   new COMPLETED sale (from re-checkout) might not have been created yet
+  //   (or was on a different day), causing the report to show only the
+  //   negative RETURNED sale without the offsetting positive COMPLETED sale.
+  //   Fix: Only include COMPLETED sales in revenue/cost/profit calculations.
+  //   Returned sales are excluded entirely (their stock was already restored).
   const sales = await db.sale.findMany({
-    where: { createdAt: { gte: start, lte: end }, status: { in: ["COMPLETED", "RETURNED", "PARTIAL_RETURN"] } },
+    where: { createdAt: { gte: start, lte: end }, status: "COMPLETED" },
     include: { items: true },
   });
 
-  // v2.10.99: Count only COMPLETED sales as "sales" (returned ones are deductions)
-  const totalSales = sales.filter(s => s.status === "COMPLETED").length;
-  // v2.10.99: Revenue = sum of COMPLETED sales MINUS sum of RETURNED sales
-  const totalRevenue = sales.reduce((s, x) => {
-    if (x.status === "RETURNED") return s - x.total;  // Full return → subtract entire sale
-    if (x.status === "PARTIAL_RETURN") return s - (x.total * 0.5);  // Partial → estimate (ideally should track exact return amount)
-    return s + x.total;  // Completed → add
-  }, 0);
-  const totalCost = sales.reduce((s, x) => {
-    if (x.status === "RETURNED") return s - x.items.reduce((c, i) => c + i.costPrice * i.quantity, 0);
-    return s + x.items.reduce((c, i) => c + i.costPrice * i.quantity, 0);
-  }, 0);
-  const totalProfit = totalRevenue - totalCost - sales.filter(s => s.status === "COMPLETED").reduce((s, x) => s + x.discount, 0);
-  const totalTax = sales.reduce((s, x) => {
-    if (x.status === "RETURNED") return s - x.taxTotal;
-    return s + x.taxTotal;
-  }, 0);
+  const totalSales = sales.length;
+  const totalRevenue = sales.reduce((s, x) => s + x.total, 0);
+  const totalCost = sales.reduce(
+    (s, x) => s + x.items.reduce((c, i) => c + i.costPrice * i.quantity, 0),
+    0
+  );
+  const totalProfit = totalRevenue - totalCost - sales.reduce((s, x) => s + x.discount, 0);
+  const totalTax = sales.reduce((s, x) => s + x.taxTotal, 0);
 
   // top products
   const productMap: Record<string, { name: string; qty: number; revenue: number }> = {};
