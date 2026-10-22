@@ -241,6 +241,18 @@ export async function GET(req: NextRequest) {
   // This shows how much we owe to suppliers/vendors
   const pendingTotal = totalVendorDue;
 
+  // v2.10.106: Total purchases (stock buying) for the selected period
+  // Uses the Expense model with category="purchase"
+  const purchases = await db.expense.findMany({
+    where: {
+      category: "purchase",
+      date: { gte: start, lte: end },
+    },
+    orderBy: { date: "desc" },
+    take: 100,
+  });
+  const totalPurchases = purchases.reduce((s, p) => s + p.amount, 0);
+
   return NextResponse.json({
     range,
     totalSales,
@@ -264,6 +276,15 @@ export async function GET(req: NextRequest) {
     mobileTotal,
     pendingTotal,
     profitByProduct: profitByProduct.slice(0, 20),
+    // v2.10.106: Total purchases (stock buying)
+    totalPurchases,
+    purchasesList: purchases.map(p => ({
+      id: p.id,
+      title: p.title,
+      amount: p.amount,
+      note: p.note,
+      date: p.date.toISOString(),
+    })),
     // ─── New: vendor and customer balances ───
     vendorBalances: {
       totalDue: totalVendorDue,           // money we owe vendors

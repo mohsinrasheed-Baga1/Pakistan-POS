@@ -70,6 +70,11 @@ export function PosView({ settings }: PosViewProps) {
   const [submitting, setSubmitting] = React.useState(false);
   const [returnOpen, setReturnOpen] = React.useState(false);
   const [calcOpen, setCalcOpen] = React.useState(false);
+  // v2.10.106: Purchase dialog state
+  const [purchaseDialogOpen, setPurchaseDialogOpen] = React.useState(false);
+  const [purchaseAmount, setPurchaseAmount] = React.useState("");
+  const [purchaseDescription, setPurchaseDescription] = React.useState("");
+  const [purchaseSaving, setPurchaseSaving] = React.useState(false);
   // -1 means NO product is highlighted. Only after the user starts typing
   // in the search box do we auto-highlight the first match (index 0).
   // This prevents the first product from being accidentally added to cart
@@ -899,6 +904,43 @@ export function PosView({ settings }: PosViewProps) {
   //   Also: the return API already refunds the card balance — verified.
   //   The "card payment not refunded" issue was actually the hang making
   //   it appear like nothing happened.
+  // v2.10.106: Save purchase entry — records stock buying as an expense
+  // with category="purchase". Shows total purchases in reports.
+  async function handleSavePurchase() {
+    const amount = Number(purchaseAmount);
+    if (!amount || amount <= 0) {
+      toast.error("Enter a valid purchase amount");
+      return;
+    }
+    setPurchaseSaving(true);
+    try {
+      const res = await fetch("/api/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: purchaseDescription.trim() || "Stock Purchase",
+          amount,
+          category: "purchase",
+          note: purchaseDescription.trim() || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        toast.error(data.error || "Failed to save purchase");
+        return;
+      }
+      toast.success(`Purchase recorded: ${formatMoney(amount, currency)}`);
+      setPurchaseDialogOpen(false);
+      setPurchaseAmount("");
+      setPurchaseDescription("");
+      setTimeout(() => searchRef.current?.focus(), 50);
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setPurchaseSaving(false);
+    }
+  }
+
   async function handleEditSale(sale: any) {
     if (!sale?.id) {
       toast.error("Cannot edit this sale (missing sale ID)");
@@ -1344,6 +1386,18 @@ export function PosView({ settings }: PosViewProps) {
               Shopkeeper
             </button>
           </div>
+          {/* v2.10.106: Purchase button — record purchases (stock buying)
+              User: "پرچیز پر کلک کرنے پر جو بھی ہم پرچیز کریں گے جتنے
+              رقم کی وہ چیز پرچیز کریں گے تو وہ اس کے اندر انٹری کریں
+              اور رپورٹ کے اندر بھی دکھانا ہے کہ ٹوٹل اج پرچیز کتنے کی ہے" */}
+          <Button
+            variant="outline"
+            onClick={() => setPurchaseDialogOpen(true)}
+            className="border-blue-300 text-blue-700 hover:bg-blue-50 font-bold"
+            title="Record a purchase (stock buying)"
+          >
+            <Package className="w-4 h-4 mr-2" /> Purchase
+          </Button>
           <Button
             variant="outline"
             onClick={() => setView("scanner")}
@@ -2508,7 +2562,66 @@ export function PosView({ settings }: PosViewProps) {
         onReturned={() => loadProducts()}
       />
 
-      {/* Calculator dialog */}
+      {/* v2.10.106: Purchase dialog — record stock purchases */}
+      <Dialog open={purchaseDialogOpen} onOpenChange={(v) => {
+        if (!v) { setPurchaseDialogOpen(false); setPurchaseAmount(""); setPurchaseDescription(""); setTimeout(() => searchRef.current?.focus(), 50); }
+      }}>
+        <DialogContent className="max-w-sm" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="text-lg flex items-center gap-2">
+              <Package className="w-5 h-5 text-blue-600" />
+              Purchase — پرچیز
+            </DialogTitle>
+            <DialogDescription className="text-sm">
+              Record a stock purchase (buying inventory)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="bg-blue-50 rounded-lg p-3 text-center">
+              <div className="text-sm text-muted-foreground">Purchase Amount</div>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={purchaseAmount}
+                onChange={(e) => setPurchaseAmount(e.target.value)}
+                placeholder="e.g. 5000"
+                autoFocus
+                className="h-14 text-2xl text-center font-mono font-bold"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSavePurchase();
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Description (optional)</Label>
+              <Input
+                value={purchaseDescription}
+                onChange={(e) => setPurchaseDescription(e.target.value)}
+                placeholder="e.g. 5 boxes of eggs from vendor"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="text-xs text-muted-foreground text-center">
+              This will be recorded as a purchase expense and shown in Reports.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setPurchaseDialogOpen(false); setPurchaseAmount(""); setPurchaseDescription(""); }}>Cancel</Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={purchaseSaving || !purchaseAmount || Number(purchaseAmount) <= 0}
+              onClick={handleSavePurchase}
+            >
+              {purchaseSaving ? "Saving..." : "Save Purchase"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <CalculatorDialog open={calcOpen} onOpenChange={setCalcOpen} />
     </div>
   );

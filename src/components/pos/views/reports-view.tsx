@@ -507,6 +507,57 @@ export function ReportsView() {
           )}
         </div>
 
+        {/* v2.10.106: Purchases section — shows total stock purchases for the period */}
+        <div className="rounded-lg border-2 border-blue-300 bg-blue-50/50 p-4 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Package className="w-5 h-5 text-blue-700" />
+              <h3 className="font-bold text-blue-900">
+                Purchases — پرچیز (Stock Buying)
+              </h3>
+            </div>
+            <div className="text-2xl font-bold text-blue-800">
+              {formatMoney((data as any)?.totalPurchases ?? 0, currency)}
+            </div>
+          </div>
+          <div className="text-xs text-blue-700 -mt-1">
+            آج جتنے کی پرچیز کی ہے — یہ رپورٹ دکھاتی ہے کل کتنے کا سودا خریدا
+          </div>
+          {(((data as any)?.purchasesList ?? []).length > 0) && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-blue-700 font-medium hover:underline">
+                View {((data as any)?.purchasesList ?? []).length} purchase(s) in this period
+              </summary>
+              <div className="mt-2 overflow-x-auto rounded border border-blue-200 bg-white">
+                <table className="w-full text-left">
+                  <thead className="bg-blue-50 text-blue-800">
+                    <tr>
+                      <th className="px-2 py-1.5 font-semibold">Date</th>
+                      <th className="px-2 py-1.5 font-semibold">Title</th>
+                      <th className="px-2 py-1.5 font-semibold text-right">Amount</th>
+                      <th className="px-2 py-1.5 font-semibold">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {((data as any)?.purchasesList ?? []).map((p: any, i: number) => (
+                      <tr key={i} className="border-t border-blue-100">
+                        <td className="px-2 py-1.5 text-muted-foreground">
+                          {new Date(p.date).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" })}
+                        </td>
+                        <td className="px-2 py-1.5 font-medium">{p.title}</td>
+                        <td className="px-2 py-1.5 text-right font-bold text-blue-700">
+                          {formatMoney(p.amount, currency)}
+                        </td>
+                        <td className="px-2 py-1.5 text-muted-foreground">{p.note || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <MiniStat
             label="Products"
