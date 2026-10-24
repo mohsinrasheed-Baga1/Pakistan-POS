@@ -115,11 +115,19 @@ export function SalesView() {
   // complained that returns are "added not subtracted").
   // Fix: count COMPLETED sales POSITIVELY, RETURNED/PARTIAL_RETURN
   // NEGATIVELY. Net revenue = gross - returns.
+  //
+  // v2.10.109: CRITICAL FIX — User reported negative cash in hand &
+  // weird profit numbers. v2.10.108's `totalRevenue = grossRevenue -
+  // returnsTotal` was DOUBLE-COUNTING returns (grossRevenue already
+  // excludes RETURNED sales because we filter to COMPLETED only).
+  // Fix:
+  //   - totalRevenue = grossRevenue (returns already excluded)
+  //   - Keep returnsTotal as informational display only
   const completedSales = sales.filter(s => s.status === "COMPLETED");
   const returnedSales = sales.filter(s => s.status === "RETURNED" || s.status === "PARTIAL_RETURN");
   const grossRevenue = completedSales.reduce((s, x) => s + x.total, 0);
   const returnsTotal = returnedSales.reduce((s, x) => s + x.total, 0);
-  const totalRevenue = grossRevenue - returnsTotal;
+  const totalRevenue = grossRevenue; // v2.10.109: returns already excluded
   const totalItems = completedSales.reduce(
     (s, x) => s + x.items.reduce((c, i) => c + i.quantity, 0),
     0
@@ -190,14 +198,17 @@ export function SalesView() {
               <Wallet className="w-6 h-6 text-emerald-600" />
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">Total Sales (Net)</div>
+              <div className="text-xs text-muted-foreground">Total Sales</div>
               <div className="text-lg font-bold text-emerald-700">
                 {loading ? "..." : formatMoney(totalRevenue, currency)}
               </div>
-              {/* v2.10.108: Show breakdown when returns exist */}
+              {/* v2.10.109: Show returns count as informational only
+                  (returns are already excluded from totalRevenue because
+                  we filter to status="COMPLETED" — this is just to inform
+                  the user how many returns happened in this view) */}
               {!loading && returnsTotal > 0 && (
                 <div className="text-[10px] text-rose-600 mt-0.5">
-                  Gross {formatMoney(grossRevenue, currency)} − Returns {formatMoney(returnsTotal, currency)}
+                  {returnedSales.length} return(s) — Rs {returnsTotal.toLocaleString()} (excluded)
                 </div>
               )}
             </div>

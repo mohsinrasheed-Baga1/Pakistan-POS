@@ -54,6 +54,23 @@ export async function GET(req: NextRequest) {
   //       (because we subtract the SaleReturn AMOUNT, not the RETURNED sale's
   //       total — SaleReturn.amount is the actual refund given to customer,
   //       which is what matters for cash flow).
+  //
+  // v2.10.109: CRITICAL FIX — User reported NEGATIVE PROFIT in reports.
+  //   Root cause: v2.10.108 was DOUBLE-COUNTING returns.
+  //   The `sales` query already filters to status="COMPLETED" (line 58),
+  //   so returned sales are EXCLUDED from totalRevenue AND totalCost.
+  //   Subtracting totalReturnsAmount from totalProfit AGAIN was wrong:
+  //     - Returned sale's revenue: already excluded (not in totalRevenue)
+  //     - Returned items' cost: already excluded (not in totalCost, and
+  //       inventory was restored so no real cost loss)
+  //     - The refund amount: a CASH flow (already subtracted in cashOnHand),
+  //       but NOT a profit loss (the shop got their inventory back).
+  //   Fix:
+  //     - totalProfit = totalRevenue - totalCost - discounts
+  //       (DOES NOT subtract returns — they're already excluded from rev/cost)
+  //     - netRevenue = totalRevenue (returns already excluded)
+  //     - Keep totalReturnsAmount in response for cash flow + informational
+  //       display (cash drawer DOES subtract returns because refund was cash)
   const sales = await db.sale.findMany({
     where: { createdAt: { gte: start, lte: end }, status: "COMPLETED" },
     include: { items: true },
@@ -62,20 +79,42 @@ export async function GET(req: NextRequest) {
   // v2.10.108: Fetch all SaleReturns in the date range (regardless of which
   // day the original sale was made on — the refund happened today, so it
   // affects TODAY's cash flow).
+  //
+  // v2.10.109: CRITICAL FIX — Only CASH payment returns affect the cash
+  // drawer. Card / Shop Card / Mobile returns refund went back to the
+  // card/account, NOT to cash. Previously we subtracted ALL SaleReturn
+  // amounts from cashOnHand, which made cash on hand too negative when
+  // shop card sales were returned. Now we join with the original Sale to
+  // get paymentMethod and only count CASH returns for the cash drawer.
   const returns = await db.saleReturn.findMany({
     where: { createdAt: { gte: start, lte: end } },
-    select: { amount: true, saleId: true, createdAt: true },
+    select: {
+      amount: true,
+      saleId: true,
+      createdAt: true,
+      sale: { select: { paymentMethod: true } },
+    },
   });
   const totalReturnsAmount = returns.reduce((s, r) => s + (r.amount || 0), 0);
+  // v2.10.109: Only CASH payment returns affect the cash drawer
+  const cashReturnsAmount = returns
+    .filter(r => !r.sale || r.sale.paymentMethod === "CASH")
+    .reduce((s, r) => s + (r.amount || 0), 0);
 
   const totalSales = sales.length;
   const totalRevenue = sales.reduce((s, x) => s + x.total, 0);
-  const netRevenue = totalRevenue - totalReturnsAmount;
+  // v2.10.109: netRevenue = totalRevenue (returns are already excluded
+  // from totalRevenue because we filter to status="COMPLETED" only).
+  // Kept as a separate field for backward compat with reports-view.tsx.
+  const netRevenue = totalRevenue;
   const totalCost = sales.reduce(
     (s, x) => s + x.items.reduce((c, i) => c + i.costPrice * i.quantity, 0),
     0
   );
-  const totalProfit = totalRevenue - totalCost - sales.reduce((s, x) => s + x.discount, 0) - totalReturnsAmount;
+  // v2.10.109: totalProfit NO LONGER subtracts returns — they're already
+  // excluded from revenue and cost. The refund was a cash flow (already
+  // subtracted in cashOnHand), not a profit loss (inventory was restored).
+  const totalProfit = totalRevenue - totalCost - sales.reduce((s, x) => s + x.discount, 0);
   const totalTax = sales.reduce((s, x) => s + x.taxTotal, 0);
 
   // top products
@@ -280,7 +319,9 @@ export async function GET(req: NextRequest) {
   // Formula:
   //   opening cash (today's CashEntry OPENING)
   // + cash sales in range (paymentMethod=CASH)
-  // - cash returns in range (SaleReturn amounts)
+  // - CASH returns in range (only cash payment refunds affect drawer)
+  //   v2.10.109: Card / Shop Card / Mobile returns don't affect cash drawer
+  //   because the refund went back to the card/account, not as cash.
   // + cash deposits in range (customer card top-ups with [CASH] prefix)
   // + wallet SEND in range (cash customer handed us to send via JazzCash)
   // - wallet RECEIVE in range (cash we handed customer who received via JazzCash)
@@ -308,6 +349,9 @@ export async function GET(req: NextRequest) {
   const manualCashIn = cashEntries.filter(e => e.type === "CASH_IN").reduce((s, e) => s + e.amount, 0);
   const manualCashOut = cashEntries.filter(e => e.type === "CASH_OUT").reduce((s, e) => s + e.amount, 0);
 
+  // v2.10.109: cashOnHand uses cashReturnsAmount (only CASH payment refunds)
+  // — not totalReturnsAmount (which includes card/shop_card refunds that
+  // don't affect the cash drawer).
   const cashOnHand =
     openingCash +
     cashSales +
@@ -316,7 +360,7 @@ export async function GET(req: NextRequest) {
     walletReceive +
     manualCashIn -
     manualCashOut -
-    totalReturnsAmount -
+    cashReturnsAmount -
     totalPurchases;
 
   return NextResponse.json({
@@ -382,7 +426,8 @@ export async function GET(req: NextRequest) {
       total: cashOnHand,
       opening: openingCash,
       cashSales,
-      cashReturns: totalReturnsAmount,
+      cashReturns: cashReturnsAmount,  // v2.10.109: only CASH refunds
+      totalReturns: totalReturnsAmount,  // all refunds (informational)
       cashDeposits: totalCashDeposits + totalLegitimateCash,
       walletSend,
       walletReceive,

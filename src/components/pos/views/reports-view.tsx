@@ -348,14 +348,14 @@ export function ReportsView() {
         ) : (
           <>
             <KpiCard
-              title="Total Sales (Gross)"
+              title="Total Sales"
               value={formatMoney(data?.totalRevenue ?? 0, currency)}
               icon={<Wallet className="w-5 h-5" />}
               accent="bg-emerald-600"
               accentSoft="bg-emerald-50 text-emerald-700"
               subtitle={
                 (data as any)?.totalReturnsAmount > 0
-                  ? `−${formatMoney((data as any)?.totalReturnsAmount ?? 0, currency)} returns → Net ${formatMoney((data as any)?.netRevenue ?? data?.totalRevenue ?? 0, currency)}`
+                  ? `${formatMoney((data as any)?.totalReturnsAmount ?? 0, currency)} returns today (excluded)`
                   : `Cost: ${formatMoney(data?.totalCost ?? 0, currency)}`
               }
             />
@@ -445,6 +445,7 @@ export function ReportsView() {
                 <div className="bg-white rounded p-2 border border-rose-200">
                   <div className="text-rose-700">Cash Returns</div>
                   <div className="font-bold text-rose-900">−{formatMoney((data as any)?.cashOnHand?.cashReturns ?? 0, currency)}</div>
+                  <div className="text-[10px] text-muted-foreground">cash refunds only</div>
                 </div>
                 <div className="bg-white rounded p-2 border border-emerald-200">
                   <div className="text-emerald-700">Cash Deposits</div>

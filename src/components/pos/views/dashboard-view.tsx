@@ -231,11 +231,20 @@ export function DashboardView() {
   //   - netSales = totalSales - returnsTotal (what the dashboard displays)
   // User: "جب ہم کوئی چیز ریٹرن کرتے ہیں تو وہ بھی ٹوٹل سیل کے اندر شامل ہو
   // جاتا ہے منفی نہیں ہوتا ... ڈیش بورڈ پر بھی اور رپورٹ کے اندر بھی"
+  //
+  // v2.10.109: CRITICAL FIX — User reported negative cash in hand &
+  // weird profit numbers. v2.10.108's `netSales = totalSales - returnsTotal`
+  // was DOUBLE-COUNTING returns (totalSales already excludes RETURNED sales
+  // because we filter to COMPLETED only). Fix:
+  //   - netSales = totalSales (returns already excluded)
+  //   - Keep returnsTotal as informational display only (red banner)
+  //   - The returned sale's revenue/cost are NOT in our numbers at all
+  //   - The refund was a cash drawer movement (handled in cashOnHand)
   const completedSales = todaySales.filter(s => s.status === "COMPLETED");
   const returnedSales = todaySales.filter(s => s.status === "RETURNED" || s.status === "PARTIAL_RETURN");
   const totalSales = completedSales.reduce((s, x) => s + (x.total || 0), 0);
   const returnsTotal = returnedSales.reduce((s, x) => s + (x.total || 0), 0);
-  const netSales = totalSales - returnsTotal;
+  const netSales = totalSales; // v2.10.109: returns already excluded from totalSales
   const transactions = todaySales.length;
   const lowStockCount = notifications?.counts?.lowStock ?? 0;
   const totalProducts = products.length;
@@ -316,11 +325,11 @@ export function DashboardView() {
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          title="Today's Sales (Net)"
+          title="Today's Sales"
           value={formatMoney(netSales, currency)}
           hint={
             returnsTotal > 0
-              ? `${formatMoney(totalSales, currency)} gross − ${formatMoney(returnsTotal, currency)} returns`
+              ? `${returnedSales.length} return(s) today (excluded from sales)`
               : `${transactions} transactions`
           }
           icon={<TrendingUp className="h-5 w-5" />}
@@ -353,8 +362,12 @@ export function DashboardView() {
         />
       </div>
 
-      {/* v2.10.108: Returns row — show returns prominently so user knows
-          they're being subtracted. Hidden when there are no returns today. */}
+      {/* v2.10.108: Returns row — informational display only.
+          v2.10.109: Removed the misleading "−" prefix — the returns are
+          ALREADY excluded from the Today's Sales figure above (because
+          we filter to status="COMPLETED"). This banner just informs the
+          user how many returns happened today and the total refund amount.
+          Hidden when there are no returns today. */}
       {returnsTotal > 0 && (
         <div className="rounded-lg border-2 border-rose-200 bg-rose-50 p-3 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
@@ -364,12 +377,12 @@ export function DashboardView() {
                 Returns Today — آج کی واپسی
               </div>
               <div className="text-xs text-rose-700">
-                {returnedSales.length} returned sale(s) — total Rs {returnsTotal.toLocaleString()} subtracted from today's sales
+                {returnedSales.length} returned sale(s) — total Rs {returnsTotal.toLocaleString()} refunded (already excluded from Today's Sales)
               </div>
             </div>
           </div>
           <div className="text-2xl font-bold text-rose-700">
-            −{formatMoney(returnsTotal, currency)}
+            {formatMoney(returnsTotal, currency)}
           </div>
         </div>
       )}
