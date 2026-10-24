@@ -17,6 +17,7 @@ import {
   Boxes,
   CheckCircle2,
   Users,
+  RotateCcw,  // v2.10.108: Returns display
 } from "lucide-react";
 import {
   Card,
@@ -222,7 +223,19 @@ export function DashboardView() {
   const shopName = settings?.shopName || "POS System";
   const today = new Date();
 
-  const totalSales = todaySales.reduce((s, x) => s + (x.total || 0), 0);
+  // v2.10.108: FIX — Returns were being ADDED to total sales (positive)
+  // instead of subtracted. The Sale fetch returns ALL sales including
+  // RETURNED ones. Now we:
+  //   - sum only COMPLETED sales POSITIVELY into totalSales
+  //   - sum RETURNED/PARTIAL_RETURN sales NEGATIVELY into returnsTotal
+  //   - netSales = totalSales - returnsTotal (what the dashboard displays)
+  // User: "جب ہم کوئی چیز ریٹرن کرتے ہیں تو وہ بھی ٹوٹل سیل کے اندر شامل ہو
+  // جاتا ہے منفی نہیں ہوتا ... ڈیش بورڈ پر بھی اور رپورٹ کے اندر بھی"
+  const completedSales = todaySales.filter(s => s.status === "COMPLETED");
+  const returnedSales = todaySales.filter(s => s.status === "RETURNED" || s.status === "PARTIAL_RETURN");
+  const totalSales = completedSales.reduce((s, x) => s + (x.total || 0), 0);
+  const returnsTotal = returnedSales.reduce((s, x) => s + (x.total || 0), 0);
+  const netSales = totalSales - returnsTotal;
   const transactions = todaySales.length;
   const lowStockCount = notifications?.counts?.lowStock ?? 0;
   const totalProducts = products.length;
@@ -303,9 +316,13 @@ export function DashboardView() {
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          title="Today's Sales"
-          value={formatMoney(totalSales, currency)}
-          hint={`${transactions} transactions`}
+          title="Today's Sales (Net)"
+          value={formatMoney(netSales, currency)}
+          hint={
+            returnsTotal > 0
+              ? `${formatMoney(totalSales, currency)} gross − ${formatMoney(returnsTotal, currency)} returns`
+              : `${transactions} transactions`
+          }
           icon={<TrendingUp className="h-5 w-5" />}
           loading={loading}
           accent="emerald"
@@ -335,6 +352,27 @@ export function DashboardView() {
           accent="slate"
         />
       </div>
+
+      {/* v2.10.108: Returns row — show returns prominently so user knows
+          they're being subtracted. Hidden when there are no returns today. */}
+      {returnsTotal > 0 && (
+        <div className="rounded-lg border-2 border-rose-200 bg-rose-50 p-3 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <RotateCcw className="w-5 h-5 text-rose-600" />
+            <div>
+              <div className="text-sm font-bold text-rose-900">
+                Returns Today — آج کی واپسی
+              </div>
+              <div className="text-xs text-rose-700">
+                {returnedSales.length} returned sale(s) — total Rs {returnsTotal.toLocaleString()} subtracted from today's sales
+              </div>
+            </div>
+          </div>
+          <div className="text-2xl font-bold text-rose-700">
+            −{formatMoney(returnsTotal, currency)}
+          </div>
+        </div>
+      )}
 
       {/* Quick actions */}
       <section aria-label="Quick actions">

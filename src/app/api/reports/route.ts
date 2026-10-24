@@ -43,18 +43,39 @@ export async function GET(req: NextRequest) {
   //   negative RETURNED sale without the offsetting positive COMPLETED sale.
   //   Fix: Only include COMPLETED sales in revenue/cost/profit calculations.
   //   Returned sales are excluded entirely (their stock was already restored).
+  //
+  // v2.10.108: REVISED — User now wants returns to be SUBTRACTED as a
+  //   separate line item. So:
+  //     - COMPLETED sales are summed POSITIVELY into revenue (as before)
+  //     - SaleReturn amounts in the date range are summed NEGATIVELY into
+  //       a new `totalReturns` field
+  //     - Reports show both: totalRevenue (gross) and netRevenue (revenue - returns)
+  //     - This is "subtract returns" without the original double-counting bug
+  //       (because we subtract the SaleReturn AMOUNT, not the RETURNED sale's
+  //       total — SaleReturn.amount is the actual refund given to customer,
+  //       which is what matters for cash flow).
   const sales = await db.sale.findMany({
     where: { createdAt: { gte: start, lte: end }, status: "COMPLETED" },
     include: { items: true },
   });
 
+  // v2.10.108: Fetch all SaleReturns in the date range (regardless of which
+  // day the original sale was made on — the refund happened today, so it
+  // affects TODAY's cash flow).
+  const returns = await db.saleReturn.findMany({
+    where: { createdAt: { gte: start, lte: end } },
+    select: { amount: true, saleId: true, createdAt: true },
+  });
+  const totalReturnsAmount = returns.reduce((s, r) => s + (r.amount || 0), 0);
+
   const totalSales = sales.length;
   const totalRevenue = sales.reduce((s, x) => s + x.total, 0);
+  const netRevenue = totalRevenue - totalReturnsAmount;
   const totalCost = sales.reduce(
     (s, x) => s + x.items.reduce((c, i) => c + i.costPrice * i.quantity, 0),
     0
   );
-  const totalProfit = totalRevenue - totalCost - sales.reduce((s, x) => s + x.discount, 0);
+  const totalProfit = totalRevenue - totalCost - sales.reduce((s, x) => s + x.discount, 0) - totalReturnsAmount;
   const totalTax = sales.reduce((s, x) => s + x.taxTotal, 0);
 
   // top products
@@ -253,12 +274,59 @@ export async function GET(req: NextRequest) {
   });
   const totalPurchases = purchases.reduce((s, p) => s + p.amount, 0);
 
+  // ─── v2.10.108: CASH ON HAND CALCULATION ──────────────────────────────
+  // Total cash physically present in the shop's cash drawer.
+  //
+  // Formula:
+  //   opening cash (today's CashEntry OPENING)
+  // + cash sales in range (paymentMethod=CASH)
+  // - cash returns in range (SaleReturn amounts)
+  // + cash deposits in range (customer card top-ups with [CASH] prefix)
+  // + wallet SEND in range (cash customer handed us to send via JazzCash)
+  // - wallet RECEIVE in range (cash we handed customer who received via JazzCash)
+  // + manual cash IN entries (CashEntry CASH_IN)
+  // - manual cash OUT entries (CashEntry CASH_OUT)
+  // - cash purchases in range (stock buying with cash)
+  // = Cash in Hand
+  //
+  // For non-today ranges, opening cash doesn't apply (we only track today's
+  // opening) — the value will reflect only the cash flow movements in range.
+  const cashSales = sales.filter(s => s.paymentMethod === "CASH").reduce((s, x) => s + x.total, 0);
+
+  const walletTxns = await db.walletTxn.findMany({
+    where: { createdAt: { gte: start, lte: end } },
+    select: { type: true, amount: true },
+  });
+  const walletSend = walletTxns.filter(t => t.type === "SEND").reduce((s, t) => s + t.amount, 0);
+  const walletReceive = walletTxns.filter(t => t.type === "RECEIVE").reduce((s, t) => s + t.amount, 0);
+
+  // Cash entries (opening + manual in/out)
+  const cashEntries = await db.cashEntry.findMany({
+    where: { date: { gte: start, lte: end } },
+  });
+  const openingCash = cashEntries.filter(e => e.type === "OPENING").reduce((s, e) => s + e.amount, 0);
+  const manualCashIn = cashEntries.filter(e => e.type === "CASH_IN").reduce((s, e) => s + e.amount, 0);
+  const manualCashOut = cashEntries.filter(e => e.type === "CASH_OUT").reduce((s, e) => s + e.amount, 0);
+
+  const cashOnHand =
+    openingCash +
+    cashSales +
+    cashDepositsList.reduce((s, d) => s + d.amount, 0) +
+    walletSend -
+    walletReceive +
+    manualCashIn -
+    manualCashOut -
+    totalReturnsAmount -
+    totalPurchases;
+
   return NextResponse.json({
     range,
     totalSales,
     totalRevenue,
+    netRevenue,        // v2.10.108: revenue - returns
+    totalReturnsAmount, // v2.10.108: total refund amount (subtract from revenue)
     totalCost,
-    totalProfit,
+    totalProfit,       // v2.10.108: now subtracts returns
     totalTax,
     topProducts,
     hourly,
@@ -308,6 +376,19 @@ export async function GET(req: NextRequest) {
       totalLegitimateCash,     // جائز کیش
       grandTotal: totalCashDeposits + totalLegitimateCash,
       list: cashDepositsList,
+    },
+    // v2.10.108: CASH ON HAND — total cash physically in the drawer
+    cashOnHand: {
+      total: cashOnHand,
+      opening: openingCash,
+      cashSales,
+      cashReturns: totalReturnsAmount,
+      cashDeposits: totalCashDeposits + totalLegitimateCash,
+      walletSend,
+      walletReceive,
+      manualCashIn,
+      manualCashOut,
+      cashPurchases: totalPurchases,
     },
   });
 }

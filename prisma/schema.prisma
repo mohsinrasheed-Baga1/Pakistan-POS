@@ -533,3 +533,18 @@ model ProductLoadRequest {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+// v2.10.108: Cash drawer entries — opening cash, manual cash in/out.
+// Used to compute "Total Cash in Hand" in Reports alongside sales, returns,
+// wallet transactions, deposits, and purchases.
+//   type="OPENING"   — shop opening cash in the morning (cash drawer start)
+//   type="CASH_IN"   — manual cash added (e.g., owner invested more cash)
+//   type="CASH_OUT"  — manual cash removed (e.g., owner withdrew cash)
+model CashEntry {
+  id          String   @id @default(cuid())
+  amount      Float                          // amount (always positive; type indicates direction)
+  type        String                         // OPENING | CASH_IN | CASH_OUT
+  description String?
+  date        DateTime @default(now())      // entry date (used for daily grouping)
+  createdAt   DateTime @default(now())
+}

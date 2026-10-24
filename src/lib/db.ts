@@ -533,6 +533,18 @@ CREATE TABLE IF NOT EXISTS ProductLoadRequest (
   updatedAt DATETIME NOT NULL
 );
 
+-- v2.10.108: Cash drawer entries — opening cash, manual cash in/out
+CREATE TABLE IF NOT EXISTS CashEntry (
+  id TEXT PRIMARY KEY NOT NULL,
+  amount REAL NOT NULL,
+  type TEXT NOT NULL,  -- OPENING | CASH_IN | CASH_OUT
+  description TEXT,
+  date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS CashEntry_date_idx ON CashEntry(date);
+CREATE INDEX IF NOT EXISTS CashEntry_type_idx ON CashEntry(type);
+
 CREATE TABLE IF NOT EXISTS BarcodeSettings (
   id TEXT PRIMARY KEY NOT NULL DEFAULT 'default',
   defaultBarcodeType TEXT NOT NULL DEFAULT 'CODE128',

@@ -75,6 +75,12 @@ export function PosView({ settings }: PosViewProps) {
   const [purchaseAmount, setPurchaseAmount] = React.useState("");
   const [purchaseDescription, setPurchaseDescription] = React.useState("");
   const [purchaseSaving, setPurchaseSaving] = React.useState(false);
+  // v2.10.108: Cash In dialog state — opening cash / manual cash in/out
+  const [cashInDialogOpen, setCashInDialogOpen] = React.useState(false);
+  const [cashInAmount, setCashInAmount] = React.useState("");
+  const [cashInDescription, setCashInDescription] = React.useState("");
+  const [cashInType, setCashInType] = React.useState<"OPENING" | "CASH_IN" | "CASH_OUT">("OPENING");
+  const [cashInSaving, setCashInSaving] = React.useState(false);
   // -1 means NO product is highlighted. Only after the user starts typing
   // in the search box do we auto-highlight the first match (index 0).
   // This prevents the first product from being accidentally added to cart
@@ -941,6 +947,51 @@ export function PosView({ settings }: PosViewProps) {
     }
   }
 
+  // v2.10.108: Save cash entry — opening cash, manual cash in/out.
+  // Recorded in the CashEntry table. Used to compute "Total Cash in Hand"
+  // in Reports (alongside sales, returns, wallet, deposits, purchases).
+  async function handleSaveCashIn() {
+    const amount = Number(cashInAmount);
+    if (!amount || amount <= 0) {
+      toast.error("Enter a valid amount");
+      return;
+    }
+    setCashInSaving(true);
+    try {
+      const res = await fetch("/api/cash-entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount,
+          type: cashInType,
+          description: cashInDescription.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to save cash entry");
+        return;
+      }
+      const labels: Record<string, string> = {
+        OPENING: "Opening cash",
+        CASH_IN: "Cash in",
+        CASH_OUT: "Cash out",
+      };
+      const sign = cashInType === "CASH_OUT" ? "−" : "+";
+      toast.success(
+        `${labels[cashInType]} recorded: ${sign}${formatMoney(amount, currency)}${data.replaced ? " (replaced previous opening)" : ""}`
+      );
+      setCashInDialogOpen(false);
+      setCashInAmount("");
+      setCashInDescription("");
+      setTimeout(() => searchRef.current?.focus(), 50);
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setCashInSaving(false);
+    }
+  }
+
   async function handleEditSale(sale: any) {
     if (!sale?.id) {
       toast.error("Cannot edit this sale (missing sale ID)");
@@ -1397,6 +1448,23 @@ export function PosView({ settings }: PosViewProps) {
             title="Record a purchase (stock buying)"
           >
             <Package className="w-4 h-4 mr-2" /> Purchase
+          </Button>
+          {/* v2.10.108: Cash In button — record opening cash / cash in / cash out
+              User: "صبح جب اوپننگ ہو شاپ کی تو کیش جو ہم نے گلے کے اندر ان کرنا ہے
+              ٹوٹل کتنا کیش ہے تو ہم لکھ سکیں تو رپورٹ کے اندر بھی ٹوٹل کیش جو ان کی
+              ہے وہ شو ہو سیل زیرو لیکن کیش جو ہمارے پاس دکان میں موجود ہوگا وہ دکھائے گا" */}
+          <Button
+            variant="outline"
+            onClick={() => {
+              setCashInType("OPENING");
+              setCashInAmount("");
+              setCashInDescription("");
+              setCashInDialogOpen(true);
+            }}
+            className="border-emerald-400 text-emerald-700 hover:bg-emerald-50 font-bold"
+            title="Record opening cash / cash in / cash out"
+          >
+            <Banknote className="w-4 h-4 mr-2" /> Cash In
           </Button>
           <Button
             variant="outline"
@@ -2559,7 +2627,30 @@ export function PosView({ settings }: PosViewProps) {
         open={returnOpen}
         onOpenChange={setReturnOpen}
         currency={currency}
-        onReturned={() => loadProducts()}
+        // v2.10.108: After a return, follow the same recovery pattern as
+        // Edit Sale: clear ALL dialog states, reload products, and refocus
+        // the search bar after a 300ms delay (so the dialog overlay has
+        // time to fully unmount before we try to focus the search input).
+        onReturned={() => {
+          loadProducts();
+          // Clear ALL dialog states in case any overlay got stuck
+          setCheckoutOpen(false);
+          setReceiptOpen(false);
+          setLastSale(null);
+          setCalcOpen(false);
+          setQtyOpen(false);
+          setLoadDialogOpen(false);
+          setWalletDialogOpen(false);
+          // 300ms focus restoration — same as v2.10.101 Edit Sale fix
+          setTimeout(() => {
+            if (searchRef.current) {
+              searchRef.current.disabled = false;
+              searchRef.current.readOnly = false;
+              searchRef.current.focus();
+              searchRef.current.select();
+            }
+          }, 300);
+        }}
       />
 
       {/* v2.10.106: Purchase dialog — record stock purchases */}
@@ -2617,6 +2708,123 @@ export function PosView({ settings }: PosViewProps) {
               onClick={handleSavePurchase}
             >
               {purchaseSaving ? "Saving..." : "Save Purchase"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* v2.10.108: Cash In dialog — opening cash / cash in / cash out */}
+      <Dialog open={cashInDialogOpen} onOpenChange={(v) => {
+        if (!v) {
+          setCashInDialogOpen(false);
+          setCashInAmount("");
+          setCashInDescription("");
+          setTimeout(() => searchRef.current?.focus(), 50);
+        }
+      }}>
+        <DialogContent className="max-w-sm" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="text-lg flex items-center gap-2">
+              <Banknote className="w-5 h-5 text-emerald-600" />
+              Cash In — کیش ان
+            </DialogTitle>
+            <DialogDescription className="text-sm">
+              Record cash in the drawer (opening cash, cash in, cash out)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {/* Type selector */}
+            <div className="grid grid-cols-3 gap-1">
+              {([
+                { v: "OPENING", label: "Opening", urdu: "اوپننگ", color: "emerald" },
+                { v: "CASH_IN", label: "Cash In", urdu: "کیش ان", color: "blue" },
+                { v: "CASH_OUT", label: "Cash Out", urdu: "کیش آؤٹ", color: "rose" },
+              ] as const).map(opt => (
+                <button
+                  key={opt.v}
+                  type="button"
+                  onClick={() => setCashInType(opt.v)}
+                  className={`px-2 py-2 rounded-md text-xs font-bold border-2 transition-all ${
+                    cashInType === opt.v
+                      ? opt.color === "emerald"
+                        ? "border-emerald-500 bg-emerald-100 text-emerald-800"
+                        : opt.color === "blue"
+                        ? "border-blue-500 bg-blue-100 text-blue-800"
+                        : "border-rose-500 bg-rose-100 text-rose-800"
+                      : "border-muted hover:bg-muted/50 text-muted-foreground"
+                  }`}
+                >
+                  <div>{opt.label}</div>
+                  <div className="text-[10px] opacity-80">{opt.urdu}</div>
+                </button>
+              ))}
+            </div>
+            <div className={`rounded-lg p-3 text-center ${
+              cashInType === "OPENING" ? "bg-emerald-50" :
+              cashInType === "CASH_IN" ? "bg-blue-50" : "bg-rose-50"
+            }`}>
+              <div className="text-sm text-muted-foreground">
+                {cashInType === "OPENING" ? "Opening Cash (today)" :
+                 cashInType === "CASH_IN" ? "Cash Added" :
+                 "Cash Removed"}
+              </div>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={cashInAmount}
+                onChange={(e) => setCashInAmount(e.target.value)}
+                placeholder="e.g. 5000"
+                autoFocus
+                className="h-14 text-2xl text-center font-mono font-bold"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSaveCashIn();
+                  }
+                }}
+              />
+              {cashInType === "OPENING" && (
+                <div className="text-[10px] text-muted-foreground mt-1">
+                  Replaces any previous opening cash for today
+                </div>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Description (optional)</Label>
+              <Input
+                value={cashInDescription}
+                onChange={(e) => setCashInDescription(e.target.value)}
+                placeholder={cashInType === "OPENING" ? "e.g. Morning opening cash" : "e.g. Owner withdrew cash"}
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="text-xs text-muted-foreground text-center">
+              {cashInType === "OPENING"
+                ? "Sets today's starting cash. Shows in Reports under 'Total Cash in Hand'."
+                : cashInType === "CASH_IN"
+                ? "Adds cash to the drawer (e.g., owner invested more). Reflected in Reports."
+                : "Removes cash from the drawer (e.g., owner withdrew). Reflected in Reports."}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setCashInDialogOpen(false);
+              setCashInAmount("");
+              setCashInDescription("");
+            }}>Cancel</Button>
+            <Button
+              className={
+                cashInType === "OPENING"
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : cashInType === "CASH_IN"
+                  ? "bg-blue-600 hover:bg-blue-700"
+                  : "bg-rose-600 hover:bg-rose-700"
+              }
+              disabled={cashInSaving || !cashInAmount || Number(cashInAmount) <= 0}
+              onClick={handleSaveCashIn}
+            >
+              {cashInSaving ? "Saving..." : `Save ${cashInType === "OPENING" ? "Opening" : cashInType === "CASH_IN" ? "Cash In" : "Cash Out"}`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2817,8 +3025,22 @@ function ReturnDialog({
         ? "Sale returned successfully. All items restocked."
         : `Partial return done. ${data.itemsReturned} of ${data.itemsTotal} items returned. Refund: Rs ${data.refundAmount?.toLocaleString()}`;
       toast.success(msg);
-      onReturned?.();
+
+      // v2.10.108: FIX — App hangs after return (clicks don't work anywhere).
+      // Same root cause as v2.10.91 Edit Sale hang: state updates fire
+      // synchronously, causing React to render the dialog WHILE the parent
+      // reloads products → UI freeze. The pattern that fixed Edit Sale:
+      //   1. Close dialog FIRST (so overlay goes away immediately)
+      //   2. Defer onReturned + reset to a setTimeout (lets React settle)
+      //   3. The parent's loadProducts is called from onReturned, which
+      //      itself has internal debouncing — but we add a 300ms search
+      //      bar refocus delay in the parent to ensure focus is restored
+      //      after the dialog overlay is gone.
       onOpenChange(false);
+      setTimeout(() => {
+        onReturned?.();
+        reset();
+      }, 100);
     } catch {
       toast.error("Network error");
     } finally {

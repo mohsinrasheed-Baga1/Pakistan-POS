@@ -109,8 +109,18 @@ export function SalesView() {
     return () => clearTimeout(t);
   }, [q, load]);
 
-  const totalRevenue = sales.reduce((s, x) => s + x.total, 0);
-  const totalItems = sales.reduce(
+  // v2.10.108: FIX — Returns were being counted as positive revenue.
+  // The Sale fetch returns ALL sales including RETURNED ones, so summing
+  // x.total over all of them adds RETURNED sales' totals (the user
+  // complained that returns are "added not subtracted").
+  // Fix: count COMPLETED sales POSITIVELY, RETURNED/PARTIAL_RETURN
+  // NEGATIVELY. Net revenue = gross - returns.
+  const completedSales = sales.filter(s => s.status === "COMPLETED");
+  const returnedSales = sales.filter(s => s.status === "RETURNED" || s.status === "PARTIAL_RETURN");
+  const grossRevenue = completedSales.reduce((s, x) => s + x.total, 0);
+  const returnsTotal = returnedSales.reduce((s, x) => s + x.total, 0);
+  const totalRevenue = grossRevenue - returnsTotal;
+  const totalItems = completedSales.reduce(
     (s, x) => s + x.items.reduce((c, i) => c + i.quantity, 0),
     0
   );
@@ -180,10 +190,16 @@ export function SalesView() {
               <Wallet className="w-6 h-6 text-emerald-600" />
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">Total Sales</div>
+              <div className="text-xs text-muted-foreground">Total Sales (Net)</div>
               <div className="text-lg font-bold text-emerald-700">
                 {loading ? "..." : formatMoney(totalRevenue, currency)}
               </div>
+              {/* v2.10.108: Show breakdown when returns exist */}
+              {!loading && returnsTotal > 0 && (
+                <div className="text-[10px] text-rose-600 mt-0.5">
+                  Gross {formatMoney(grossRevenue, currency)} − Returns {formatMoney(returnsTotal, currency)}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

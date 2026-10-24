@@ -348,12 +348,16 @@ export function ReportsView() {
         ) : (
           <>
             <KpiCard
-              title="Total Sales"
+              title="Total Sales (Gross)"
               value={formatMoney(data?.totalRevenue ?? 0, currency)}
               icon={<Wallet className="w-5 h-5" />}
               accent="bg-emerald-600"
               accentSoft="bg-emerald-50 text-emerald-700"
-              subtitle={`Cost: ${formatMoney(data?.totalCost ?? 0, currency)}`}
+              subtitle={
+                (data as any)?.totalReturnsAmount > 0
+                  ? `−${formatMoney((data as any)?.totalReturnsAmount ?? 0, currency)} returns → Net ${formatMoney((data as any)?.netRevenue ?? data?.totalRevenue ?? 0, currency)}`
+                  : `Cost: ${formatMoney(data?.totalCost ?? 0, currency)}`
+              }
             />
             <KpiCard
               title="Profit"
@@ -393,6 +397,86 @@ export function ReportsView() {
       {/* Secondary stat row: counts */}
       {!isLoading && (
         <>
+        {/* v2.10.108: CASH ON HAND — total cash physically in the drawer.
+            Computed as: opening cash + cash sales − cash returns + cash
+            deposits + wallet SEND − wallet RECEIVE + manual cash in −
+            manual cash out − cash purchases.
+            Shows even when sales are zero — user wanted this so they can
+            see how much cash is in the shop at any time. */}
+        <div className="rounded-lg border-2 border-emerald-400 bg-gradient-to-br from-emerald-50 to-emerald-100 p-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Banknote className="w-6 h-6 text-emerald-700" />
+              <div>
+                <h3 className="font-bold text-emerald-900">
+                  Cash in Hand — کیش موجود
+                </h3>
+                <div className="text-xs text-emerald-700">
+                  Total cash physically present in the shop's drawer
+                </div>
+              </div>
+            </div>
+            <div className="text-3xl font-bold text-emerald-800">
+              {formatMoney((data as any)?.cashOnHand?.total ?? 0, currency)}
+            </div>
+          </div>
+          {(((data as any)?.cashOnHand) && (
+            (data as any).cashOnHand.opening > 0 ||
+            (data as any).cashOnHand.cashSales > 0 ||
+            (data as any).cashOnHand.cashReturns > 0 ||
+            (data as any).cashOnHand.walletSend > 0 ||
+            (data as any).cashOnHand.walletReceive > 0 ||
+            (data as any).cashOnHand.cashDeposits > 0 ||
+            (data as any).cashOnHand.cashPurchases > 0
+          )) && (
+            <details className="text-xs mt-2">
+              <summary className="cursor-pointer text-emerald-700 font-medium hover:underline">
+                View breakdown
+              </summary>
+              <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs">
+                <div className="bg-white rounded p-2 border border-emerald-200">
+                  <div className="text-emerald-700">Opening</div>
+                  <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.opening ?? 0, currency)}</div>
+                </div>
+                <div className="bg-white rounded p-2 border border-emerald-200">
+                  <div className="text-emerald-700">Cash Sales</div>
+                  <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.cashSales ?? 0, currency)}</div>
+                </div>
+                <div className="bg-white rounded p-2 border border-rose-200">
+                  <div className="text-rose-700">Cash Returns</div>
+                  <div className="font-bold text-rose-900">−{formatMoney((data as any)?.cashOnHand?.cashReturns ?? 0, currency)}</div>
+                </div>
+                <div className="bg-white rounded p-2 border border-emerald-200">
+                  <div className="text-emerald-700">Cash Deposits</div>
+                  <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.cashDeposits ?? 0, currency)}</div>
+                </div>
+                <div className="bg-white rounded p-2 border border-emerald-200">
+                  <div className="text-emerald-700">Wallet SEND</div>
+                  <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.walletSend ?? 0, currency)}</div>
+                  <div className="text-[10px] text-muted-foreground">cash from customer</div>
+                </div>
+                <div className="bg-white rounded p-2 border border-rose-200">
+                  <div className="text-rose-700">Wallet RECEIVE</div>
+                  <div className="font-bold text-rose-900">−{formatMoney((data as any)?.cashOnHand?.walletReceive ?? 0, currency)}</div>
+                  <div className="text-[10px] text-muted-foreground">cash to customer</div>
+                </div>
+                <div className="bg-white rounded p-2 border border-rose-200">
+                  <div className="text-rose-700">Cash Purchases</div>
+                  <div className="font-bold text-rose-900">−{formatMoney((data as any)?.cashOnHand?.cashPurchases ?? 0, currency)}</div>
+                </div>
+                <div className="bg-white rounded p-2 border border-emerald-200">
+                  <div className="text-emerald-700">Manual In</div>
+                  <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.manualCashIn ?? 0, currency)}</div>
+                </div>
+                <div className="bg-white rounded p-2 border border-rose-200">
+                  <div className="text-rose-700">Manual Out</div>
+                  <div className="font-bold text-rose-900">−{formatMoney((data as any)?.cashOnHand?.manualCashOut ?? 0, currency)}</div>
+                </div>
+              </div>
+            </details>
+          )}
+        </div>
+
         {/* Payment Method Breakdown — Cash / Card / Shop Card / Mobile / Pending */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center">
