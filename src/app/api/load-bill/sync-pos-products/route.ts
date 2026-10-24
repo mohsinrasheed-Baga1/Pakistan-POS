@@ -31,6 +31,15 @@ export async function POST(req: NextRequest) {
       where: { active: true },
     });
 
+    // v2.10.107: Build a set of valid barcodes for fast matching.
+    // The deactivation loop should NOT deactivate a product whose barcode
+    // matches an active company — even if linkedStoreProductId is null
+    // (which can happen for products created before v2.10.50).
+    const validCompanyBarcodes = new Set(
+      companies.map(c => `LOAD-${c.name.toUpperCase().replace(/\s+/g, "")}`)
+    );
+    const validCompanyIds = new Set(companies.map(c => c.id));
+
     for (const c of companies) {
       const barcode = `LOAD-${c.name.toUpperCase().replace(/\s+/g, "")}`;
 
@@ -70,17 +79,35 @@ export async function POST(req: NextRequest) {
       results.companies++;
     }
 
-    // Deactivate products for companies that no longer exist
+    // v2.10.107: Deactivate products for companies that no longer exist.
+    // Use barcode as fallback — if linkedStoreProductId is null (legacy
+    // product created before v2.10.50), match by barcode instead so we
+    // don't wrongly deactivate a still-valid product.
     const allLoadProducts = await db.product.findMany({
       where: { inventorySource: "LOAD_COMPANY" },
     });
     for (const p of allLoadProducts) {
-      const stillExists = companies.some(c => c.id === p.linkedStoreProductId);
-      if (!stillExists) {
+      const linkedOk = p.linkedStoreProductId && validCompanyIds.has(p.linkedStoreProductId);
+      const barcodeOk = validCompanyBarcodes.has(p.barcode);
+      // If neither linked ID nor barcode matches, the company is gone —
+      // deactivate. Otherwise, ensure product is ACTIVE + linked ID is set.
+      if (!linkedOk && !barcodeOk) {
         await db.product.update({
           where: { id: p.id },
           data: { active: false },
         });
+      } else if (!p.active || !p.linkedStoreProductId) {
+        // Reactivate + repair the link if it was missing
+        const matchedCompany = companies.find(c =>
+          c.id === p.linkedStoreProductId ||
+          `LOAD-${c.name.toUpperCase().replace(/\s+/g, "")}` === p.barcode
+        );
+        if (matchedCompany) {
+          await db.product.update({
+            where: { id: p.id },
+            data: { active: true, linkedStoreProductId: matchedCompany.id },
+          });
+        }
       }
     }
   } catch (e: any) {
@@ -90,11 +117,36 @@ export async function POST(req: NextRequest) {
 
   // ─── 2. Sync WalletAccounts → Products ──────────────────────────────────
   try {
-    const accounts = await db.walletAccount.findMany({
-      where: { active: true },
-    });
+    // v2.10.107 FIX: Wallet companies showing as DISABLED in POS.
+    // Root cause: This sync fetches only ACTIVE wallet accounts, then
+    // DEACTIVATES any wallet product whose linkedStoreProductId isn't in
+    // that list. If a wallet product was created before v2.10.102 (when
+    // linkedStoreProductId started being set), it has linkedStoreProductId
+    // = null → the deactivation loop wrongly marks it inactive → user
+    // sees wallet as "disabled" in POS even though the wallet account is
+    // active.
+    //
+    // FIX: Also match by BARCODE. If the product's barcode matches an
+    // active account's barcode, REACTIVATE the product AND repair the
+    // missing linkedStoreProductId. Only deactivate products whose
+    // barcode matches a DELETED/INACTIVE account.
+    const accounts = await db.walletAccount.findMany();  // Get ALL accounts (active + inactive)
+    const activeAccounts = accounts.filter(a => a.active);
 
+    // Build barcode maps for both active and all accounts
+    const activeBarcodeToAccount = new Map<string, typeof accounts[0]>();
+    for (const a of activeAccounts) {
+      const barcode = `WALLET-${a.name.toUpperCase().replace(/\s+/g, "")}`;
+      activeBarcodeToAccount.set(barcode, a);
+    }
+    const allBarcodeToAccount = new Map<string, typeof accounts[0]>();
     for (const a of accounts) {
+      const barcode = `WALLET-${a.name.toUpperCase().replace(/\s+/g, "")}`;
+      allBarcodeToAccount.set(barcode, a);
+    }
+    const activeAccountIds = new Set(activeAccounts.map(a => a.id));
+
+    for (const a of activeAccounts) {
       const barcode = `WALLET-${a.name.toUpperCase().replace(/\s+/g, "")}`;
 
       let product = await db.product.findUnique({ where: { barcode } });
@@ -133,16 +185,53 @@ export async function POST(req: NextRequest) {
       results.wallets++;
     }
 
+    // v2.10.107: SMART deactivation — match by barcode OR linked ID.
+    // For each existing WALLET_ACCOUNT product:
+    //   - If its barcode matches an ACTIVE account → ensure active=true
+    //     + repair linkedStoreProductId if missing.
+    //   - If its barcode matches an INACTIVE account → set active=false
+    //     (user explicitly deactivated the account).
+    //   - If its barcode matches NO account at all → the account was
+    //     deleted; deactivate the product.
     const allWalletProducts = await db.product.findMany({
       where: { inventorySource: "WALLET_ACCOUNT" },
     });
     for (const p of allWalletProducts) {
-      const stillExists = accounts.some(a => a.id === p.linkedStoreProductId);
-      if (!stillExists) {
-        await db.product.update({
-          where: { id: p.id },
-          data: { active: false },
-        });
+      const linkedActive = p.linkedStoreProductId && activeAccountIds.has(p.linkedStoreProductId);
+      const barcodeActive = activeBarcodeToAccount.has(p.barcode);
+      const barcodeExists = allBarcodeToAccount.has(p.barcode);
+
+      if (linkedActive || barcodeActive) {
+        // Should be ACTIVE — reactivate + repair link if missing
+        const matchedAccount = activeBarcodeToAccount.get(p.barcode)
+          || activeAccounts.find(a => a.id === p.linkedStoreProductId);
+        if (matchedAccount && (!p.active || !p.linkedStoreProductId)) {
+          await db.product.update({
+            where: { id: p.id },
+            data: {
+              active: true,
+              linkedStoreProductId: matchedAccount.id,
+              stock: Math.floor(matchedAccount.balance),
+              name: matchedAccount.name,
+            },
+          });
+        }
+      } else if (barcodeExists) {
+        // Barcode matches an INACTIVE account → deactivate (user toggle)
+        if (p.active) {
+          await db.product.update({
+            where: { id: p.id },
+            data: { active: false },
+          });
+        }
+      } else {
+        // Barcode matches NO account → account was deleted → deactivate
+        if (p.active) {
+          await db.product.update({
+            where: { id: p.id },
+            data: { active: false },
+          });
+        }
       }
     }
   } catch (e: any) {

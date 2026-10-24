@@ -79,6 +79,28 @@ export function LoadBillView({ userRole }: LoadBillViewProps) {
   const [error, setError] = React.useState<string | null>(null);
   const triggerRefresh = () => { setRefresh(r => r + 1); setError(null); };
 
+  // v2.10.107: AUTO-SYNC on mount — silently fix any wallet products that
+  // were incorrectly marked inactive by older versions of the sync logic.
+  // This ensures that when the user opens LoadBill, the wallets are
+  // already correctly synced to POS (no need to manually click Sync).
+  // The visible "Sync to POS" button is still there for manual triggers.
+  const autoSyncedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (autoSyncedRef.current) return;
+    autoSyncedRef.current = true;
+    fetch("/api/load-bill/sync-pos-products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).then(r => r.json()).then(d => {
+      if (d?.ok) {
+        const r = d.results;
+        if (r.wallets > 0 || r.companies > 0 || r.sims > 0) {
+          console.log(`[LoadBill] Auto-synced to POS: ${r.companies} companies, ${r.wallets} wallets, ${r.sims} SIM types`);
+        }
+      }
+    }).catch(() => { /* silent — manual sync button still works */ });
+  }, []);
+
   // v2.10.50: Sync LoadBill entities → POS Products
   async function syncToPos() {
     setSyncing(true);

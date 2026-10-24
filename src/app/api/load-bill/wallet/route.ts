@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
+      accountId,
       provider,
       type,
       amount,
@@ -79,7 +80,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Provider and type are required" }, { status: 400 });
     }
 
-    const validProviders = ["JAZZCASH", "EASYPAISA"];
+    // v2.10.107: Allow "BANK" as a valid provider too — the WalletAccount
+    // schema supports JAZZCASH | EASYPAISA | BANK, so wallet transactions
+    // should accept all three. Previously BANK was rejected here.
+    const validProviders = ["JAZZCASH", "EASYPAISA", "BANK"];
     if (!validProviders.includes(provider)) {
       return NextResponse.json(
         { error: `Provider must be one of: ${validProviders.join(", ")}` },
@@ -104,6 +108,11 @@ export async function POST(req: NextRequest) {
 
     const transaction = await db.walletTxn.create({
       data: {
+        // v2.10.107: Save accountId on the transaction so we can later
+        // query "all txns for this wallet". Previously this was always
+        // null — the wallet POST handler never linked the txn to the
+        // account, even though WalletTxn.accountId is a defined field.
+        accountId: accountId || null,
         provider,
         type,
         amount: parsedAmount,

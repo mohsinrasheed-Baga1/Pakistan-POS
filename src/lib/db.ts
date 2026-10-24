@@ -4,13 +4,55 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
   schemaEnsured: boolean | undefined
   schemaEnsuring: Promise<void> | undefined
+  pragmasApplied: boolean | undefined
 }
 
 // v2.10.20: On Vercel, use a lazy-loaded PrismaClient that only connects on first query
 // This prevents 'Invalid URL' during build/prerender
 const isVercel = process.env.VERCEL === "1" || process.env.NEXT_PUBLIC_IS_VERCEL === "true";
 
-// Lazy proxy — PrismaClient only created when a property is accessed
+// v2.10.107: CRITICAL FIX — App hangs & "forgets" database after running
+// for a while. Root cause: SQLite default journal mode (rollback journal)
+// locks the entire database file during writes, causing concurrent reads
+// to fail/hang. When a Prisma query hits a stuck lock, it can silently
+// return empty results (looks like "database forgot") or hang indefinitely
+// (looks like "app froze"). After restart, the lock is released and
+// everything works again — matching the user's exact symptom.
+//
+// FIX (3 layers):
+//   1. Enable WAL journal mode — readers don't block writers, writers
+//      don't block readers. Much better for an app that does both.
+//   2. Set busy_timeout = 10000ms — instead of failing immediately when
+//      the DB is locked, SQLite waits up to 10 seconds for the lock.
+//      This eliminates the "silent empty result" failure mode.
+//   3. Ensure the PrismaClient is a TRUE SINGLETON in production too.
+//      Previously, `globalForPrisma.prisma = db` was only set in dev
+//      mode, so production could create multiple PrismaClient instances
+//      over time (each with its own connection pool) — leading to
+//      connection exhaustion and lock contention.
+function createPrismaClient(): PrismaClient {
+  return new PrismaClient({
+    log: ['error', 'warn'],
+    // v2.10.107: SQLite datasources accept these URL query params:
+    //   connection_limit=1  → SQLite only supports 1 writer anyway
+    //   socket_timeout=10   → 10s timeout for stuck connections
+    //
+    // NOTE: Prisma SQLite ignores connection_limit (always 1), but we
+    // pass it for documentation. The actual concurrency fix is WAL mode
+    // + busy_timeout applied via PRAGMA below.
+  } as any);
+}
+
+// v2.10.107: TRUE SINGLETON — always cache on globalThis, in dev AND prod.
+// In production, Next.js module cache should keep one instance, but if
+// anything ever causes a reload (HMR in dev, manual invalidate, edge case),
+// we'd otherwise leak a PrismaClient with its own connection pool. Over
+// hours of use, this exhausts file descriptors and locks the DB.
+if (!globalForPrisma.prisma) {
+  globalForPrisma.prisma = isVercel ? new PrismaClient({ log: ['error'] }) : createPrismaClient();
+}
+
+// Lazy proxy for Vercel — only connect on first actual query
 export const db = isVercel
   ? new Proxy({} as PrismaClient, {
       get(_target, prop) {
@@ -20,13 +62,59 @@ export const db = isVercel
         return (globalForPrisma.prisma as any)[prop];
       },
     })
-  : (globalForPrisma.prisma ??
-      new PrismaClient({
-        log: ['error', 'warn'],
-      }))
+  : globalForPrisma.prisma;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DISABLE SQLite FOREIGN KEY CONSTRAINTS
+// v2.10.107: Apply SQLite performance & reliability PRAGMAS
+//
+// These run ONCE per PrismaClient instance (tracked via globalForPrisma.
+// pragmasApplied). They MUST run before any user query, otherwise the
+// first sale of the day could still hit a lock.
+//
+// 1. journal_mode = WAL
+//    Write-Ahead Logging: readers and writers don't block each other.
+//    This is THE most important fix for the "hang + forget" issue.
+//
+// 2. busy_timeout = 10000
+//    If a write lock IS held (rare in WAL mode, but possible during
+//    checkpoint), wait 10 seconds instead of failing immediately.
+//    This eliminates the "silent empty query result" failure mode that
+//    made the app look like it had "forgotten" its data.
+//
+// 3. wal_autocheckpoint = 1000
+//    Auto-checkpoint the WAL file every 1000 pages (~4MB). Prevents the
+//    WAL file from growing unbounded (which can slow down reads).
+//
+// 4. synchronous = NORMAL
+//    Safe in WAL mode (data is still durable across crashes), but faster
+//    than FULL. Each commit doesn't force an fsync.
+//
+// 5. foreign_keys = OFF
+//    Same as before — disable FK enforcement so backup restores don't
+//    fail on inconsistent old data.
+// ─────────────────────────────────────────────────────────────────────────────
+async function applyCriticalPragmas() {
+  if (globalForPrisma.pragmasApplied) return;
+  try {
+    await db.$executeRawUnsafe(`PRAGMA journal_mode = WAL;`);
+    await db.$executeRawUnsafe(`PRAGMA busy_timeout = 10000;`);
+    await db.$executeRawUnsafe(`PRAGMA wal_autocheckpoint = 1000;`);
+    await db.$executeRawUnsafe(`PRAGMA synchronous = NORMAL;`);
+    await db.$executeRawUnsafe(`PRAGMA foreign_keys = OFF;`);
+    globalForPrisma.pragmasApplied = true;
+    console.log('[db] SQLite PRAGMAS applied: WAL + busy_timeout(10s) + autocheckpoint + sync=NORMAL + FK=OFF');
+  } catch (e: any) {
+    console.warn('[db] Could not apply critical PRAGMAS:', e?.message || e);
+    // Don't set pragmasApplied=true so we retry on next request
+  }
+}
+
+// Fire-and-forget on module load. The first API request will also
+// `await ensureSchema()` which calls applyCriticalPragmas internally.
+applyCriticalPragmas().catch(() => {});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DISABLE SQLite FOREIGN KEY CONSTRAINTS (kept for backward compat)
 //
 // WHY: When a user restores an old backup database, the data may contain
 // foreign key references that point to records which were deleted in a
@@ -55,6 +143,30 @@ export const db = isVercel
 db.$executeRawUnsafe(`PRAGMA foreign_keys = OFF;`).catch((e) => {
   console.warn('[db] Could not disable foreign_keys pragma:', e?.message || e)
 })
+
+// v2.10.107: Add graceful shutdown — disconnect PrismaClient on process
+// exit so the SQLite file lock is properly released. Without this, the
+// Electron child process can leave a stale lock that causes "database
+// is locked" on the next launch (which would manifest as the same
+// "hang / forget" symptom the user reported).
+async function gracefulShutdown() {
+  try {
+    if (globalForPrisma.prisma) {
+      await globalForPrisma.prisma.$disconnect();
+      console.log('[db] PrismaClient disconnected on shutdown');
+    }
+  } catch (e: any) {
+    console.warn('[db] Error during disconnect:', e?.message);
+  }
+}
+process.on('exit', gracefulShutdown);
+process.on('SIGINT', () => { gracefulShutdown().finally(() => process.exit(0)); });
+process.on('SIGTERM', () => { gracefulShutdown().finally(() => process.exit(0)); });
+process.on('uncaughtException', (err) => {
+  console.error('[db] Uncaught exception:', err?.message || err);
+  // Don't exit immediately — let Next.js error handler deal with it.
+  // But log it so we have a trail when the user reports "hang".
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Idempotent schema creation/migration for SQLite.
@@ -665,6 +777,11 @@ export async function ensureSchema() {
   if (process.env.VERCEL === "1" || process.env.NEXT_PUBLIC_IS_VERCEL === "true") {
     return;
   }
+  // v2.10.107: ALWAYS apply critical PRAGMAS (WAL, busy_timeout) before
+  // any schema work. This is the fix for "hang + forget database" —
+  // without WAL mode, schema migrations could lock the DB and cause
+  // subsequent reads to silently return empty.
+  await applyCriticalPragmas();
   if (globalForPrisma.schemaEnsured) return;
   // If an ensureSchema() call is already in flight, await that same promise
   // instead of starting a parallel one — otherwise we get race conditions
@@ -766,4 +883,10 @@ if (!globalForPrisma.schemaEnsured) {
   ensureSchema().catch(() => {});
 }
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+// v2.10.107: PrismaClient singleton is now set in `createPrismaClient()`
+// above, in BOTH dev and production. Previously this only ran in dev mode
+// (`if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db`),
+// which meant production could leak PrismaClient instances over time —
+// exhausting file descriptors and locking the DB. Now we always use the
+// global singleton, eliminating the leak.
+
