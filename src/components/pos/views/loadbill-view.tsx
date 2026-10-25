@@ -854,22 +854,49 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
   // v2.10.48: Calculate total collected bills (all-time, not just today)
-  const totalCollected = txns.reduce((s, t) => s + (t.totalPaid || 0), 0);
-  const totalCharges = txns.reduce((s, t) => s + (t.serviceCharge || 0), 0);
-  const totalDue = txns.reduce((s, t) => s + (t.due || 0), 0);
+  // v2.10.111: Enhanced per user request — separate bill amount from
+  //   extra charges (profit), and track total withdrawn + currently with us.
+  //   User: "وہاں پر ہم دیکھ سکیں گے ہم نے ٹوٹل کتنے ریسیو کیے ہیں ٹوٹل
+  //   اماؤنٹ کتنی بنی ہے اور پرافٹ کتنا بنا ہے ایکسٹرا چارجز پرافٹ گنے
+  //   جائیں گے اور جو پہلے بل پیمنٹ ہوگی وہ علیحدہ کیلکولیٹ ہوگا اور جو
+  //   ایکسٹرا چارجز ہیں وہ علیحدہ کیلکولیٹ ہوں گے اور پھر ہم جب ود ڈرا
+  //   کریں گے تو ہمیں پتہ ہوگا کہ ہم نے اس میں سے ٹوٹل کتنے وزٹ کر لیے
+  //   ہیں اور کتنے بکایا ہے ہمارے پاس موجود ہیں"
+  // Split: positive txns are bills, negative (withdrawal) are withdrawals.
+  const billTxns = txns.filter(t => (t.billAmount || 0) > 0);
+  const withdrawTxns = txns.filter(t => (t.billAmount || 0) < 0);
 
-  // Today's total collection
+  const totalCount = billTxns.length;
+  // Total bill amount (the actual bill value, separate from charges)
+  const totalBillAmount = billTxns.reduce((s, t) => s + (t.billAmount || 0), 0);
+  // Total extra charges = profit
+  const totalCharges = billTxns.reduce((s, t) => s + (t.serviceCharge || 0), 0);
+  // Total received from customer (bill + charges combined)
+  const totalCollected = billTxns.reduce((s, t) => s + (t.totalPaid || 0), 0);
+  // Total due from customers (unpaid balance)
+  const totalDue = billTxns.reduce((s, t) => s + (t.due || 0), 0);
+  // Total withdrawn (money taken out of bill collection)
+  const totalWithdrawn = withdrawTxns.reduce((s, t) => s + Math.abs(t.billAmount || 0), 0);
+  // Currently with us (collected - withdrawn)
+  const currentlyWithUs = totalCollected - totalWithdrawn;
+
+  // Today's totals
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const todayTxns = txns.filter(t => new Date(t.createdAt) >= today);
-  const todayTotal = todayTxns.reduce((s, t) => s + (t.totalPaid || 0), 0);
-  const todayCharges = todayTxns.reduce((s, t) => s + (t.serviceCharge || 0), 0);
-  const todayDue = todayTxns.reduce((s, t) => s + (t.due || 0), 0);
+  const todayBills = billTxns.filter(t => new Date(t.createdAt) >= today);
+  const todayCount = todayBills.length;
+  const todayBillAmount = todayBills.reduce((s, t) => s + (t.billAmount || 0), 0);
+  const todayCharges = todayBills.reduce((s, t) => s + (t.serviceCharge || 0), 0);
+  const todayTotal = todayBills.reduce((s, t) => s + (t.totalPaid || 0), 0);
+  const todayDue = todayBills.reduce((s, t) => s + (t.due || 0), 0);
 
   async function handleWithdraw() {
     const amt = parseFloat(withdrawAmount) || 0;
     if (amt <= 0) { toast.error("Enter amount > 0"); return; }
-    if (amt > totalCollected) {
-      toast.error(`Cannot withdraw more than total collected (Rs ${totalCollected.toLocaleString()})`);
+    // v2.10.111: Check against currentlyWithUs (collected - already withdrawn)
+    // instead of totalCollected. This prevents withdrawing more than what's
+    // actually in the drawer.
+    if (amt > currentlyWithUs) {
+      toast.error(`Cannot withdraw more than currently with us (Rs ${currentlyWithUs.toLocaleString()})`);
       return;
     }
     setWithdrawSaving(true);
@@ -937,41 +964,86 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* v2.10.48: All-time totals (withdrawable amount + charges + due) */}
-        <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-bold text-blue-900">کل بل وصولی (All-time)</span>
-            <Badge variant="outline" className="bg-white">{txns.length} bills</Badge>
+        {/* v2.10.111: Enhanced totals — separate bill amount from charges,
+            track withdrawn + currently with us */}
+        <div className="rounded-lg border-2 border-emerald-400 bg-gradient-to-br from-emerald-50 to-emerald-100 p-4 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <FileText className="w-6 h-6 text-emerald-700" />
+              <div>
+                <h3 className="font-bold text-emerald-900">Bill Collection — بل وصولی</h3>
+                <div className="text-xs text-emerald-700">All-time totals (excluded from Reports)</div>
+              </div>
+            </div>
+            <Badge variant="outline" className="bg-white">{totalCount} bills collected</Badge>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div>
-              <div className="text-xs text-blue-700">کل وصول شدہ</div>
-              <div className="text-lg font-bold text-blue-900">Rs {totalCollected.toLocaleString()}</div>
+          {/* 5 KPI cards: Count, Bill Amount, Profit, Received, With Us */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            <div className="rounded-lg border border-emerald-200 bg-white p-2 text-center">
+              <div className="text-[10px] text-emerald-700 font-medium">Bill Count — تعداد</div>
+              <div className="text-xl font-bold text-emerald-800">{totalCount}</div>
+              <div className="text-[9px] text-muted-foreground">bills received</div>
             </div>
-            <div>
-              <div className="text-xs text-blue-700">کل منافع</div>
-              <div className="text-lg font-bold text-emerald-700">Rs {totalCharges.toLocaleString()}</div>
+            <div className="rounded-lg border border-blue-200 bg-white p-2 text-center">
+              <div className="text-[10px] text-blue-700 font-medium">Bill Amount — بل کی رقم</div>
+              <div className="text-xl font-bold text-blue-800">Rs {totalBillAmount.toLocaleString()}</div>
+              <div className="text-[9px] text-muted-foreground">actual bill value</div>
             </div>
-            <div>
-              <div className="text-xs text-blue-700">کل بقایا</div>
-              <div className="text-lg font-bold text-rose-600">Rs {totalDue.toLocaleString()}</div>
+            <div className="rounded-lg border border-amber-200 bg-white p-2 text-center">
+              <div className="text-[10px] text-amber-700 font-medium">Profit — منافع (charges)</div>
+              <div className="text-xl font-bold text-amber-800">Rs {totalCharges.toLocaleString()}</div>
+              <div className="text-[9px] text-muted-foreground">extra charges (separate)</div>
+            </div>
+            <div className="rounded-lg border border-violet-200 bg-white p-2 text-center">
+              <div className="text-[10px] text-violet-700 font-medium">Total Received — موصول</div>
+              <div className="text-xl font-bold text-violet-800">Rs {totalCollected.toLocaleString()}</div>
+              <div className="text-[9px] text-muted-foreground">bill + charges</div>
+            </div>
+            <div className={`rounded-lg border-2 p-2 text-center ${
+              currentlyWithUs >= 0
+                ? "border-emerald-400 bg-emerald-50"
+                : "border-rose-400 bg-rose-50"
+            }`}>
+              <div className="text-[10px] text-emerald-700 font-medium">With Us — ہمارے پاس</div>
+              <div className={`text-xl font-bold ${
+                currentlyWithUs >= 0 ? "text-emerald-800" : "text-rose-800"
+              }`}>Rs {currentlyWithUs.toLocaleString()}</div>
+              <div className="text-[9px] text-muted-foreground">collected − withdrawn</div>
+            </div>
+          </div>
+          {/* Withdrawn summary */}
+          <div className="flex items-center justify-between flex-wrap gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2">
+            <div className="text-xs font-bold text-rose-900">
+              Withdrawn — ود ڈرا: Rs {totalWithdrawn.toLocaleString()}
+              <span className="ml-2 text-muted-foreground font-normal">
+                (money taken out of bill collection)
+              </span>
+            </div>
+            <div className="text-xs text-rose-700">
+              Still Due from Customers: Rs {totalDue.toLocaleString()}
             </div>
           </div>
         </div>
 
         {/* Today's collection summary */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center">
-            <div className="text-xs text-emerald-700">آج کی کل وصولی</div>
-            <div className="text-lg font-bold text-emerald-700">Rs {todayTotal.toLocaleString()}</div>
+            <div className="text-[10px] text-emerald-700">آج کے بل</div>
+            <div className="text-lg font-bold text-emerald-700">{todayCount}</div>
+            <div className="text-[9px] text-muted-foreground">count</div>
+          </div>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-center">
+            <div className="text-[10px] text-blue-700">آج بل کی رقم</div>
+            <div className="text-sm font-bold text-blue-700">Rs {todayBillAmount.toLocaleString()}</div>
           </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center">
-            <div className="text-xs text-amber-700">آج کا منافع</div>
-            <div className="text-lg font-bold text-amber-700">Rs {todayCharges.toLocaleString()}</div>
+            <div className="text-[10px] text-amber-700">آج کا منافع</div>
+            <div className="text-sm font-bold text-amber-700">Rs {todayCharges.toLocaleString()}</div>
           </div>
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-center">
-            <div className="text-xs text-rose-700">آج کا بقایا</div>
-            <div className="text-lg font-bold text-rose-700">Rs {todayDue.toLocaleString()}</div>
+          <div className="rounded-lg border border-violet-200 bg-violet-50 p-2 text-center">
+            <div className="text-[10px] text-violet-700">آج موصول</div>
+            <div className="text-sm font-bold text-violet-700">Rs {todayTotal.toLocaleString()}</div>
+            <div className="text-[9px] text-rose-600">Due: Rs {todayDue.toLocaleString()}</div>
           </div>
         </div>
 

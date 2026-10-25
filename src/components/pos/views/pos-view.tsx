@@ -20,6 +20,7 @@ import {
   Pause,
   PackageOpen,
   RefreshCw,
+  FileText,  // v2.10.111: Bill Payment button icon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +82,22 @@ export function PosView({ settings }: PosViewProps) {
   const [cashInDescription, setCashInDescription] = React.useState("");
   const [cashInType, setCashInType] = React.useState<"OPENING" | "CASH_IN" | "CASH_OUT">("OPENING");
   const [cashInSaving, setCashInSaving] = React.useState(false);
+  // v2.10.111: Bill Payment dialog state — quick bill collection
+  //   User: "اس کی جگہ بل پیمنٹ کا ایک بٹن لگا دو جہاں پر کسٹمر کا جتنا بل
+  //   ہے وہ اور کسٹمر سے ایکسٹرا چارجز جو لیے ہیں اور کسٹمر سے ٹوٹل جو پیمنٹ
+  //   وصول کی ہے اور بقایا کتنا بچے گا انٹر دبانے کے بعد ٹرانزیکشن کمپلیٹ
+  //   ہو جائے گی"
+  //   Bill Payment button opens this dialog with: bill amount, extra charges,
+  //   total received from customer, remaining balance (due). Enter saves.
+  //   The transaction is recorded via /api/load-bill/bill-payment POST and
+  //   shows in Load & Bill Management → Bill tab (NOT in Reports).
+  const [billPayDialogOpen, setBillPayDialogOpen] = React.useState(false);
+  const [billPayAmount, setBillPayAmount] = React.useState("");
+  const [billPayCharges, setBillPayCharges] = React.useState("");
+  const [billPayReceived, setBillPayReceived] = React.useState("");
+  const [billPayCustomer, setBillPayCustomer] = React.useState("");
+  const [billPayCategory, setBillPayCategory] = React.useState("electricity");
+  const [billPaySaving, setBillPaySaving] = React.useState(false);
   // -1 means NO product is highlighted. Only after the user starts typing
   // in the search box do we auto-highlight the first match (index 0).
   // This prevents the first product from being accidentally added to cart
@@ -992,6 +1009,60 @@ export function PosView({ settings }: PosViewProps) {
     }
   }
 
+  // v2.10.111: Save bill payment — quick bill collection from customer.
+  //   Records bill amount + extra charges (profit) + total received from
+  //   customer + remaining due. After Enter, transaction is complete.
+  //   Shows in Load & Bill Management → Bill tab (NOT in Reports).
+  //   User: "انٹر دبانے کے بعد ٹرانزیکشن کمپلیٹ ہو جائے گی یہ سارا حساب
+  //   رپورٹ کے اندر نہیں ائے گا یہ حساب ٹب لوڈ اینڈ بل مینجمنٹ کے اندر
+  //   ائے گا"
+  async function handleSaveBillPay() {
+    const billAmt = Number(billPayAmount);
+    const charges = Number(billPayCharges) || 0;
+    const received = Number(billPayReceived) || (billAmt + charges);
+    if (!billAmt || billAmt <= 0) {
+      toast.error("Enter bill amount");
+      return;
+    }
+    const total = billAmt + charges;
+    const due = Math.max(0, total - received);
+    setBillPaySaving(true);
+    try {
+      const res = await fetch("/api/load-bill/bill-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: billPayCategory,
+          consumerName: billPayCustomer.trim() || undefined,
+          billAmount: billAmt,
+          serviceCharge: charges,
+          totalPaid: total,
+          amountReceived: received,
+          due,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to save bill payment");
+        setBillPaySaving(false);
+        return;
+      }
+      toast.success(
+        `Bill recorded: ${formatMoney(total, currency)} (Profit: ${formatMoney(charges, currency)})${due > 0 ? ` · Due: ${formatMoney(due, currency)}` : ""}`
+      );
+      setBillPayDialogOpen(false);
+      setBillPayAmount("");
+      setBillPayCharges("");
+      setBillPayReceived("");
+      setBillPayCustomer("");
+      setTimeout(() => searchRef.current?.focus(), 50);
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setBillPaySaving(false);
+    }
+  }
+
   async function handleEditSale(sale: any) {
     if (!sale?.id) {
       toast.error("Cannot edit this sale (missing sale ID)");
@@ -1474,24 +1545,35 @@ export function PosView({ settings }: PosViewProps) {
           >
             <Banknote className="w-4 h-4 mr-2" /> Cash In
           </Button>
-          {/* v2.10.110: Cash Close button — record end-of-day cash closing.
-              Records the closing cash drawer amount (separate from opening
-              cash which is recorded by "Cash In" → OPENING type).
-              User: "کیش اوپننگ ہم نے پی او ایس پیج کے اوپر رکھا ہوا ہے
-              اور کیش کلوز بھی وہاں پر ایک اس کے اندر ہی اسی پیج کے اندر
-              ایڈ کر دو" */}
+          {/* v2.10.111: Bill Payment button — replaces the v2.10.110
+              "Cash Close" button. Opens a quick dialog to collect a bill
+              from customer (electricity/gas/water/internet). Records:
+              - bill amount (the actual bill liability)
+              - extra charges (profit — calculated separately)
+              - total received from customer
+              - remaining balance (due, auto-calculated)
+              Enter to save. Shows in Load & Bill Management → Bill tab.
+              NOT shown in Reports.
+              User: "اس کی جگہ بل پیمنٹ کا ایک بٹن لگا دو جہاں پر کسٹمر
+              کا جتنا بل ہے وہ اور کسٹمر سے ایکسٹرا چارجز جو لیے ہیں اور
+              کسٹمر سے ٹوٹل جو پیمنٹ وصول کی ہے اور بقایا کتنا بچے گا
+              انٹر دبانے کے بعد ٹرانزیکشن کمپلیٹ ہو جائے گی یہ سارا
+              حساب رپورٹ کے اندر نہیں ائے گا یہ حساب ٹب لوڈ اینڈ بل
+              مینجمنٹ کے اندر ائے گا" */}
           <Button
             variant="outline"
             onClick={() => {
-              setCashInType("CASH_OUT");
-              setCashInAmount("");
-              setCashInDescription("End-of-day cash close");
-              setCashInDialogOpen(true);
+              setBillPayAmount("");
+              setBillPayCharges("");
+              setBillPayReceived("");
+              setBillPayCustomer("");
+              setBillPayCategory("electricity");
+              setBillPayDialogOpen(true);
             }}
-            className="border-rose-400 text-rose-700 hover:bg-rose-50 font-bold"
-            title="Record end-of-day cash closing"
+            className="border-amber-400 text-amber-700 hover:bg-amber-50 font-bold"
+            title="Collect a bill payment from customer"
           >
-            <Banknote className="w-4 h-4 mr-2" /> Cash Close
+            <FileText className="w-4 h-4 mr-2" /> Bill Payment
           </Button>
           <Button
             variant="outline"
@@ -2774,7 +2856,21 @@ export function PosView({ settings }: PosViewProps) {
         </DialogContent>
       </Dialog>
 
-      {/* v2.10.108: Cash In dialog — opening cash / cash in / cash out */}
+      {/* v2.10.108: Cash In dialog — opening cash / cash close
+          v2.10.111: Simplified per user request:
+            "کیش ان یہاں پر بٹن ہے اس کے اندر ہی کیش اوپننگ اور کیش کلوز
+             کا دو بٹن بناؤ کیش اوپننگ جب دکان اوپن ہو اور کیش کلوز یعنی
+             جب دکان ہم بند کریں"
+            (The Cash In button is here. Inside it, make two buttons:
+            Cash Opening (when shop opens) and Cash Close (when shop closes).)
+          So the dialog now has TWO buttons inside: Cash Opening + Cash Close.
+          - Cash Opening → records OPENING cash (replaces any previous
+            opening cash for today)
+          - Cash Close → records CASH_OUT (end-of-day cash withdrawal /
+            close-out). Treated as cash removed from drawer.
+          Both record a CashEntry via /api/cash-entries POST.
+          The CASH_IN type is no longer exposed in UI (kept in API for
+          backward compat). */}
       <Dialog open={cashInDialogOpen} onOpenChange={(v) => {
         if (!v) {
           setCashInDialogOpen(false);
@@ -2787,47 +2883,55 @@ export function PosView({ settings }: PosViewProps) {
           <DialogHeader>
             <DialogTitle className="text-lg flex items-center gap-2">
               <Banknote className="w-5 h-5 text-emerald-600" />
-              Cash In — کیش ان
+              Cash Drawer — کیش دراور
             </DialogTitle>
             <DialogDescription className="text-sm">
-              Record cash in the drawer (opening cash, cash in, cash out)
+              Choose: Opening cash (صبح) or Cash Close (شام)
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {/* Type selector */}
-            <div className="grid grid-cols-3 gap-1">
-              {([
-                { v: "OPENING", label: "Opening", urdu: "اوپننگ", color: "emerald" },
-                { v: "CASH_IN", label: "Cash In", urdu: "کیش ان", color: "blue" },
-                { v: "CASH_OUT", label: "Cash Out", urdu: "کیش آؤٹ", color: "rose" },
-              ] as const).map(opt => (
-                <button
-                  key={opt.v}
-                  type="button"
-                  onClick={() => setCashInType(opt.v)}
-                  className={`px-2 py-2 rounded-md text-xs font-bold border-2 transition-all ${
-                    cashInType === opt.v
-                      ? opt.color === "emerald"
-                        ? "border-emerald-500 bg-emerald-100 text-emerald-800"
-                        : opt.color === "blue"
-                        ? "border-blue-500 bg-blue-100 text-blue-800"
-                        : "border-rose-500 bg-rose-100 text-rose-800"
-                      : "border-muted hover:bg-muted/50 text-muted-foreground"
-                  }`}
-                >
-                  <div>{opt.label}</div>
-                  <div className="text-[10px] opacity-80">{opt.urdu}</div>
-                </button>
-              ))}
+            {/* v2.10.111: TWO buttons inside Cash In dialog */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCashInType("OPENING");
+                  setCashInDescription("");
+                }}
+                className={`px-3 py-3 rounded-md text-sm font-bold border-2 transition-all flex flex-col items-center gap-1 ${
+                  cashInType === "OPENING"
+                    ? "border-emerald-500 bg-emerald-100 text-emerald-800"
+                    : "border-muted hover:bg-muted/50 text-muted-foreground"
+                }`}
+              >
+                <Banknote className="w-5 h-5" />
+                <div>Cash Opening</div>
+                <div className="text-[10px] opacity-80">صبح — دکان کھلتے وقت</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCashInType("CASH_OUT");
+                  setCashInDescription("End-of-day cash close");
+                }}
+                className={`px-3 py-3 rounded-md text-sm font-bold border-2 transition-all flex flex-col items-center gap-1 ${
+                  cashInType === "CASH_OUT"
+                    ? "border-rose-500 bg-rose-100 text-rose-800"
+                    : "border-muted hover:bg-muted/50 text-muted-foreground"
+                }`}
+              >
+                <Banknote className="w-5 h-5" />
+                <div>Cash Close</div>
+                <div className="text-[10px] opacity-80">شام — دکان بند کرتے وقت</div>
+              </button>
             </div>
             <div className={`rounded-lg p-3 text-center ${
-              cashInType === "OPENING" ? "bg-emerald-50" :
-              cashInType === "CASH_IN" ? "bg-blue-50" : "bg-rose-50"
+              cashInType === "OPENING" ? "bg-emerald-50" : "bg-rose-50"
             }`}>
               <div className="text-sm text-muted-foreground">
-                {cashInType === "OPENING" ? "Opening Cash (today)" :
-                 cashInType === "CASH_IN" ? "Cash Added" :
-                 "Cash Removed"}
+                {cashInType === "OPENING"
+                  ? "Opening Cash (today) — صبح کا کیش"
+                  : "Cash Close — شام کا کیش دراور سے نکالنا"}
               </div>
               <Input
                 type="number"
@@ -2856,16 +2960,14 @@ export function PosView({ settings }: PosViewProps) {
               <Input
                 value={cashInDescription}
                 onChange={(e) => setCashInDescription(e.target.value)}
-                placeholder={cashInType === "OPENING" ? "e.g. Morning opening cash" : "e.g. Owner withdrew cash"}
+                placeholder={cashInType === "OPENING" ? "e.g. Morning opening cash" : "e.g. End of day"}
                 className="h-9 text-sm"
               />
             </div>
             <div className="text-xs text-muted-foreground text-center">
               {cashInType === "OPENING"
                 ? "Sets today's starting cash. Shows in Reports under 'Total Cash in Hand'."
-                : cashInType === "CASH_IN"
-                ? "Adds cash to the drawer (e.g., owner invested more). Reflected in Reports."
-                : "Removes cash from the drawer (e.g., owner withdrew). Reflected in Reports."}
+                : "Records end-of-day cash drawer. Reduces Cash in Hand in Reports."}
             </div>
           </div>
           <DialogFooter>
@@ -2878,14 +2980,177 @@ export function PosView({ settings }: PosViewProps) {
               className={
                 cashInType === "OPENING"
                   ? "bg-emerald-600 hover:bg-emerald-700"
-                  : cashInType === "CASH_IN"
-                  ? "bg-blue-600 hover:bg-blue-700"
                   : "bg-rose-600 hover:bg-rose-700"
               }
               disabled={cashInSaving || !cashInAmount || Number(cashInAmount) <= 0}
               onClick={handleSaveCashIn}
             >
-              {cashInSaving ? "Saving..." : `Save ${cashInType === "OPENING" ? "Opening" : cashInType === "CASH_IN" ? "Cash In" : "Cash Out"}`}
+              {cashInSaving ? "Saving..." : `Save ${cashInType === "OPENING" ? "Opening" : "Cash Close"}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* v2.10.111: Bill Payment dialog — quick bill collection
+          Records: bill amount + extra charges (profit) + total received +
+          remaining due. Enter saves. Shows in Load & Bill Management → Bill
+          tab (NOT in Reports). */}
+      <Dialog open={billPayDialogOpen} onOpenChange={(v) => {
+        if (!v) {
+          setBillPayDialogOpen(false);
+          setBillPayAmount("");
+          setBillPayCharges("");
+          setBillPayReceived("");
+          setBillPayCustomer("");
+          setTimeout(() => searchRef.current?.focus(), 50);
+        }
+      }}>
+        <DialogContent className="max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5 text-amber-600" />
+              Bill Payment — بل پیمنٹ
+            </DialogTitle>
+            <DialogDescription className="text-sm">
+              Collect a bill from customer (electricity / gas / water / internet)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {/* Category selector */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Bill Type — قسم</Label>
+              <select
+                value={billPayCategory}
+                onChange={(e) => setBillPayCategory(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm h-9"
+              >
+                <option value="electricity">Electricity — بجلی</option>
+                <option value="gas">Gas — گیس</option>
+                <option value="water">Water — پانی</option>
+                <option value="internet">Internet — انٹرنیٹ</option>
+                <option value="other">Other — دیگر</option>
+              </select>
+            </div>
+            {/* Customer name (optional) */}
+            <div className="space-y-1">
+              <Label className="text-xs">Customer Name — گاہک کا نام (optional)</Label>
+              <Input
+                value={billPayCustomer}
+                onChange={(e) => setBillPayCustomer(e.target.value)}
+                placeholder="Optional"
+                className="h-9 text-sm"
+              />
+            </div>
+            {/* Bill Amount + Extra Charges */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs font-bold">Bill Amount — بل کی رقم *</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={billPayAmount}
+                  onChange={(e) => setBillPayAmount(e.target.value)}
+                  placeholder="e.g. 5000"
+                  autoFocus
+                  className="h-12 text-lg text-center font-mono font-bold border-amber-300"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      // Move focus to charges input
+                      (e.target as HTMLElement).blur();
+                      const next = document.querySelector('input[name="bill-charges"]') as HTMLInputElement;
+                      next?.focus();
+                    }
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-bold text-amber-700">Extra Charges — چارجز (profit)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  name="bill-charges"
+                  value={billPayCharges}
+                  onChange={(e) => setBillPayCharges(e.target.value)}
+                  placeholder="e.g. 50"
+                  className="h-12 text-lg text-center font-mono font-bold border-amber-300"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      (e.target as HTMLElement).blur();
+                      const next = document.querySelector('input[name="bill-received"]') as HTMLInputElement;
+                      next?.focus();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            {/* Total + Received + Due */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center">
+                <div className="text-[10px] text-emerald-700 font-medium">Total — کل</div>
+                <div className="text-lg font-bold text-emerald-800">
+                  {formatMoney((Number(billPayAmount) || 0) + (Number(billPayCharges) || 0), currency)}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-bold text-violet-700">Received — موصول *</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  name="bill-received"
+                  value={billPayReceived}
+                  onChange={(e) => setBillPayReceived(e.target.value)}
+                  placeholder="auto-fill"
+                  className="h-12 text-base text-center font-mono font-bold border-violet-300"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSaveBillPay();
+                    }
+                  }}
+                />
+              </div>
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-center">
+                <div className="text-[10px] text-rose-700 font-medium">Due — بقایا</div>
+                <div className="text-lg font-bold text-rose-800">
+                  {formatMoney(
+                    Math.max(0,
+                      (Number(billPayAmount) || 0) + (Number(billPayCharges) || 0) - (Number(billPayReceived) || (Number(billPayAmount) || 0) + (Number(billPayCharges) || 0))
+                    ),
+                    currency
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground text-center">
+              {(() => {
+                const total = (Number(billPayAmount) || 0) + (Number(billPayCharges) || 0);
+                const received = Number(billPayReceived) || total;
+                const due = Math.max(0, total - received);
+                if (due > 0) return `Customer still owes: ${formatMoney(due, currency)} (recorded as due)`;
+                if (received > total) return `Change to give: ${formatMoney(received - total, currency)}`;
+                return "Exact payment — no due, no change";
+              })()}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setBillPayDialogOpen(false);
+              setBillPayAmount("");
+              setBillPayCharges("");
+              setBillPayReceived("");
+              setBillPayCustomer("");
+            }}>Cancel</Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700"
+              disabled={billPaySaving || !billPayAmount || Number(billPayAmount) <= 0}
+              onClick={handleSaveBillPay}
+            >
+              {billPaySaving ? "Saving..." : "Save Bill"}
             </Button>
           </DialogFooter>
         </DialogContent>

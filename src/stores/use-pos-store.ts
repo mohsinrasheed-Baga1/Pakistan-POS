@@ -7,7 +7,14 @@ export type View =
   | "dashboard"
   | "pos"
   | "products"
-  | "billReceive"  // v2.10.110: replaced "scanner" with "billReceive"
+  // v2.10.110/111: "scanner" removed in v2.10.110, "billReceive" added in
+  // v2.10.110 then removed in v2.10.111. Bill Payment is now a button on
+  // POS page header (opens quick dialog), and the data shows in Load &
+  // Bill Management → Bill tab. Both view IDs kept in the union only for
+  // backward compat with persisted localStorage state — neither is
+  // reachable from the sidebar nav anymore.
+  | "scanner"
+  | "billReceive"
   | "sales"
   | "reports"
   | "users"
