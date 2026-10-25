@@ -424,45 +424,30 @@ export function ReportsView() {
             (data as any).cashOnHand.opening > 0 ||
             (data as any).cashOnHand.cashSales > 0 ||
             (data as any).cashOnHand.cashReturns > 0 ||
-            (data as any).cashOnHand.walletSend > 0 ||
-            (data as any).cashOnHand.walletReceive > 0 ||
-            (data as any).cashOnHand.cashDeposits > 0 ||
-            (data as any).cashOnHand.cashPurchases > 0
+            (data as any).cashOnHand.cashPurchases > 0 ||
+            (data as any).cashOnHand.manualCashIn > 0 ||
+            (data as any).cashOnHand.manualCashOut > 0
           )) && (
             <details className="text-xs mt-2">
               <summary className="cursor-pointer text-emerald-700 font-medium hover:underline">
-                View breakdown
+                View breakdown — تفصیل
               </summary>
-              <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs">
+              <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-2 text-xs">
                 <div className="bg-white rounded p-2 border border-emerald-200">
-                  <div className="text-emerald-700">Opening</div>
+                  <div className="text-emerald-700">Opening — صبح</div>
                   <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.opening ?? 0, currency)}</div>
                 </div>
                 <div className="bg-white rounded p-2 border border-emerald-200">
-                  <div className="text-emerald-700">Cash Sales</div>
+                  <div className="text-emerald-700">Cash Sales — کیریانہ سیلز</div>
                   <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.cashSales ?? 0, currency)}</div>
                 </div>
                 <div className="bg-white rounded p-2 border border-rose-200">
-                  <div className="text-rose-700">Cash Returns</div>
+                  <div className="text-rose-700">Cash Returns — واپسی</div>
                   <div className="font-bold text-rose-900">−{formatMoney((data as any)?.cashOnHand?.cashReturns ?? 0, currency)}</div>
                   <div className="text-[10px] text-muted-foreground">cash refunds only</div>
                 </div>
-                <div className="bg-white rounded p-2 border border-emerald-200">
-                  <div className="text-emerald-700">Cash Deposits</div>
-                  <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.cashDeposits ?? 0, currency)}</div>
-                </div>
-                <div className="bg-white rounded p-2 border border-emerald-200">
-                  <div className="text-emerald-700">Wallet SEND</div>
-                  <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.walletSend ?? 0, currency)}</div>
-                  <div className="text-[10px] text-muted-foreground">cash from customer</div>
-                </div>
                 <div className="bg-white rounded p-2 border border-rose-200">
-                  <div className="text-rose-700">Wallet RECEIVE</div>
-                  <div className="font-bold text-rose-900">−{formatMoney((data as any)?.cashOnHand?.walletReceive ?? 0, currency)}</div>
-                  <div className="text-[10px] text-muted-foreground">cash to customer</div>
-                </div>
-                <div className="bg-white rounded p-2 border border-rose-200">
-                  <div className="text-rose-700">Cash Purchases</div>
+                  <div className="text-rose-700">Cash Purchases — پرچیز</div>
                   <div className="font-bold text-rose-900">−{formatMoney((data as any)?.cashOnHand?.cashPurchases ?? 0, currency)}</div>
                 </div>
                 <div className="bg-white rounded p-2 border border-emerald-200">
@@ -473,6 +458,11 @@ export function ReportsView() {
                   <div className="text-rose-700">Manual Out</div>
                   <div className="font-bold text-rose-900">−{formatMoney((data as any)?.cashOnHand?.manualCashOut ?? 0, currency)}</div>
                 </div>
+              </div>
+              {/* v2.10.113: Note that wallet/bill collection totals are in
+                  LoadBill Management tab, NOT in Reports */}
+              <div className="mt-2 text-[10px] text-muted-foreground text-center italic">
+                LoadBill Management (wallet, bill collection, load companies) totals are in their own tab — کیریانہ کا حساب یہاں صرف
               </div>
             </details>
           )}

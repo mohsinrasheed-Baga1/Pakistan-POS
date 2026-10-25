@@ -316,32 +316,36 @@ export async function GET(req: NextRequest) {
   // ─── v2.10.108: CASH ON HAND CALCULATION ──────────────────────────────
   // Total cash physically present in the shop's cash drawer.
   //
-  // Formula:
+  // v2.10.113: REVISED per user request — LoadBill Management totals
+  //   (wallet SEND/RECEIVE, customer card top-up deposits, bill collection,
+  //   load companies, all that lenden system) should NOT appear in Reports.
+  //   Reports should only reflect the basic karyana (grocery) cash flow.
+  //   The LoadBill Management has its own totals inside its tab.
+  //   User: "بل اینڈ لور مینجمنٹ کے ٹوٹل جو سسٹم ہے اس کا پرافٹ اس کا
+  //   لین دین کا سارا نظام کیش وڈرا کا ڈپوزٹ اور باقی ساری سمز کا لوڈ
+  //   کا کمپنیز کا لوڈ کا پورا سسٹم رپورٹ کے اندر حساب تھا اس کا نہیں
+  //   ہوگا"
+  //
+  // Formula (karyana-only cash flow):
   //   opening cash (today's CashEntry OPENING)
-  // + cash sales in range (paymentMethod=CASH)
-  // - CASH returns in range (only cash payment refunds affect drawer)
-  //   v2.10.109: Card / Shop Card / Mobile returns don't affect cash drawer
-  //   because the refund went back to the card/account, not as cash.
-  // + cash deposits in range (customer card top-ups with [CASH] prefix)
-  // + wallet SEND in range (cash customer handed us to send via JazzCash)
-  // - wallet RECEIVE in range (cash we handed customer who received via JazzCash)
+  // + cash sales in range (paymentMethod=CASH, status=COMPLETED)
+  // - CASH returns in range (only cash payment refunds)
   // + manual cash IN entries (CashEntry CASH_IN)
   // - manual cash OUT entries (CashEntry CASH_OUT)
   // - cash purchases in range (stock buying with cash)
-  // = Cash in Hand
+  // = Cash in Hand (Karyana only)
+  //
+  // Removed from cashOnHand (now in LoadBill Management only):
+  //   - wallet SEND/RECEIVE
+  //   - customer card top-up deposits (cashDeposits)
+  //   - bill collection totals
+  //   - load companies totals
   //
   // For non-today ranges, opening cash doesn't apply (we only track today's
   // opening) — the value will reflect only the cash flow movements in range.
   const cashSales = sales.filter(s => s.paymentMethod === "CASH").reduce((s, x) => s + x.total, 0);
 
-  const walletTxns = await db.walletTxn.findMany({
-    where: { createdAt: { gte: start, lte: end } },
-    select: { type: true, amount: true },
-  });
-  const walletSend = walletTxns.filter(t => t.type === "SEND").reduce((s, t) => s + t.amount, 0);
-  const walletReceive = walletTxns.filter(t => t.type === "RECEIVE").reduce((s, t) => s + t.amount, 0);
-
-  // Cash entries (opening + manual in/out)
+  // Cash entries (opening + manual in/out) — these are karyana drawer movements
   const cashEntries = await db.cashEntry.findMany({
     where: { date: { gte: start, lte: end } },
   });
@@ -349,15 +353,13 @@ export async function GET(req: NextRequest) {
   const manualCashIn = cashEntries.filter(e => e.type === "CASH_IN").reduce((s, e) => s + e.amount, 0);
   const manualCashOut = cashEntries.filter(e => e.type === "CASH_OUT").reduce((s, e) => s + e.amount, 0);
 
-  // v2.10.109: cashOnHand uses cashReturnsAmount (only CASH payment refunds)
-  // — not totalReturnsAmount (which includes card/shop_card refunds that
-  // don't affect the cash drawer).
+  // v2.10.113: cashOnHand is now KARYANA-ONLY — no wallet/card deposits.
+  //   The wallet SEND/RECEIVE and customer card top-up deposits are
+  //   LoadBill Management data — they have their own totals in LoadBill
+  //   tab. Removed from Reports per user request.
   const cashOnHand =
     openingCash +
     cashSales +
-    cashDepositsList.reduce((s, d) => s + d.amount, 0) +
-    walletSend -
-    walletReceive +
     manualCashIn -
     manualCashOut -
     cashReturnsAmount -
@@ -422,15 +424,15 @@ export async function GET(req: NextRequest) {
       list: cashDepositsList,
     },
     // v2.10.108: CASH ON HAND — total cash physically in the drawer
+    // v2.10.113: KARYANA-ONLY — removed wallet/cashDeposits breakdown
+    //   per user request. Reports should only reflect grocery cash flow.
+    //   LoadBill Management has its own totals inside its tab.
     cashOnHand: {
       total: cashOnHand,
       opening: openingCash,
       cashSales,
       cashReturns: cashReturnsAmount,  // v2.10.109: only CASH refunds
       totalReturns: totalReturnsAmount,  // all refunds (informational)
-      cashDeposits: totalCashDeposits + totalLegitimateCash,
-      walletSend,
-      walletReceive,
       manualCashIn,
       manualCashOut,
       cashPurchases: totalPurchases,

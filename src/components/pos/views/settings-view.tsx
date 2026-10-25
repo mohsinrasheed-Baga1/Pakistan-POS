@@ -697,7 +697,7 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
                   <p className="text-[10px] text-amber-600">Percentage of total bill</p>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs font-bold text-amber-800">Min Items</Label>
+                  <Label className="text-xs font-bold text-amber-800">Min Products</Label>
                   <Input
                     type="number"
                     min="1"
@@ -706,7 +706,13 @@ function ShopDetailsCard({ settings, onSave }: ShopDetailsCardProps) {
                     placeholder="e.g. 5"
                     className="h-9"
                   />
-                  <p className="text-[10px] text-amber-600">Tax applies when items ≥ this number</p>
+                  {/* v2.10.113: Updated label to reflect PRODUCT COUNT logic
+                      (was misleading users to think it's based on quantity) */}
+                  <p className="text-[10px] text-amber-600">
+                    Tax applies when <strong>distinct products</strong> in cart ≥ this number
+                    <br/>
+                    (e.g., 5 means tax applies when 5+ different products are in cart)
+                  </p>
                 </div>
               </div>
             )}

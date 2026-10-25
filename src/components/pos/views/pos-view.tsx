@@ -159,6 +159,19 @@ export function PosView({ settings }: PosViewProps) {
   //   - "percentage": tax = round(total × percent / 100)  [existing]
   //   - "fixed": tax = fixedAmount (e.g., Rs 20 on 5+ items)  [new]
   // Both modes only apply when itemCount >= minItems.
+  //
+  // v2.10.113: CRITICAL FIX — Tax was applied on TOTAL QUANTITY, not on
+  //   PRODUCT COUNT. User: "ہمارا فوٹویر پہ ابھی کوانٹٹی پر ٹیکس لگا
+  //   رہا ہے پانچ کوانٹٹی یا جتنی سلیکٹ کی ہوئی ہے اور پروڈکٹ پر ہونا
+  //   چاہیے" + "کبھی کبھی تین پروڈکٹ پر بھی ٹیکس ایکٹو ہو جاتا ہے
+  //   حالانکہ پانچ پروڈکٹ پر کم از کم یا جتنی پروڈکٹ ہم نے سیٹنگ کے
+  //   اندر سلیکٹ کی ہوتی ہیں"
+  //   Root cause: totals.itemCount sums quantity (1 product × 5 = 5),
+  //   so a customer buying 1 product in qty 5 was getting taxed even
+  //   though only 1 distinct product was in cart. Or 3 products with
+  //   qty 1+1+3 = 5 quantity → tax activated (BUG).
+  //   Fix: use cart.items.length (number of DISTINCT products) instead.
+  //   So minItems=5 means "tax applies when 5+ distinct products in cart".
   const posServiceTaxEnabled = (settings as any)?.posServiceTaxEnabled === true;
   const posServiceTaxPercent = Number((settings as any)?.posServiceTaxPercent) || 0;
   const posServiceTaxMinItems = Number((settings as any)?.posServiceTaxMinItems) || 5;
@@ -166,9 +179,15 @@ export function PosView({ settings }: PosViewProps) {
   const posServiceTaxType = (settings as any)?.posServiceTaxType === "fixed" ? "fixed" : "percentage";
   const posServiceTaxFixedAmount = Number((settings as any)?.posServiceTaxFixedAmount) || 0;
 
+  // v2.10.113: Use PRODUCT COUNT (distinct products), not total quantity.
+  //   cart.items.length = number of distinct products in cart
+  //   (each product counts as 1 regardless of quantity).
+  const productCount = cart.items.length;
+
   // Determine which value to use based on tax type
+  // v2.10.113: Changed `totals.itemCount` → `productCount`
   const posServiceTaxApplies = posServiceTaxEnabled
-    && totals.itemCount >= posServiceTaxMinItems
+    && productCount >= posServiceTaxMinItems
     && totals.total > 0
     && (posServiceTaxType === "percentage" ? posServiceTaxPercent > 0 : posServiceTaxFixedAmount > 0);
 
@@ -187,7 +206,8 @@ export function PosView({ settings }: PosViewProps) {
       percent: posServiceTaxPercent,
       fixedAmount: posServiceTaxFixedAmount,  // v2.10.86
       minItems: posServiceTaxMinItems,
-      itemCount: totals.itemCount,
+      productCount,  // v2.10.113: distinct products count
+      totalQuantity: totals.itemCount,  // legacy: sum of all quantities
       total: totals.total,
       applies: posServiceTaxApplies,
       taxAmount: posServiceTaxAmount,
