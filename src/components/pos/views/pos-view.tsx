@@ -633,8 +633,31 @@ export function PosView({ settings }: PosViewProps) {
   //                    After checkout: acts as Tab (move to next field)
   // Arrow keys       = Navigate products
   // F2/F3/F4/F12     = Checkout / Return / Calculator / Clear cart
+  // v2.10.115: Ctrl+B = Open Bill Payment dialog (for collecting bills)
+  //   User: "بل کا اپشن بل پیمنٹ کا جو اپشن ہے اس کے شارٹ کٹ کوئی کی لگا
+  //   دو جیسے کنٹرول بی لگا دو بل نکالنے کے لیے کنٹرول بھی کنٹرول بھی
+  //   دباتے ہی بل پیمنٹ والا اپشن جمپ کرتا ہے سامنے ا جائے"
   React.useEffect(() => {
     async function handlePosKey(e: KeyboardEvent) {
+      if (returnOpen || calcOpen || receiptOpen) return;
+
+      // ─── v2.10.115: Ctrl+B = Open Bill Payment dialog ────────────────
+      // Works even when other dialogs are open (it's a quick-access shortcut).
+      // Bypasses the early return above so it always works.
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "b" || e.key === "B")) {
+        e.preventDefault();
+        // Don't open if a critical dialog is open (avoid double-open)
+        if (!checkoutOpen && !billPayDialogOpen) {
+          // Reset dialog state and open
+          setBillItems([{ category: "electricity", amount: "", charges: "" }]);
+          setBillPayReceived("");
+          setBillPayCustomer("");
+          setBillPayDialogOpen(true);
+          toast.success("Bill Payment — بل پیمنٹ (Ctrl+B)");
+        }
+        return;
+      }
+
       if (returnOpen || calcOpen || receiptOpen) return;
 
       // ─── Ctrl+Z = Cycle sale mode ─────────────────────────────────────
@@ -1646,7 +1669,7 @@ export function PosView({ settings }: PosViewProps) {
               setBillPayDialogOpen(true);
             }}
             className="border-amber-400 text-amber-700 hover:bg-amber-50 font-bold"
-            title="Collect a bill payment from customer"
+            title="Collect a bill payment from customer (Ctrl+B shortcut)"
           >
             <FileText className="w-4 h-4 mr-2" /> Bill Payment
           </Button>

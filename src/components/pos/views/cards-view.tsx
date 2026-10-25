@@ -1071,12 +1071,27 @@ export function CardsView({ userRole }: CardsViewProps) {
                               <TableHead className="text-xs text-right">Amount</TableHead>
                               <TableHead className="text-xs">Description</TableHead>
                               <TableHead className="text-xs">Operator</TableHead>
+                              {/* v2.10.115: Receipt button column — each
+                                  PURCHASE-type transaction has a saleId
+                                  linking back to the Sale record. Show a
+                                  "پرچی" button so user can view the receipt
+                                  for EVERY transaction, not just the latest.
+                                  User: "ٹرانزیکشن ہسٹری میں کہیں بھی پرچی
+                                  ساتھ نہیں ارہی خریداری کی تاریخ پرچیزر
+                                  ہسٹری کے اندر صرف ایک ہی پرچی رہتی ہے باقی
+                                  کھاریاں پرچیاں اٹومیٹکلی غائب ہوتی رہتی ہیں" */}
+                              <TableHead className="text-xs text-right">Receipt</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {detailTransactions.map((tx) => {
                               const txType = TRANSACTION_TYPES.find(t => t.value === tx.type);
                               const isCredit = ["DEPOSIT", "CREDIT", "REFUND"].includes(tx.type);
+                              // v2.10.115: PURCHASE transactions have a
+                              // saleId linking to the Sale record. Show the
+                              // پرچی button for these (so user can view the
+                              // receipt for EVERY transaction).
+                              const hasReceipt = tx.type === "PURCHASE" && !!tx.saleId;
                               return (
                                 <TableRow key={tx.id} className={isCredit ? "bg-emerald-50/40" : "bg-rose-50/40"}>
                                   <TableCell className="text-[10px] py-1.5">
@@ -1099,6 +1114,25 @@ export function CardsView({ userRole }: CardsViewProps) {
                                   </TableCell>
                                   <TableCell className="text-[10px] py-1.5">
                                     {tx.operatorName || "-"}
+                                  </TableCell>
+                                  <TableCell className="text-right py-1.5">
+                                    {hasReceipt ? (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 text-[10px] border-blue-300 text-blue-700 hover:bg-blue-50"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          viewSaleReceipt(tx.saleId!);
+                                        }}
+                                        title="View receipt — پرچی دیکھیں"
+                                      >
+                                        <Receipt className="w-3 h-3 mr-1" />
+                                        پرچی
+                                      </Button>
+                                    ) : (
+                                      <span className="text-[10px] text-muted-foreground">—</span>
+                                    )}
                                   </TableCell>
                                 </TableRow>
                               );
