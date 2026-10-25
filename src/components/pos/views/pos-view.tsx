@@ -1163,48 +1163,58 @@ export function PosView({ settings }: PosViewProps) {
       // 4. v2.10.99: Defer cart operations to next tick to prevent UI freeze.
       //    v2.10.101: Also clear ALL dialog states + reload products + longer
       //    focus delay. User reported search bar not clickable after Edit Sale.
+      //    v2.10.114: CRITICAL FIX — was calling cart.addItem in a loop, which
+      //      triggers a separate state update per item → N re-renders → UI
+      //      freeze for 10+ items. Now uses cart.batchAddItems which does it
+      //      in a SINGLE state update (1 re-render total).
+      //      User: "جب ہم کوئی بھی ایڈٹ کرتے ہیں تو سافٹ وئر میں کہیں پر بھی
+      //      ہم کلک نہیں کر سکتے سرچ کرنے کے لیے یا تبدیلی کے لیے یہ بہت
+      //      بڑا مسئلہ ہے اسے سولو کرو"
       const items = sale.items || [];
       setTimeout(() => {
-        let loaded = 0;
-        for (const it of items) {
-          try {
-            cart.addItem({
-              id: it.productId || it.id,
-              name: it.name || "Unknown",
-              barcode: it.barcode || "",
-              salePrice: it.price || 0,
-              costPrice: it.costPrice || 0,
-              stock: 9999,
-              unit: it.unit || "piece",
-              wholesalePrice: 0,
-              shopkeeperPrice: 0,
-              taxRate: 0,
-              active: true,
-              hasBarcode: !!it.barcode,
-              barcodeType: "CODE128",
-              minStock: 0,
-              categoryId: null,
-              vendorId: null,
-              storeStock: 0,
-              image: null,
-              expiryDate: null,
-              manufacturingDate: null,
-              packBarcode: null,
-              packQuantity: 0,
-              packPrice: 0,
-              productCode: null,
-              barcodeSvg: null,
-              barcodePng: null,
-              barcodeVerified: false,
-              stickerSize: "50x30",
-              packingDate: null,
-              inventorySource: "SHOP",
-              linkedStoreProductId: null,
-            } as any, it.quantity);
-            loaded++;
-          } catch (e) {
-            console.warn("Failed to load sale item into cart:", it, e);
-          }
+        // v2.10.114: Build all items in one pass, then add via batchAddItems
+        const batchItems = items.map((it: any) => ({
+          product: {
+            id: it.productId || it.id,
+            name: it.name || "Unknown",
+            barcode: it.barcode || "",
+            salePrice: it.price || 0,
+            costPrice: it.costPrice || 0,
+            stock: 9999,
+            unit: it.unit || "piece",
+            wholesalePrice: 0,
+            shopkeeperPrice: 0,
+            taxRate: 0,
+            active: true,
+            hasBarcode: !!it.barcode,
+            barcodeType: "CODE128",
+            minStock: 0,
+            categoryId: null,
+            vendorId: null,
+            storeStock: 0,
+            image: null,
+            expiryDate: null,
+            manufacturingDate: null,
+            packBarcode: null,
+            packQuantity: 0,
+            packPrice: 0,
+            productCode: null,
+            barcodeSvg: null,
+            barcodePng: null,
+            barcodeVerified: false,
+            stickerSize: "50x30",
+            packingDate: null,
+            inventorySource: "SHOP",
+            linkedStoreProductId: null,
+          } as any,
+          qty: it.quantity,
+        }));
+
+        // Single state update — only 1 re-render instead of N
+        try {
+          cart.batchAddItems(batchItems);
+        } catch (e) {
+          console.warn("Failed to batch-load sale items into cart:", e);
         }
 
         // 5. Set customer info if present
@@ -1237,7 +1247,7 @@ export function PosView({ settings }: PosViewProps) {
         // v2.10.101: Reload products to refresh the product list
         loadProducts();
 
-        toast.success(`Loaded ${loaded} item(s) into cart for editing.`);
+        toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
         // v2.10.101: Longer delay (300ms) for search bar focus
         // Previous 50ms was too short — search bar wasn't clickable
         setTimeout(() => {

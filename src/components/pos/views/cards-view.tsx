@@ -23,6 +23,7 @@ import {
   Receipt,
   Banknote,
   ShieldCheck,
+  Edit,  // v2.10.114: Edit Sale button in card details purchase history
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+// v2.10.114: Import cart + app store to support Edit Sale from card details
+import { useCartStore, useAppStore } from "@/stores/use-pos-store";
+import { toast } from "sonner";
 import {
   Table,
   TableBody,
@@ -63,7 +67,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { toast } from "sonner";
+// v2.10.114: toast imported above (line 37) — removed duplicate import
 import { formatMoney } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
 import { Receipt as ReceiptComponent } from "@/components/pos/receipt";
@@ -363,6 +367,102 @@ export function CardsView({ userRole }: CardsViewProps) {
       const data = await res.json();
       setReceiptSale(data.sale || data);
     } catch { toast.error("Failed to load receipt"); }
+  }
+
+  // v2.10.114: Edit Sale from Card Details purchase history
+  //   User: "جب ہم ایڈٹ کرتے ہیں تو جہاں پر بھی ہو تو ریٹرن ہو جانا
+  //   چاہیے چاہے شاپ کارڈ کے اندر چلا جائے تو وہاں سے بھی ریٹرن ہو
+  //   جانا چاہیے"
+  //   This function: fetches sale → marks it returned → clears cart →
+  //   batch-loads items → sets customer info → closes card details dialog
+  //   + receipt dialog → navigates to POS view.
+  //   Uses cart.batchAddItems (v2.10.114) so 10+ items load in a single
+  //   state update (no UI freeze).
+  const cart = useCartStore();
+  const { setView } = useAppStore();
+  async function editSaleFromCard(saleId: string) {
+    try {
+      toast.info("Loading sale for editing...");
+      // 1. Fetch full sale details
+      const res = await fetch(`/api/sales/${saleId}`, { cache: "no-store" });
+      if (!res.ok) { toast.error("Sale not found"); return; }
+      const data = await res.json();
+      const sale = data.sale || data;
+
+      // 2. Mark original sale as returned (also refunds card if card payment)
+      const returnRes = await fetch(`/api/sales/${sale.id}/return`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Editing sale — returned for re-checkout", itemIds: [] }),
+      });
+      const returnData = await returnRes.json();
+      if (!returnRes.ok) {
+        toast.error(returnData.error || "Failed to return original sale");
+        return;
+      }
+
+      // 3. Clear cart
+      cart.clear();
+
+      // 4. Close card details dialog + receipt dialog (the full-screen overlay)
+      setDetailCard(null);
+      setReceiptSale(null);
+
+      // 5. Defer cart operations to next tick to prevent UI freeze
+      //    Use batchAddItems (v2.10.114) — single state update for all items
+      const items = sale.items || [];
+      setTimeout(() => {
+        const batchItems = items.map((it: any) => ({
+          product: {
+            id: it.productId || it.id,
+            name: it.name || "Unknown",
+            barcode: it.barcode || "",
+            salePrice: it.price || 0,
+            costPrice: it.costPrice || 0,
+            stock: 9999,
+            unit: it.unit || "piece",
+            wholesalePrice: 0,
+            shopkeeperPrice: 0,
+            taxRate: 0,
+            active: true,
+            hasBarcode: !!it.barcode,
+            barcodeType: "CODE128",
+            minStock: 0,
+            categoryId: null,
+            vendorId: null,
+            storeStock: 0,
+            image: null,
+            expiryDate: null,
+            manufacturingDate: null,
+            packBarcode: null,
+            packQuantity: 0,
+            packPrice: 0,
+            productCode: null,
+            barcodeSvg: null,
+            barcodePng: null,
+            barcodeVerified: false,
+            stickerSize: "50x30",
+            packingDate: null,
+            inventorySource: "SHOP",
+            linkedStoreProductId: null,
+          } as any,
+          qty: it.quantity,
+        }));
+        try {
+          cart.batchAddItems(batchItems);
+        } catch (e) {
+          console.warn("Failed to batch-load sale items:", e);
+        }
+        // Set customer info
+        if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
+        if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
+        // Navigate to POS view
+        setView("pos");
+        toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
+      }, 150);
+    } catch (e: any) {
+      toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
+    }
   }
 
   async function handleTxSave() {
@@ -1085,18 +1185,37 @@ export function CardsView({ userRole }: CardsViewProps) {
                                 <TableCell className="text-right py-1.5">
                                   {/* v2.10.79: "View Receipt / پرچی" button per sale
                                       so the user can quickly open and print the receipt */}
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-[10px] border-blue-300 text-blue-700 hover:bg-blue-50"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      viewSaleReceipt(sale.id);
-                                    }}
-                                  >
-                                    <Receipt className="w-3 h-3 mr-1" />
-                                    پرچی
-                                  </Button>
+                                  <div className="flex gap-1 justify-end">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-[10px] border-blue-300 text-blue-700 hover:bg-blue-50"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        viewSaleReceipt(sale.id);
+                                      }}
+                                    >
+                                      <Receipt className="w-3 h-3 mr-1" />
+                                      پرچی
+                                    </Button>
+                                    {/* v2.10.114: Edit Sale button per sale —
+                                        User: "جب ہم ایڈٹ کرتے ہیں تو جہاں پر بھی ہو
+                                        تو ریٹرن ہو جانا چاہیے چاہے شاپ کارڈ کے اندر
+                                        چلا جائے تو وہاں سے بھی ریٹرن ہو جانا چاہیے" */}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-[10px] border-amber-400 text-amber-700 hover:bg-amber-50 font-bold"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        editSaleFromCard(sale.id);
+                                      }}
+                                      title="Edit this sale — marks as returned and loads items into cart"
+                                    >
+                                      <Edit className="w-3 h-3 mr-1" />
+                                      Edit
+                                    </Button>
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1128,6 +1247,13 @@ export function CardsView({ userRole }: CardsViewProps) {
           settings={settings}
           open={!!receiptSale}
           onOpenChange={(o) => !o && setReceiptSale(null)}
+          // v2.10.114: Pass editSaleFromCard so the Edit button on the
+          // receipt also works from inside the card details view.
+          // User: "جب ہم ایڈٹ کرتے ہیں تو جہاں پر بھی ہو تو ریٹرن ہو
+          // جانا چاہیے چاہے شاپ کارڈ کے اندر چلا جائے"
+          onEdit={(sale) => {
+            if (sale?.id) editSaleFromCard(sale.id);
+          }}
         />
       )}
 

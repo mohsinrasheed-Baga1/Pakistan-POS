@@ -65,6 +65,16 @@ interface CartState {
   paymentMethod: "CASH" | "CARD" | "MOBILE";
   saleType: SaleType;
   addItem: (product: Product, qty?: number) => void;
+  // v2.10.114: batchAddItems — adds multiple items in a SINGLE state update.
+  //   Used by Edit Sale (handleEditSale) to load 10+ items at once without
+  //   freezing the UI. Each separate cart.addItem call triggers a re-render,
+  //   so loading 10 items = 10 re-renders in rapid succession → UI freeze.
+  //   batchAddItems computes the new items array in one pass, then calls
+  //   set() ONCE → only 1 re-render.
+  //   User: "جب ہم کوئی بھی ایڈٹ کرتے ہیں تو سافٹ وئر میں کہیں پر بھی ہم
+  //   کلک نہیں کر سکتے سرچ کرنے کے لیے یا تبدیلی کے لیے یہ بہت بڑا
+  //   مسئلہ ہے اسے سولو کرو"
+  batchAddItems: (items: Array<{ product: Product; qty: number }>) => void;
   removeItem: (productId: string) => void;
   setQty: (productId: string, qty: number) => void;
   // v2.10.7: increment/decrement helpers that always use latest state
@@ -149,6 +159,33 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
         };
       }
       return { items: [...state.items, { product, quantity: qty }] };
+    }),
+  // v2.10.114: batchAddItems — adds multiple items in a SINGLE state update.
+  //   This is the fix for "Edit Sale freeze" — when loading 10+ items,
+  //   calling cart.addItem 10 times triggers 10 re-renders in a row,
+  //   causing the UI to freeze. batchAddItems computes the final items
+  //   array in one pass, then calls set() ONCE.
+  //   Algorithm: start with current items, then for each new item:
+  //     - if it already exists in cart, increment quantity
+  //     - else append as a new item
+  batchAddItems: (newItems) =>
+    set((state) => {
+      // Create a Map from current items for O(1) lookup
+      const itemsMap = new Map<string, { product: Product; quantity: number }>();
+      for (const item of state.items) {
+        itemsMap.set(item.product.id, { ...item });
+      }
+      // Add each new item (accumulate if already present)
+      for (const { product, qty } of newItems) {
+        const existing = itemsMap.get(product.id);
+        if (existing) {
+          existing.quantity += qty;
+        } else {
+          itemsMap.set(product.id, { product, quantity: qty });
+        }
+      }
+      // Convert back to array
+      return { items: Array.from(itemsMap.values()) };
     }),
   removeItem: (productId) =>
     set((state) => ({

@@ -964,8 +964,13 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* v2.10.111: Enhanced totals — separate bill amount from charges,
-            track withdrawn + currently with us */}
+        {/* v2.10.114: REVISED — Withdrawn is now prominently shown as a
+            SUBTRACTION from Total Collected, with "بقایا — With Us" as
+            the main BOLD result. User wanted to see the remaining after
+            each withdrawal clearly.
+            User: "بل میں سے بل کی ٹوٹل رقم میں سے وڈرا کرتے ہیں تو ٹوٹل
+            رقم میں سے وڈرا ہونا چاہیے ہو جانا چاہیے تاکہ بقایا ہمیں
+            پتہ چل سکے" */}
         <div className="rounded-lg border-2 border-emerald-400 bg-gradient-to-br from-emerald-50 to-emerald-100 p-4 space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
@@ -977,41 +982,58 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
             </div>
             <Badge variant="outline" className="bg-white">{totalCount} bills collected</Badge>
           </div>
-          {/* 5 KPI cards: Count, Bill Amount, Profit, Received, With Us */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+
+          {/* MAIN بقایا display — collected − withdrawn = remaining */}
+          <div className={`rounded-lg border-2 p-4 text-center ${
+            currentlyWithUs >= 0
+              ? "border-emerald-500 bg-white"
+              : "border-rose-500 bg-rose-50"
+          }`}>
+            <div className="text-xs font-bold text-emerald-900 mb-1">
+              بقایا — ہمارے پاس (Remaining with us)
+            </div>
+            <div className={`text-4xl font-bold mb-2 ${
+              currentlyWithUs >= 0 ? "text-emerald-700" : "text-rose-700"
+            }`}>
+              Rs {currentlyWithUs.toLocaleString()}
+            </div>
+            {/* Arithmetic breakdown showing exactly how بقایا is computed */}
+            <div className="text-xs text-muted-foreground flex items-center justify-center gap-2 flex-wrap">
+              <span className="px-2 py-0.5 rounded bg-violet-100 text-violet-800">
+                موصول Rs {totalCollected.toLocaleString()}
+              </span>
+              <span className="font-bold text-rose-700">−</span>
+              <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800">
+                ود ڈرا Rs {totalWithdrawn.toLocaleString()}
+              </span>
+              <span className="font-bold text-emerald-700">=</span>
+              <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">
+                بقایا Rs {currentlyWithUs.toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          {/* Secondary stats: Bill Count, Bill Amount, Profit, Total Received */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="rounded-lg border border-emerald-200 bg-white p-2 text-center">
               <div className="text-[10px] text-emerald-700 font-medium">Bill Count — تعداد</div>
-              <div className="text-xl font-bold text-emerald-800">{totalCount}</div>
-              <div className="text-[9px] text-muted-foreground">bills received</div>
+              <div className="text-base font-bold text-emerald-800">{totalCount}</div>
             </div>
             <div className="rounded-lg border border-blue-200 bg-white p-2 text-center">
               <div className="text-[10px] text-blue-700 font-medium">Bill Amount — بل کی رقم</div>
-              <div className="text-xl font-bold text-blue-800">Rs {totalBillAmount.toLocaleString()}</div>
-              <div className="text-[9px] text-muted-foreground">actual bill value</div>
+              <div className="text-base font-bold text-blue-800">Rs {totalBillAmount.toLocaleString()}</div>
             </div>
             <div className="rounded-lg border border-amber-200 bg-white p-2 text-center">
               <div className="text-[10px] text-amber-700 font-medium">Profit — منافع (charges)</div>
-              <div className="text-xl font-bold text-amber-800">Rs {totalCharges.toLocaleString()}</div>
-              <div className="text-[9px] text-muted-foreground">extra charges (separate)</div>
+              <div className="text-base font-bold text-amber-800">Rs {totalCharges.toLocaleString()}</div>
             </div>
             <div className="rounded-lg border border-violet-200 bg-white p-2 text-center">
               <div className="text-[10px] text-violet-700 font-medium">Total Received — موصول</div>
-              <div className="text-xl font-bold text-violet-800">Rs {totalCollected.toLocaleString()}</div>
-              <div className="text-[9px] text-muted-foreground">bill + charges</div>
-            </div>
-            <div className={`rounded-lg border-2 p-2 text-center ${
-              currentlyWithUs >= 0
-                ? "border-emerald-400 bg-emerald-50"
-                : "border-rose-400 bg-rose-50"
-            }`}>
-              <div className="text-[10px] text-emerald-700 font-medium">With Us — ہمارے پاس</div>
-              <div className={`text-xl font-bold ${
-                currentlyWithUs >= 0 ? "text-emerald-800" : "text-rose-800"
-              }`}>Rs {currentlyWithUs.toLocaleString()}</div>
-              <div className="text-[9px] text-muted-foreground">collected − withdrawn</div>
+              <div className="text-base font-bold text-violet-800">Rs {totalCollected.toLocaleString()}</div>
             </div>
           </div>
-          {/* Withdrawn summary */}
+
+          {/* Withdrawn + Due row */}
           <div className="flex items-center justify-between flex-wrap gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2">
             <div className="text-xs font-bold text-rose-900">
               Withdrawn — ود ڈرا: Rs {totalWithdrawn.toLocaleString()}
