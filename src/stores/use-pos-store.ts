@@ -7,7 +7,7 @@ export type View =
   | "dashboard"
   | "pos"
   | "products"
-  | "scanner"
+  | "billReceive"  // v2.10.110: replaced "scanner" with "billReceive"
   | "sales"
   | "reports"
   | "users"
@@ -48,6 +48,11 @@ export function effectivePrice(product: Product, saleType: SaleType): number {
 interface CartState {
   items: CartItem[];
   discount: number;
+  // v2.10.110: Extra charges — manually added service charges / fees
+  // that get added to the cart total. User can add/remove freely.
+  // These show on the receipt as a separate "Extra Charges" line.
+  extraCharges: number;
+  extraChargesNote: string;
   customerName: string;
   customerPhone: string;
   paymentMethod: "CASH" | "CARD" | "MOBILE";
@@ -65,6 +70,9 @@ interface CartState {
   incrementLastItem: (step: number) => void;
   decrementLastItem: (step: number) => void;
   setDiscount: (v: number) => void;
+  // v2.10.110: Extra charges setters
+  setExtraCharges: (v: number) => void;
+  setExtraChargesNote: (v: string) => void;
   setCustomer: (name: string, phone: string) => void;
   setPaymentMethod: (m: "CASH" | "CARD" | "MOBILE") => void;
   setSaleType: (s: SaleType) => void;
@@ -75,6 +83,7 @@ interface CartState {
     subtotal: number;
     taxTotal: number;
     discount: number;
+    extraCharges: number;  // v2.10.110
     total: number;
     itemCount: number;
   };
@@ -88,6 +97,8 @@ interface CartState {
 interface CartSnapshot {
   items: CartItem[];
   discount: number;
+  extraCharges: number;          // v2.10.110
+  extraChargesNote: string;      // v2.10.110
   customerName: string;
   customerPhone: string;
   paymentMethod: "CASH" | "CARD" | "MOBILE";
@@ -110,6 +121,8 @@ interface MultiCartState extends CartState {
 export const useCartStore = create<MultiCartState>((set, get) => ({
   items: [],
   discount: 0,
+  extraCharges: 0,        // v2.10.110
+  extraChargesNote: "",  // v2.10.110
   customerName: "",
   customerPhone: "",
   paymentMethod: "CASH",
@@ -191,6 +204,9 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
       };
     }),
   setDiscount: (discount) => set({ discount }),
+  // v2.10.110: Extra charges setters
+  setExtraCharges: (extraCharges) => set({ extraCharges }),
+  setExtraChargesNote: (extraChargesNote) => set({ extraChargesNote }),
   setCustomer: (customerName, customerPhone) =>
     set({ customerName, customerPhone }),
   setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
@@ -199,6 +215,8 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
     set({
       items: [],
       discount: 0,
+      extraCharges: 0,        // v2.10.110
+      extraChargesNote: "",  // v2.10.110
       customerName: "",
       customerPhone: "",
       paymentMethod: "CASH",
@@ -217,6 +235,8 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
     const snapshot: CartSnapshot = {
       items: state.items,
       discount: state.discount,
+      extraCharges: state.extraCharges,            // v2.10.110
+      extraChargesNote: state.extraChargesNote,   // v2.10.110
       customerName: state.customerName,
       customerPhone: state.customerPhone,
       paymentMethod: state.paymentMethod,
@@ -228,6 +248,8 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
       heldCarts: [...state.heldCarts, snapshot],
       items: [],
       discount: 0,
+      extraCharges: 0,            // v2.10.110
+      extraChargesNote: "",     // v2.10.110
       customerName: "",
       customerPhone: "",
       paymentMethod: "CASH",
@@ -243,6 +265,8 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
     const currentSnapshot: CartSnapshot | null = state.items.length > 0 ? {
       items: state.items,
       discount: state.discount,
+      extraCharges: state.extraCharges,            // v2.10.110
+      extraChargesNote: state.extraChargesNote,   // v2.10.110
       customerName: state.customerName,
       customerPhone: state.customerPhone,
       paymentMethod: state.paymentMethod,
@@ -258,6 +282,8 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
     set({
       items: held.items,
       discount: held.discount,
+      extraCharges: held.extraCharges,            // v2.10.110
+      extraChargesNote: held.extraChargesNote,   // v2.10.110
       customerName: held.customerName,
       customerPhone: held.customerPhone,
       paymentMethod: held.paymentMethod,
@@ -273,7 +299,7 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
     });
   },
   totals: (taxEnabled) => {
-    const { items, discount, saleType } = get();
+    const { items, discount, saleType, extraCharges } = get();
     let subtotal = 0;
     let taxTotal = 0;
     items.forEach((i) => {
@@ -292,11 +318,15 @@ export const useCartStore = create<MultiCartState>((set, get) => ({
         taxTotal += line * (i.product.taxRate / 100);
       }
     });
-    const total = Math.max(0, subtotal + taxTotal - discount);
+    // v2.10.110: Add extraCharges to the total (after tax+subtotal, before
+    // discount). These are manually-added service fees that get added to
+    // the cart total. They show on the receipt as a separate line.
+    const total = Math.max(0, subtotal + taxTotal + extraCharges - discount);
     return {
       subtotal,
       taxTotal,
       discount,
+      extraCharges,  // v2.10.110
       total,
       itemCount: items.reduce((s, i) => s + i.quantity, 0),
     };

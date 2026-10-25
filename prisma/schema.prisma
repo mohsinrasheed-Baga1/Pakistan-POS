@@ -144,6 +144,11 @@ model Sale {
   balanceDue    Float      @default(0)
   // v2.10.71: POS Service Tax amount (0 if not applicable)
   posServiceTax Float      @default(0)
+  // v2.10.110: Extra charges — manually-added service fees (delivery,
+  // service charge, etc.) that get added to the cart total. Shows on the
+  // receipt as a separate "Extra Charges" line.
+  extraCharges       Float   @default(0)
+  extraChargesNote   String?
   paymentMethod String     @default("CASH")
   saleType      String     @default("RETAIL")
   status        String     @default("COMPLETED")

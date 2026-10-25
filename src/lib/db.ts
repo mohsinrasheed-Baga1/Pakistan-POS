@@ -284,6 +284,9 @@ CREATE TABLE IF NOT EXISTS Sale (
   change REAL NOT NULL DEFAULT 0,
   balanceDue REAL NOT NULL DEFAULT 0,
   posServiceTax REAL NOT NULL DEFAULT 0,
+  -- v2.10.110: Extra charges (manually-added service fees)
+  extraCharges REAL NOT NULL DEFAULT 0,
+  extraChargesNote TEXT,
   paymentMethod TEXT NOT NULL DEFAULT 'CASH',
   saleType TEXT NOT NULL DEFAULT 'RETAIL',
   status TEXT NOT NULL DEFAULT 'COMPLETED',
@@ -690,6 +693,9 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     ["balanceDue", "REAL NOT NULL DEFAULT 0"],
     // v2.10.71: POS Service Tax
     ["posServiceTax", "REAL NOT NULL DEFAULT 0"],
+    // v2.10.110: Extra charges (manually-added service fees that show on receipt)
+    ["extraCharges", "REAL NOT NULL DEFAULT 0"],
+    ["extraChargesNote", "TEXT"],
   ],
   SaleReturn: [
     ["userId", "TEXT"],

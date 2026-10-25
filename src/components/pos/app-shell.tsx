@@ -22,6 +22,7 @@ import {
   Truck,
   TrendingDown,
   Smartphone,
+  FileText,  // v2.10.110: Bill Receive nav icon
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -31,7 +32,7 @@ import { cn } from "@/lib/utils";
 import { useAppStore, type View } from "@/stores/use-pos-store";
 import { PosView } from "@/components/pos/views/pos-view";
 import { ProductsView } from "@/components/pos/views/products-view";
-import { ScannerView } from "@/components/pos/views/scanner-view";
+import { BillReceiveView } from "@/components/pos/views/bill-receive-view";  // v2.10.110: replaced ScannerView
 import { SalesView } from "@/components/pos/views/sales-view";
 import { ReportsView } from "@/components/pos/views/reports-view";
 import { UsersView } from "@/components/pos/views/users-view";
@@ -55,6 +56,11 @@ interface AppShellProps {
 const NAV: { id: View; label: string; icon: any; minRole?: string; permission?: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "canViewDashboard" },
   { id: "pos", label: "Sell (POS)", icon: ShoppingCart, permission: "canSell" },
+  // v2.10.110: Replaced "scanner" with "billReceive" — dedicated bill
+  // collection page (electricity/gas/water/internet bills). Records
+  // category, customer info, bill amount, service charge (profit).
+  // Shows today's totals: count + bill amount + extra charges + total.
+  { id: "billReceive", label: "Bill Receive", icon: FileText, permission: "canSell" },
   { id: "loadbill", label: "Load & Bill", icon: Smartphone, permission: "canAccessLoadBill" },
   { id: "products", label: "Shop Store", icon: Package, permission: "canViewSalesHistory" },
   { id: "store", label: "Main Store", icon: Warehouse, permission: "canAccessMainStore" },
@@ -145,8 +151,9 @@ export function AppShell({ user, settings }: AppShellProps) {
     switch (view) {
       case "pos":
         return <PosView settings={settings} />;
-      case "scanner":
-        return <ScannerView />;
+      // v2.10.110: "scanner" view replaced with "billReceive"
+      case "billReceive":
+        return <BillReceiveView />;
       case "products":
         return <ProductsView userRole={user.role} />;
       case "cards":

@@ -302,11 +302,35 @@ export function Receipt({ sale, settings, open, onOpenChange, onEdit }: ReceiptP
               <span>{formatMoney((sale as any).posServiceTax, currency)}</span>
             </div>
           )}
+          {/* v2.10.110: Extra Charges — manually-added service fees */}
+          {(() => {
+            const extra = (sale as any).extraCharges || 0;
+            const extraNote = (sale as any).extraChargesNote;
+            if (extra <= 0) return null;
+            return (
+              <div
+                className="row bold"
+                style={{
+                  fontSize: tableFontSize,
+                  fontWeight: "bold",
+                  color: "#b45309",  // amber-700
+                }}
+              >
+                <span>Extra Charges{extraNote ? ` (${extraNote})` : ""}:</span>
+                <span>+{formatMoney(extra, currency)}</span>
+              </div>
+            );
+          })()}
           <div className="row bold big" style={{ marginTop: "2px" }}>
             {/* v2.10.78: Make it clear the TOTAL includes service tax.
                 When posServiceTax > 0, label as "GRAND TOTAL (incl. Service Tax)"
-                so the customer can see the service tax is included. */}
-            <span>{(sale as any).posServiceTax > 0 ? "GRAND TOTAL (incl. Tax):" : "TOTAL:"}</span>
+                so the customer can see the service tax is included.
+                v2.10.110: Also includes Extra Charges if present. */}
+            <span>
+              {(sale as any).posServiceTax > 0 || ((sale as any).extraCharges || 0) > 0
+                ? "GRAND TOTAL (incl. Tax + Extra):"
+                : "TOTAL:"}
+            </span>
             <span>{formatMoney(sale.total, currency)}</span>
           </div>
 

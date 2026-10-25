@@ -1271,6 +1271,14 @@ export function PosView({ settings }: PosViewProps) {
           walletTxnType: (i.product as any)._walletTxnType || null,
         })),
         discount: cart.discount,
+        // v2.10.110: Extra charges — manually-added service fees that get
+        // added to the cart total. Shows on the receipt as a separate
+        // "Extra Charges" line. The Sales API stores this on the Sale
+        // record (column 'posServiceTax' is reused for backward compat
+        // — actually no, we add a NEW column 'extraCharges' and
+        // 'extraChargesNote' to the Sale model. See prisma/schema.prisma.)
+        extraCharges: cart.extraCharges || 0,
+        extraChargesNote: cart.extraChargesNote || null,
         paidAmount: effectivePaidAmount,
         paymentMethod: isCardPayment ? "SHOP_CARD" : cart.paymentMethod,
         saleType: cart.saleType,
@@ -1466,12 +1474,24 @@ export function PosView({ settings }: PosViewProps) {
           >
             <Banknote className="w-4 h-4 mr-2" /> Cash In
           </Button>
+          {/* v2.10.110: Cash Close button — record end-of-day cash closing.
+              Records the closing cash drawer amount (separate from opening
+              cash which is recorded by "Cash In" → OPENING type).
+              User: "کیش اوپننگ ہم نے پی او ایس پیج کے اوپر رکھا ہوا ہے
+              اور کیش کلوز بھی وہاں پر ایک اس کے اندر ہی اسی پیج کے اندر
+              ایڈ کر دو" */}
           <Button
             variant="outline"
-            onClick={() => setView("scanner")}
-            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            onClick={() => {
+              setCashInType("CASH_OUT");
+              setCashInAmount("");
+              setCashInDescription("End-of-day cash close");
+              setCashInDialogOpen(true);
+            }}
+            className="border-rose-400 text-rose-700 hover:bg-rose-50 font-bold"
+            title="Record end-of-day cash closing"
           >
-            <ScanBarcode className="w-4 h-4 mr-2" /> Scanner
+            <Banknote className="w-4 h-4 mr-2" /> Cash Close
           </Button>
           <Button
             variant="outline"
@@ -2030,18 +2050,49 @@ export function PosView({ settings }: PosViewProps) {
                     />
                   </div>
 
-                  {/* discount */}
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm whitespace-nowrap">Discount</Label>
-                    <Input
-                      type="number"
-                      value={cart.discount || ""}
-                      onChange={(e) =>
-                        cart.setDiscount(Number(e.target.value) || 0)
-                      }
-                      className="h-9"
-                    />
+                  {/* discount + extra charges (v2.10.110) */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs whitespace-nowrap">Discount</Label>
+                      <Input
+                        type="number"
+                        value={cart.discount || ""}
+                        onChange={(e) =>
+                          cart.setDiscount(Number(e.target.value) || 0)
+                        }
+                        className="h-9"
+                        placeholder="0"
+                      />
+                    </div>
+                    {/* v2.10.110: Extra Charges input — manually add service
+                        charges/fees to the cart total. Shows on the receipt
+                        as a separate "Extra Charges" line.
+                        User: "cart کے اندر ایکسٹرا چارجز کا ایک بٹن ایڈ کرو
+                        اس چارجز علیحدہ خود سے لگانے ہوں تو وہ ایڈ کیا جا سکے
+                        بل کے اندر اور رسید پر بھی انے چاہیے جو ٹوٹل کے اندر
+                        ایڈ ہوں گے" */}
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs whitespace-nowrap text-amber-700">Extra</Label>
+                      <Input
+                        type="number"
+                        value={cart.extraCharges || ""}
+                        onChange={(e) =>
+                          cart.setExtraCharges(Number(e.target.value) || 0)
+                        }
+                        className="h-9 border-amber-300"
+                        placeholder="0"
+                      />
+                    </div>
                   </div>
+                  {/* v2.10.110: Extra charges note (optional, only if extra > 0) */}
+                  {(cart.extraCharges || 0) > 0 && (
+                    <Input
+                      value={cart.extraChargesNote}
+                      onChange={(e) => cart.setExtraChargesNote(e.target.value)}
+                      placeholder="Extra charges note (optional) — e.g. Delivery, Service fee"
+                      className="h-8 text-xs border-amber-200"
+                    />
+                  )}
 
                   {/* totals */}
                   <div className="space-y-1 text-sm">
@@ -2072,6 +2123,16 @@ export function PosView({ settings }: PosViewProps) {
                       <span className="text-muted-foreground">Discount</span>
                       <span>-{formatMoney(totals.discount, currency)}</span>
                     </div>
+                    {/* v2.10.110: Extra Charges line — added to total */}
+                    {(totals.extraCharges || 0) > 0 && (
+                      <div className="flex justify-between text-amber-700">
+                        <span className="font-medium">
+                          Extra Charges
+                          {cart.extraChargesNote ? ` (${cart.extraChargesNote})` : ""}
+                        </span>
+                        <span className="font-bold">+{formatMoney(totals.extraCharges, currency)}</span>
+                      </div>
+                    )}
                     {/* v2.10.71: POS Service Tax */}
                     {posServiceTaxAmount > 0 && (
                       <div className="flex justify-between">

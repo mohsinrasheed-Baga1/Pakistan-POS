@@ -240,7 +240,13 @@ async function processSale(userId: string, body: any, items: any[]) {
   const discount = Number(body.discount) || 0;
   // v2.10.71: POS Service Tax
   const posServiceTax = Number(body.posServiceTax) || 0;
-  const total = Math.max(0, subtotal + taxTotal - discount + posServiceTax);
+  // v2.10.110: Extra charges (manually-added service fees)
+  const extraCharges = Number(body.extraCharges) || 0;
+  const extraChargesNote: string | null = body.extraChargesNote
+    ? String(body.extraChargesNote).trim().slice(0, 200) || null
+    : null;
+  // v2.10.110: total now INCLUDES extraCharges (subtotal + tax - discount + service tax + extra charges)
+  const total = Math.max(0, subtotal + taxTotal - discount + posServiceTax + extraCharges);
 
   // v2.10.15: Properly handle paidAmount, change, and balanceDue
   // - If paidAmount >= total: change = paidAmount - total, balanceDue = 0
@@ -277,6 +283,9 @@ async function processSale(userId: string, body: any, items: any[]) {
       balanceDue,
       // v2.10.71: Store POS Service Tax
       posServiceTax: Number(body.posServiceTax) || 0,
+      // v2.10.110: Store extra charges (manual service fees)
+      extraCharges,
+      extraChargesNote,
       paymentMethod: body.paymentMethod || "CASH",
       saleType: body.saleType || "RETAIL",  // v2.10.84: was missing — preserve RETAIL/WHOLESALE/SHOPKEEPER
       status: "COMPLETED",
