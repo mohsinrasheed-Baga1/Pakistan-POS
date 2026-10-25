@@ -75,20 +75,40 @@ export async function POST(req: NextRequest) {
     }
 
     const parsedBillAmount = Number(billAmount);
-    if (isNaN(parsedBillAmount) || parsedBillAmount <= 0) {
-      return NextResponse.json({ error: "Bill amount must be a positive number" }, { status: 400 });
-    }
-
-    const parsedServiceCharge = Number(serviceCharge) || 0;
-    const totalPaid = parsedBillAmount + parsedServiceCharge;
-
-    const validCategories = ["electricity", "gas", "water", "internet", "other"];
+    // v2.10.112: FIX — Withdrawals use negative billAmount to represent
+    // money taken OUT of bill collection. Previously the validation
+    // rejected negative amounts with "Bill amount must be a positive
+    // number" error, making withdrawals impossible.
+    //   User: "جب ہم لوڈ اینڈ بل مینجمنٹ کے اندر جا کر بل والے اپشن پر
+    //   کلک کر کے چیک کرتے ہیں کہ ٹوٹل بل اماؤنٹ کتنی ہے اور ود ڈرا
+    //   کرنے کی کوشش کرتے ہیں تو ود ڈرا نہیں ہو رہا پوزیٹیو اماؤنٹ
+    //   کا ایرر ا رہا ہے"
+    // Fix:
+    //   1. Allow "withdrawal" category — was missing from validCategories
+    //   2. Skip positive-amount validation when category === "withdrawal"
+    //      (negative billAmount is intentional for withdrawals)
+    const validCategories = ["electricity", "gas", "water", "internet", "other", "withdrawal"];
     if (!validCategories.includes(category)) {
       return NextResponse.json(
         { error: `Category must be one of: ${validCategories.join(", ")}` },
         { status: 400 }
       );
     }
+    const isWithdrawal = category === "withdrawal";
+    if (isWithdrawal) {
+      // Withdrawals: any non-zero number (positive or negative both work)
+      if (isNaN(parsedBillAmount) || parsedBillAmount === 0) {
+        return NextResponse.json({ error: "Withdrawal amount must be a non-zero number" }, { status: 400 });
+      }
+    } else {
+      // Regular bills: must be positive
+      if (isNaN(parsedBillAmount) || parsedBillAmount <= 0) {
+        return NextResponse.json({ error: "Bill amount must be a positive number" }, { status: 400 });
+      }
+    }
+
+    const parsedServiceCharge = Number(serviceCharge) || 0;
+    const totalPaid = parsedBillAmount + parsedServiceCharge;
 
     const payment = await db.billPaymentTxn.create({
       data: {

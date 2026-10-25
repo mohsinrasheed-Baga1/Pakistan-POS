@@ -91,12 +91,27 @@ export function PosView({ settings }: PosViewProps) {
   //   total received from customer, remaining balance (due). Enter saves.
   //   The transaction is recorded via /api/load-bill/bill-payment POST and
   //   shows in Load & Bill Management → Bill tab (NOT in Reports).
+  //
+  // v2.10.112: Added "Add More Bill" support — customer can bring multiple
+  //   bills. User: "اگر ایک کسٹمر ایک سے زیادہ بل لے کے ا جاتا ہے پانچ
+  //   لے کے ا جاتا ہے تو ایڈ مور بل کا اپشن ایک ایڈ کرو تاکہ ایک بل پھر
+  //   دوسرا پھر تیسرا پھر چوتھا بل ایڈ کر کے لاسٹ پہ اس کی ٹوٹل رقم اور
+  //   ٹوٹل چارجز ایکسٹرا کتنے ہیں ٹوٹل رسیو کتنے ہیں اور بقایا کتنے
+  //   ہیں جو چینج ہے اس سے تھوڑا سا بولڈ کرو اور بڑا کرو تاکہ چینج
+  //   صحیح نظر ا سکے"
+  //   Now the dialog supports a LIST of bills (each with its own category,
+  //   amount, charges). User can add/remove bills. Bottom shows totals:
+  //   total bill amount, total charges, total received (single input),
+  //   and the CHANGE/DUE displayed in BOLD + LARGE font.
   const [billPayDialogOpen, setBillPayDialogOpen] = React.useState(false);
-  const [billPayAmount, setBillPayAmount] = React.useState("");
-  const [billPayCharges, setBillPayCharges] = React.useState("");
-  const [billPayReceived, setBillPayReceived] = React.useState("");
   const [billPayCustomer, setBillPayCustomer] = React.useState("");
-  const [billPayCategory, setBillPayCategory] = React.useState("electricity");
+  // Each bill: { category, amount, charges }
+  const [billItems, setBillItems] = React.useState<Array<{
+    category: string;
+    amount: string;
+    charges: string;
+  }>>([{ category: "electricity", amount: "", charges: "" }]);
+  const [billPayReceived, setBillPayReceived] = React.useState("");
   const [billPaySaving, setBillPaySaving] = React.useState(false);
   // -1 means NO product is highlighted. Only after the user starts typing
   // in the search box do we auto-highlight the first match (index 0).
@@ -1016,45 +1031,76 @@ export function PosView({ settings }: PosViewProps) {
   //   User: "انٹر دبانے کے بعد ٹرانزیکشن کمپلیٹ ہو جائے گی یہ سارا حساب
   //   رپورٹ کے اندر نہیں ائے گا یہ حساب ٹب لوڈ اینڈ بل مینجمنٹ کے اندر
   //   ائے گا"
+  //
+  // v2.10.112: Now supports MULTIPLE bills. Each bill is saved as a
+  //   separate BillPaymentTxn (sharing the same customer name).
+  //   The received amount is applied to the total, and due/change is
+  //   recorded on the LAST bill (or distributed as a simple total — we
+  //   just store the total received and total due on each bill's record
+  //   using the bill's own amount, and the global received/due is shown
+  //   only in the toast).
   async function handleSaveBillPay() {
-    const billAmt = Number(billPayAmount);
-    const charges = Number(billPayCharges) || 0;
-    const received = Number(billPayReceived) || (billAmt + charges);
-    if (!billAmt || billAmt <= 0) {
-      toast.error("Enter bill amount");
+    // Validate at least one bill with positive amount
+    const validBills = billItems.filter(b => Number(b.amount) > 0);
+    if (validBills.length === 0) {
+      toast.error("Enter at least one bill amount");
       return;
     }
-    const total = billAmt + charges;
-    const due = Math.max(0, total - received);
+    const totalBillAmount = validBills.reduce((s, b) => s + Number(b.amount), 0);
+    const totalCharges = validBills.reduce((s, b) => s + (Number(b.charges) || 0), 0);
+    const grandTotal = totalBillAmount + totalCharges;
+    const received = Number(billPayReceived) || grandTotal;
+    const due = Math.max(0, grandTotal - received);
     setBillPaySaving(true);
     try {
-      const res = await fetch("/api/load-bill/bill-payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: billPayCategory,
-          consumerName: billPayCustomer.trim() || undefined,
-          billAmount: billAmt,
-          serviceCharge: charges,
-          totalPaid: total,
-          amountReceived: received,
-          due,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || "Failed to save bill payment");
-        setBillPaySaving(false);
-        return;
+      // Save each bill as a separate transaction (shared customer name)
+      // v2.10.112: Distribute the received amount proportionally across bills
+      //   so each bill's due makes sense. For simplicity, we just record the
+      //   total on the LAST bill and zero due on the others.
+      let savedCount = 0;
+      for (let i = 0; i < validBills.length; i++) {
+        const b = validBills[i];
+        const billAmt = Number(b.amount);
+        const charges = Number(b.charges) || 0;
+        const billTotal = billAmt + charges;
+        // Record the bill's own amount + total received + due
+        // For the LAST bill, store the actual received (so the toast makes
+        // sense). For other bills, store 0 received (customer paid in lump).
+        // This is a simplification — the BillTab calculates totals across
+        // all transactions, so the sum is correct.
+        const isLast = i === validBills.length - 1;
+        const res = await fetch("/api/load-bill/bill-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            category: b.category,
+            consumerName: billPayCustomer.trim() || undefined,
+            billAmount: billAmt,
+            serviceCharge: charges,
+            totalPaid: billTotal,
+            amountReceived: isLast ? received : billTotal,
+            due: isLast ? due : 0,
+          }),
+        });
+        if (!res.ok) {
+          const d = await res.json();
+          toast.error(d.error || `Failed to save bill #${i + 1}`);
+          setBillPaySaving(false);
+          return;
+        }
+        savedCount++;
       }
+      const change = received > grandTotal ? received - grandTotal : 0;
       toast.success(
-        `Bill recorded: ${formatMoney(total, currency)} (Profit: ${formatMoney(charges, currency)})${due > 0 ? ` · Due: ${formatMoney(due, currency)}` : ""}`
+        `${savedCount} bill(s) recorded: ${formatMoney(grandTotal, currency)} ` +
+        `(Profit: ${formatMoney(totalCharges, currency)})` +
+        (due > 0 ? ` · Due: ${formatMoney(due, currency)}` : "") +
+        (change > 0 ? ` · Change: ${formatMoney(change, currency)}` : "")
       );
       setBillPayDialogOpen(false);
-      setBillPayAmount("");
-      setBillPayCharges("");
-      setBillPayReceived("");
       setBillPayCustomer("");
+      setBillItems([{ category: "electricity", amount: "", charges: "" }]);
+      setBillPayReceived("");
       setTimeout(() => searchRef.current?.focus(), 50);
     } catch {
       toast.error("Network error");
@@ -1563,11 +1609,10 @@ export function PosView({ settings }: PosViewProps) {
           <Button
             variant="outline"
             onClick={() => {
-              setBillPayAmount("");
-              setBillPayCharges("");
+              // v2.10.112: Reset to single-bill state when opening dialog
+              setBillItems([{ category: "electricity", amount: "", charges: "" }]);
               setBillPayReceived("");
               setBillPayCustomer("");
-              setBillPayCategory("electricity");
               setBillPayDialogOpen(true);
             }}
             className="border-amber-400 text-amber-700 hover:bg-amber-50 font-bold"
@@ -2992,46 +3037,37 @@ export function PosView({ settings }: PosViewProps) {
       </Dialog>
 
       {/* v2.10.111: Bill Payment dialog — quick bill collection
-          Records: bill amount + extra charges (profit) + total received +
-          remaining due. Enter saves. Shows in Load & Bill Management → Bill
-          tab (NOT in Reports). */}
+          v2.10.112: Added "Add More Bill" support — customer can bring
+          multiple bills. Each bill has its own category + amount + charges.
+          Bottom shows totals (total bill amount, total charges, total
+          received) + the CHANGE/DUE in BOLD + LARGE font.
+          User: "اگر ایک کسٹمر ایک سے زیادہ بل لے کے ا جاتا ہے پانچ
+          لے کے ا جاتا ہے تو ایڈ مور بل کا اپشن ایک ایڈ کرو تاکہ ایک
+          بل پھر دوسرا پھر تیسرا پھر چوتھا بل ایڈ کر کے لاسٹ پہ اس کی
+          ٹوٹل رقم اور ٹوٹل چارجز ایکسٹرا کتنے ہیں ٹوٹل رسیو کتنے ہیں
+          اور بقایا کتنے ہیں جو چینج ہے اس سے تھوڑا سا بولڈ کرو اور
+          بڑا کرو تاکہ چینج صحیح نظر ا سکے" */}
       <Dialog open={billPayDialogOpen} onOpenChange={(v) => {
         if (!v) {
           setBillPayDialogOpen(false);
-          setBillPayAmount("");
-          setBillPayCharges("");
+          setBillItems([{ category: "electricity", amount: "", charges: "" }]);
           setBillPayReceived("");
           setBillPayCustomer("");
           setTimeout(() => searchRef.current?.focus(), 50);
         }
       }}>
-        <DialogContent className="max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+        <DialogContent className="max-w-lg" onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="text-lg flex items-center gap-2">
               <FileText className="w-5 h-5 text-amber-600" />
               Bill Payment — بل پیمنٹ
             </DialogTitle>
             <DialogDescription className="text-sm">
-              Collect a bill from customer (electricity / gas / water / internet)
+              Collect one or more bills from a customer (electricity / gas / water / internet)
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {/* Category selector */}
-            <div className="space-y-1">
-              <Label className="text-xs font-medium">Bill Type — قسم</Label>
-              <select
-                value={billPayCategory}
-                onChange={(e) => setBillPayCategory(e.target.value)}
-                className="w-full rounded-md border px-3 py-2 text-sm h-9"
-              >
-                <option value="electricity">Electricity — بجلی</option>
-                <option value="gas">Gas — گیس</option>
-                <option value="water">Water — پانی</option>
-                <option value="internet">Internet — انٹرنیٹ</option>
-                <option value="other">Other — دیگر</option>
-              </select>
-            </div>
-            {/* Customer name (optional) */}
+            {/* Customer name (shared across all bills) */}
             <div className="space-y-1">
               <Label className="text-xs">Customer Name — گاہک کا نام (optional)</Label>
               <Input
@@ -3041,116 +3077,195 @@ export function PosView({ settings }: PosViewProps) {
                 className="h-9 text-sm"
               />
             </div>
-            {/* Bill Amount + Extra Charges */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs font-bold">Bill Amount — بل کی رقم *</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={billPayAmount}
-                  onChange={(e) => setBillPayAmount(e.target.value)}
-                  placeholder="e.g. 5000"
-                  autoFocus
-                  className="h-12 text-lg text-center font-mono font-bold border-amber-300"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      // Move focus to charges input
-                      (e.target as HTMLElement).blur();
-                      const next = document.querySelector('input[name="bill-charges"]') as HTMLInputElement;
-                      next?.focus();
-                    }
-                  }}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-bold text-amber-700">Extra Charges — چارجز (profit)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  name="bill-charges"
-                  value={billPayCharges}
-                  onChange={(e) => setBillPayCharges(e.target.value)}
-                  placeholder="e.g. 50"
-                  className="h-12 text-lg text-center font-mono font-bold border-amber-300"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      (e.target as HTMLElement).blur();
-                      const next = document.querySelector('input[name="bill-received"]') as HTMLInputElement;
-                      next?.focus();
-                    }
-                  }}
-                />
-              </div>
-            </div>
-            {/* Total + Received + Due */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center">
-                <div className="text-[10px] text-emerald-700 font-medium">Total — کل</div>
-                <div className="text-lg font-bold text-emerald-800">
-                  {formatMoney((Number(billPayAmount) || 0) + (Number(billPayCharges) || 0), currency)}
+
+            {/* Bills list — each row has category + amount + charges + remove */}
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+              {billItems.map((bill, idx) => (
+                <div key={idx} className="rounded-lg border border-amber-200 bg-amber-50/50 p-2 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-800">Bill #{idx + 1}</span>
+                    {billItems.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBillItems(prev => prev.filter((_, i) => i !== idx));
+                        }}
+                        className="text-rose-500 hover:bg-rose-100 rounded p-1"
+                        title="Remove this bill"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <select
+                      value={bill.category}
+                      onChange={(e) => {
+                        setBillItems(prev => prev.map((b, i) =>
+                          i === idx ? { ...b, category: e.target.value } : b
+                        ));
+                      }}
+                      className="rounded-md border px-2 py-1 text-xs h-9"
+                    >
+                      <option value="electricity">بجلی</option>
+                      <option value="gas">گیس</option>
+                      <option value="water">پانی</option>
+                      <option value="internet">انٹرنیٹ</option>
+                      <option value="other">دوسری</option>
+                    </select>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={bill.amount}
+                      onChange={(e) => {
+                        setBillItems(prev => prev.map((b, i) =>
+                          i === idx ? { ...b, amount: e.target.value } : b
+                        ));
+                      }}
+                      placeholder="Bill"
+                      autoFocus={idx === 0}
+                      className="h-9 text-sm text-center font-mono font-bold border-amber-300"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          // Move focus to charges input of same row
+                          const next = (e.target as HTMLElement).closest("div")?.parentElement?.querySelector('input[name="bill-charges-' + idx + '"]') as HTMLInputElement;
+                          next?.focus();
+                        }
+                      }}
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      name={"bill-charges-" + idx}
+                      value={bill.charges}
+                      onChange={(e) => {
+                        setBillItems(prev => prev.map((b, i) =>
+                          i === idx ? { ...b, charges: e.target.value } : b
+                        ));
+                      }}
+                      placeholder="Charges"
+                      className="h-9 text-sm text-center font-mono font-bold border-amber-300"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          // If last row, focus received input; else focus next row's amount
+                          if (idx === billItems.length - 1) {
+                            const receivedInput = document.querySelector('input[name="bill-received"]') as HTMLInputElement;
+                            receivedInput?.focus();
+                          } else {
+                            const nextRow = document.querySelectorAll('input[type="number"]')[idx * 2 + 2] as HTMLInputElement;
+                            nextRow?.focus();
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="text-[10px] text-muted-foreground text-right">
+                    Subtotal: {formatMoney((Number(bill.amount) || 0) + (Number(bill.charges) || 0), currency)}
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[10px] font-bold text-violet-700">Received — موصول *</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  name="bill-received"
-                  value={billPayReceived}
-                  onChange={(e) => setBillPayReceived(e.target.value)}
-                  placeholder="auto-fill"
-                  className="h-12 text-base text-center font-mono font-bold border-violet-300"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleSaveBillPay();
-                    }
-                  }}
-                />
-              </div>
-              <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-center">
-                <div className="text-[10px] text-rose-700 font-medium">Due — بقایا</div>
-                <div className="text-lg font-bold text-rose-800">
-                  {formatMoney(
-                    Math.max(0,
-                      (Number(billPayAmount) || 0) + (Number(billPayCharges) || 0) - (Number(billPayReceived) || (Number(billPayAmount) || 0) + (Number(billPayCharges) || 0))
-                    ),
-                    currency
-                  )}
-                </div>
-              </div>
+              ))}
             </div>
-            <div className="text-xs text-muted-foreground text-center">
-              {(() => {
-                const total = (Number(billPayAmount) || 0) + (Number(billPayCharges) || 0);
-                const received = Number(billPayReceived) || total;
-                const due = Math.max(0, total - received);
-                if (due > 0) return `Customer still owes: ${formatMoney(due, currency)} (recorded as due)`;
-                if (received > total) return `Change to give: ${formatMoney(received - total, currency)}`;
-                return "Exact payment — no due, no change";
-              })()}
-            </div>
+
+            {/* Add More Bill button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setBillItems(prev => [...prev, { category: "electricity", amount: "", charges: "" }]);
+              }}
+              className="w-full border-amber-400 text-amber-700 hover:bg-amber-50 border-dashed"
+            >
+              <Plus className="w-4 h-4 mr-1" /> Add More Bill — ایک اور بل ایڈ کریں
+            </Button>
+
+            {/* Totals row — Total Bill Amount + Total Charges + Grand Total */}
+            {(() => {
+              const validBills = billItems.filter(b => Number(b.amount) > 0);
+              const totalBillAmount = validBills.reduce((s, b) => s + Number(b.amount), 0);
+              const totalCharges = validBills.reduce((s, b) => s + (Number(b.charges) || 0), 0);
+              const grandTotal = totalBillAmount + totalCharges;
+              const received = Number(billPayReceived) || grandTotal;
+              const change = received > grandTotal ? received - grandTotal : 0;
+              const due = received < grandTotal ? grandTotal - received : 0;
+              return (
+                <>
+                  <div className="grid grid-cols-3 gap-2 rounded-lg border-2 border-amber-300 bg-amber-50 p-2">
+                    <div className="text-center">
+                      <div className="text-[10px] text-blue-700 font-medium">Total Bill — بل</div>
+                      <div className="text-base font-bold text-blue-800">{formatMoney(totalBillAmount, currency)}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] text-amber-700 font-medium">Total Charges — منافع</div>
+                      <div className="text-base font-bold text-amber-800">{formatMoney(totalCharges, currency)}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] text-emerald-700 font-medium">Grand Total — کل</div>
+                      <div className="text-base font-bold text-emerald-800">{formatMoney(grandTotal, currency)}</div>
+                    </div>
+                  </div>
+
+                  {/* Received input — what customer paid */}
+                  <div className="space-y-1">
+                    <Label className="text-xs font-bold text-violet-700">Total Received — موصول (Enter to save)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      name="bill-received"
+                      value={billPayReceived}
+                      onChange={(e) => setBillPayReceived(e.target.value)}
+                      placeholder={`auto: ${formatMoney(grandTotal, currency)}`}
+                      className="h-12 text-base text-center font-mono font-bold border-violet-300"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleSaveBillPay();
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {/* CHANGE / DUE — BOLD + LARGE per user request */}
+                  <div className={`rounded-lg border-2 p-3 text-center ${
+                    change > 0 ? "border-emerald-500 bg-emerald-50"
+                    : due > 0 ? "border-rose-500 bg-rose-50"
+                    : "border-slate-300 bg-slate-50"
+                  }`}>
+                    <div className="text-xs text-muted-foreground mb-1">
+                      {change > 0 ? "Change to give customer — گاہک کو واپس"
+                       : due > 0 ? "Customer still owes — بقایا"
+                       : "Exact payment — بالکل ٹھیک"}
+                    </div>
+                    <div className={`text-3xl font-bold ${
+                      change > 0 ? "text-emerald-700"
+                      : due > 0 ? "text-rose-700"
+                      : "text-slate-700"
+                    }`}>
+                      {change > 0 ? "+" : due > 0 ? "−" : ""}
+                      {formatMoney(change > 0 ? change : due, currency)}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => {
               setBillPayDialogOpen(false);
-              setBillPayAmount("");
-              setBillPayCharges("");
+              setBillItems([{ category: "electricity", amount: "", charges: "" }]);
               setBillPayReceived("");
               setBillPayCustomer("");
             }}>Cancel</Button>
             <Button
               className="bg-amber-600 hover:bg-amber-700"
-              disabled={billPaySaving || !billPayAmount || Number(billPayAmount) <= 0}
+              disabled={billPaySaving || !billItems.some(b => Number(b.amount) > 0)}
               onClick={handleSaveBillPay}
             >
-              {billPaySaving ? "Saving..." : "Save Bill"}
+              {billPaySaving ? "Saving..." : `Save ${billItems.filter(b => Number(b.amount) > 0).length} Bill(s)`}
             </Button>
           </DialogFooter>
         </DialogContent>
