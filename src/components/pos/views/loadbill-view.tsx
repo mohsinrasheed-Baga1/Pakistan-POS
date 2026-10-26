@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Smartphone, Plus, RefreshCw, Wallet, FileText, ArrowDownLeft, ArrowUpRight,
   TrendingUp, TrendingDown, CreditCard, BarChart3, DollarSign, Search, Phone,
-  PackageOpen, ArrowLeftRight, Banknote, ArrowDownToLine,
+  PackageOpen, ArrowLeftRight, Banknote, ArrowDownToLine, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -836,6 +836,14 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
   const [withdrawAmount, setWithdrawAmount] = React.useState("");
   const [withdrawNote, setWithdrawNote] = React.useState("");
   const [withdrawSaving, setWithdrawSaving] = React.useState(false);
+  // v2.10.116: Clear All Bills — deletes ALL bill payment transactions
+  // (bills + withdrawals). Useful when starting fresh (e.g., new fiscal
+  // year, end-of-month reset, or test data cleanup).
+  // User: "بل کا ٹوٹل سسٹم کلیئر کرنے کا بھی اپشن ہو یعنی کہ زیرو زیرو
+  // ہو جائے سارا اگر کرنا چاہیں"
+  const [clearAllOpen, setClearAllOpen] = React.useState(false);
+  const [clearAllConfirm, setClearAllConfirm] = React.useState("");
+  const [clearAllSaving, setClearAllSaving] = React.useState(false);
   const [category, setCategory] = React.useState("electricity");
   const [billAmount, setBillAmount] = React.useState("");
   const [charge, setCharge] = React.useState("");
@@ -931,6 +939,32 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
   const dueNum = parseFloat(due) || 0;
   const total = billNum + chargeNum;
 
+  // v2.10.116: Clear All Bills — deletes ALL BillPaymentTxn records
+  // (both positive bills and negative withdrawals).
+  // Requires the user to type "CLEAR" to confirm (prevents accidental
+  // destruction of data).
+  async function handleClearAll() {
+    if (clearAllConfirm.trim().toUpperCase() !== "CLEAR") {
+      toast.error('Type "CLEAR" to confirm');
+      return;
+    }
+    setClearAllSaving(true);
+    try {
+      const res = await fetch("/api/load-bill/bill-payment", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clearAll: true }),
+      });
+      const d = await res.json();
+      if (!res.ok) { toast.error(d.error || "Failed to clear bills"); setClearAllSaving(false); return; }
+      toast.success(`Cleared ${d.deletedCount || "all"} bill transactions. System reset to zero.`);
+      setClearAllOpen(false);
+      setClearAllConfirm("");
+      load(); onRefresh();
+    } catch { toast.error("Network error"); }
+    finally { setClearAllSaving(false); }
+  }
+
   async function handleSave() {
     if (billNum <= 0) { toast.error("Enter bill amount"); return; }
     setSaving(true);
@@ -954,6 +988,17 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5 text-emerald-600" /> Bill Payment</CardTitle>
           <div className="flex gap-2">
+            {/* v2.10.116: Clear All Bills button — destructive action,
+                requires typing "CLEAR" to confirm. */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-rose-300 text-rose-700 hover:bg-rose-50"
+              onClick={() => setClearAllOpen(true)}
+              title="Delete ALL bill transactions and reset to zero"
+            >
+              <Trash2 className="w-4 h-4 mr-1" /> Clear All
+            </Button>
             <Button size="sm" variant="outline" className="border-rose-500 text-rose-700 hover:bg-rose-50" onClick={() => setWithdrawOpen(true)}>
               <ArrowDownToLine className="w-4 h-4 mr-1" /> Withdraw
             </Button>
@@ -1165,6 +1210,80 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
               onClick={handleWithdraw}
             >
               {withdrawSaving ? "Withdrawing..." : `Withdraw Rs ${withdrawAmount ? parseFloat(withdrawAmount).toLocaleString() : "0"}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* v2.10.116: Clear All Bills Dialog — destructive action.
+          User: "بل کا ٹوٹل سسٹم کلیئر کرنے کا بھی اپشن ہو یعنی کہ زیرو
+          زیرو ہو جائے سارا اگر کرنا چاہیں"
+          Requires typing "CLEAR" to confirm — prevents accidental data loss. */}
+      <Dialog open={clearAllOpen} onOpenChange={(o) => {
+        if (!o) { setClearAllOpen(false); setClearAllConfirm(""); }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-700">
+              <Trash2 className="w-5 h-5" />
+              Clear All Bills — پورا سسٹم صفر کریں
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete ALL bill payment transactions (both bills
+              and withdrawals) and reset all totals to zero. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {/* Show what will be lost */}
+            <div className="rounded-lg border-2 border-rose-300 bg-rose-50 p-3 space-y-1">
+              <div className="text-sm font-bold text-rose-900 mb-1">
+                Summary of data that will be deleted:
+              </div>
+              <div className="flex justify-between text-xs text-rose-800">
+                <span>Total bills collected:</span>
+                <span className="font-bold">{totalCount} bills</span>
+              </div>
+              <div className="flex justify-between text-xs text-rose-800">
+                <span>Total bill amount:</span>
+                <span className="font-bold">Rs {totalBillAmount.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-xs text-rose-800">
+                <span>Total profit (charges):</span>
+                <span className="font-bold">Rs {totalCharges.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-xs text-rose-800">
+                <span>Total received:</span>
+                <span className="font-bold">Rs {totalCollected.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-xs text-rose-800">
+                <span>Total withdrawn:</span>
+                <span className="font-bold">Rs {totalWithdrawn.toLocaleString()}</span>
+              </div>
+            </div>
+            {/* Confirmation input */}
+            <div className="space-y-1">
+              <Label className="text-sm font-bold">
+                Type <span className="font-mono bg-rose-100 px-2 py-0.5 rounded">CLEAR</span> to confirm:
+              </Label>
+              <Input
+                value={clearAllConfirm}
+                onChange={(e) => setClearAllConfirm(e.target.value)}
+                placeholder="Type CLEAR"
+                autoFocus
+                className="h-10"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setClearAllOpen(false); setClearAllConfirm(""); }}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-rose-600 hover:bg-rose-700"
+              disabled={clearAllSaving || clearAllConfirm.trim().toUpperCase() !== "CLEAR"}
+              onClick={handleClearAll}
+            >
+              {clearAllSaving ? "Clearing..." : "Clear All Bills (Reset to Zero)"}
             </Button>
           </DialogFooter>
         </DialogContent>

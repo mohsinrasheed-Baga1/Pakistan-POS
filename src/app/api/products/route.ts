@@ -5,6 +5,23 @@ import { generateInternalBarcode } from "@/lib/pos-utils";
 import { generateProductCode, generateBarcodeValue } from "@/lib/product-code";
 import { generateBarcode } from "@/lib/barcode-engine";
 
+// v2.10.116: PERFORMANCE FIX — Products API was returning ALL products
+// without limit. With 1000+ products, this caused:
+//   - Heavy DB query (no LIMIT clause)
+//   - Large JSON payload over localhost
+//   - Slow client-side filtering for lowStock/expiry modes
+//   - React rendering 1000+ rows was very slow on the Products page
+//
+// FIX:
+//   1. Default limit=200, max=1000 (was unlimited)
+//   2. Server-side filtering for lowStock and expiry modes (was client-side)
+//   3. Returns 'total' count so client knows how many products exist
+//   4. Only selects category.name (was including entire category row)
+//   5. Only selects product fields needed for the list view
+// User: "جیسے جیسے ہم چیزیں ایڈ کرتے جاتے ہیں تو جب سٹور کے اندر ہم جا
+// کر کوئی نئی چیز چیک کرنے لگتے ہیں یا ایڈ کرنے لگتے ہیں تھوڑا سلو ہو
+// جاتا ہے تو اس کو زیادہ مزید بہتر بناؤ ذرا کہ یہ فاسٹ ہو جائے جہاں
+// جہاں پر سلو ہے ڈیٹا زیادہ ہے"
 export async function GET(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -13,6 +30,10 @@ export async function GET(req: NextRequest) {
   const categoryId = searchParams.get("categoryId") || "";
   const barcode = searchParams.get("barcode") || "";
   const lowStock = searchParams.get("lowStock") === "true";
+  // v2.10.116: New pagination + filter params
+  const limit = Math.min(Number(searchParams.get("limit")) || 200, 1000);
+  const offset = Number(searchParams.get("offset")) || 0;
+  const expiry = searchParams.get("expiry") === "true";
 
   const where: any = {};
   if (q) {
@@ -27,13 +48,71 @@ export async function GET(req: NextRequest) {
   if (lowStock) {
     where.stock = { lte: db.product.fields.minStock };
   }
+  // v2.10.116: Server-side expiry filter (was client-side)
+  if (expiry) {
+    const now = new Date();
+    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    where.expiryDate = { gte: now, lte: thirtyDaysLater };
+    // Note: this only catches EXPIRING products (within 30 days).
+    // Already-expired products (expiryDate < now) need a separate OR clause:
+    where.OR = [
+      ...(where.OR || []),
+      { expiryDate: { lt: now } },
+    ];
+  }
 
-  const products = await db.product.findMany({
-    where,
-    include: { category: true },
-    orderBy: { name: "asc" },
+  // v2.10.116: Use Promise.all to fetch products + count in parallel
+  // Only select category.name (not the entire category row) — saves JSON payload
+  const [products, total] = await Promise.all([
+    db.product.findMany({
+      where,
+      // v2.10.116: Only select fields needed for list view — saves payload
+      // and reduces DB query time. Full product details fetched on edit.
+      select: {
+        id: true,
+        name: true,
+        barcode: true,
+        barcodeType: true,
+        categoryId: true,
+        vendorId: true,
+        costPrice: true,
+        salePrice: true,
+        wholesalePrice: true,
+        shopkeeperPrice: true,
+        unit: true,
+        stock: true,
+        storeStock: true,
+        minStock: true,
+        taxRate: true,
+        expiryDate: true,
+        manufacturingDate: true,
+        hasBarcode: true,
+        image: true,
+        active: true,
+        packBarcode: true,
+        packQuantity: true,
+        packPrice: true,
+        productCode: true,
+        stickerSize: true,
+        inventorySource: true,
+        linkedStoreProductId: true,
+        createdAt: true,
+        updatedAt: true,
+        category: { select: { id: true, name: true } },
+      },
+      orderBy: { name: "asc" },
+      take: limit,
+      skip: offset,
+    }),
+    db.product.count({ where }),
+  ]);
+  return NextResponse.json({
+    products,
+    total,
+    limit,
+    offset,
+    hasMore: offset + products.length < total,
   });
-  return NextResponse.json({ products });
 }
 
 export async function POST(req: NextRequest) {

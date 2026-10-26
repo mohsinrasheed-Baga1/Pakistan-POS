@@ -136,6 +136,9 @@ export function ProductsView({ userRole }: ProductsViewProps) {
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
   const [editProduct, setEditProduct] = React.useState<Product | null>(null);
+  // v2.10.116: Track total count + hasMore for pagination support
+  const [totalCount, setTotalCount] = React.useState(0);
+  const [visibleCount, setVisibleCount] = React.useState(0);
 
   const loadProducts = React.useCallback(async () => {
     setLoading(true);
@@ -143,17 +146,24 @@ export function ProductsView({ userRole }: ProductsViewProps) {
       const params = new URLSearchParams();
       if (q) params.set("q", q);
       if (activeCat !== "all") params.set("categoryId", activeCat);
+      // v2.10.116: Server-side filter modes (was client-side) — much faster
+      if (filterMode === "lowStock") params.set("lowStock", "true");
+      if (filterMode === "expiry") params.set("expiry", "true");
+      // v2.10.116: Default limit=200 (was unlimited — caused slowness with 1000+ products)
+      params.set("limit", "200");
       const res = await fetch(`/api/products?${params.toString()}`, {
         cache: "no-store",
       });
       const data = await res.json();
       setProducts(data.products || []);
+      setTotalCount(data.total || 0);
+      setVisibleCount((data.products || []).length);
     } catch {
       toast.error("Failed to load products");
     } finally {
       setLoading(false);
     }
-  }, [q, activeCat]);
+  }, [q, activeCat, filterMode]);
 
   const loadCategories = React.useCallback(async () => {
     try {
@@ -401,22 +411,14 @@ export function ProductsView({ userRole }: ProductsViewProps) {
       <Card>
         <CardContent className="p-0">
           {(() => {
-            // Apply client-side filtering based on filterMode
-            const filteredProducts = products.filter((p) => {
-              if (filterMode === "lowStock") {
-                return p.stock <= (p.minStock || 0);
-              }
-              if (filterMode === "expiry") {
-                if (!p.expiryDate) return false;
-                const d = new Date(p.expiryDate);
-                if (isNaN(d.getTime())) return false;
-                const now = new Date();
-                const diffMs = d.getTime() - now.getTime();
-                const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-                return days <= 30; // expired or expiring within 30 days
-              }
-              return true; // "all" — no filtering
-            });
+            // v2.10.116: filterMode is now applied SERVER-SIDE (loadProducts
+            // sends lowStock=true or expiry=true to the API). Client-side
+            // filtering is no longer needed — products already match the
+            // filter mode. This makes the page MUCH faster with 1000+ products
+            // because we don't filter thousands of rows in the browser.
+            // (We keep the variable name for backward compat with the rest
+            // of the file, but the filter is already applied at the API.)
+            const filteredProducts = products;
 
             // v2.10.78: Build a map of piece-barcode → linked box product
             // so we can show "X sealed boxes + Y loose pieces" breakdown

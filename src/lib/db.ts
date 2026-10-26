@@ -268,6 +268,17 @@ CREATE TABLE IF NOT EXISTS Product (
   FOREIGN KEY (vendorId) REFERENCES Vendor(id) ON DELETE SET NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS Product_barcode_key ON Product(barcode);
+-- v2.10.116: Performance indexes — speeds up product search by name/code,
+-- and active-products listing. Critical when product count grows to 1000+
+-- (user reported slow store page when adding many items).
+CREATE INDEX IF NOT EXISTS Product_name_idx ON Product(name);
+CREATE INDEX IF NOT EXISTS Product_productCode_idx ON Product(productCode);
+CREATE INDEX IF NOT EXISTS Product_active_idx ON Product(active);
+CREATE INDEX IF NOT EXISTS Product_categoryId_idx ON Product(categoryId);
+CREATE INDEX IF NOT EXISTS Product_inventorySource_idx ON Product(inventorySource);
+CREATE INDEX IF NOT EXISTS Product_linkedStoreProductId_idx ON Product(linkedStoreProductId);
+-- Compound index for the most common POS search query
+CREATE INDEX IF NOT EXISTS Product_active_name_idx ON Product(active, name);
 
 CREATE TABLE IF NOT EXISTS Sale (
   id TEXT PRIMARY KEY NOT NULL,

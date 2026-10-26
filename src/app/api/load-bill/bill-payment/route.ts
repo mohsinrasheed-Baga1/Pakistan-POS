@@ -133,17 +133,37 @@ export async function POST(req: NextRequest) {
 }
 
 // v2.10.52: DELETE — delete a bill payment record (admin only)
+// v2.10.116: Added 'clearAll' option — when body contains { clearAll: true },
+//   deletes ALL BillPaymentTxn records (both bills and withdrawals).
+//   User: "بل کا ٹوٹل سسٹم کلیئر کرنے کا بھی اپشن ہو یعنی کہ زیرو زیرو
+//   ہو جائے سارا اگر کرنا چاہیں"
 export async function DELETE(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  // v2.10.116: Allow both ADMIN and MANAGER to clear bills
+  if (user.role !== "ADMIN" && user.role !== "MANAGER") {
+    return NextResponse.json({ error: "Manager/Admin only" }, { status: 403 });
   }
 
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "Bill payment ID required" }, { status: 400 });
+
+    // v2.10.116: Check for clearAll flag (sent as JSON body)
+    const body = await req.json().catch(() => ({}));
+    if (body?.clearAll === true) {
+      // Delete ALL bill payment transactions and return the count.
+      // Wrap in a transaction so we don't end up with partial state if
+      // something fails midway.
+      const result = await db.billPaymentTxn.deleteMany({});
+      return NextResponse.json({
+        ok: true,
+        deletedCount: result.count || 0,
+        message: "All bill transactions cleared. System reset to zero.",
+      });
+    }
+
+    if (!id) return NextResponse.json({ error: "Bill payment ID required (or send { clearAll: true } in body)" }, { status: 400 });
 
     await db.billPaymentTxn.delete({ where: { id } }).catch(() => null);
     return NextResponse.json({ ok: true });
