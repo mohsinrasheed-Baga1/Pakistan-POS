@@ -291,12 +291,16 @@ function exchangeCodeForTokens(code) {
   });
 }
 
+// v2.10.119: Fixed refreshAccessToken — added 15s timeout + better error
+//   messages. The "Refresh failed" error was too generic — now includes
+//   the actual Google error response so the user knows what went wrong.
+//   Also handles network errors gracefully.
 function refreshAccessToken() {
   return new Promise((resolve, reject) => {
     const cfg = loadConfig();
     const tokens = loadTokens();
     if (!tokens || !tokens.refresh_token) {
-      reject(new Error("Not connected"));
+      reject(new Error("Not connected to Google Drive. Click 'Connect' to re-authorize."));
       return;
     }
     const postData =
@@ -304,6 +308,9 @@ function refreshAccessToken() {
       `&client_secret=${encodeURIComponent(cfg.clientSecret)}` +
       `&refresh_token=${encodeURIComponent(tokens.refresh_token)}` +
       `&grant_type=refresh_token`;
+
+    // v2.10.119: 15s timeout — prevents hanging forever
+    let timedOut = false;
 
     const req = https.request(
       {
@@ -319,6 +326,7 @@ function refreshAccessToken() {
         let body = "";
         res.on("data", (c) => (body += c));
         res.on("end", () => {
+          if (timedOut) return;
           try {
             const data = JSON.parse(body);
             if (data.access_token) {
@@ -327,15 +335,35 @@ function refreshAccessToken() {
               saveTokens(tokens);
               resolve(tokens);
             } else {
-              reject(new Error("Refresh failed"));
+              // v2.10.119: Include Google's error response in the message
+              const errMsg = data.error_description || data.error || "Unknown Google error";
+              console.warn("[gdrive] Token refresh failed:", errMsg, "— full response:", body.substring(0, 300));
+              // If the refresh token is invalid/expired, suggest reconnecting
+              if (data.error === "invalid_grant") {
+                reject(new Error("Google Drive token expired — please Disconnect and reconnect Google Drive."));
+              } else {
+                reject(new Error("Token refresh failed: " + errMsg));
+              }
             }
           } catch (e) {
-            reject(e);
+            reject(new Error("Token refresh failed: invalid Google response — " + e.message));
           }
         });
       }
     );
-    req.on("error", reject);
+
+    req.on("error", (err) => {
+      if (timedOut) return;
+      reject(new Error("Network error during token refresh: " + err.message + " — check internet connection."));
+    });
+
+    // v2.10.119: 15s timeout
+    const timer = setTimeout(() => {
+      timedOut = true;
+      req.destroy();
+      reject(new Error("Token refresh timed out after 15 seconds — check internet connection."));
+    }, 15000);
+
     req.write(postData);
     req.end();
   });
@@ -450,8 +478,14 @@ async function uploadBackup(dbPath) {
   // Read + compress DB
   const dbData = fs.readFileSync(dbPath);
   const compressed = zlib.gzipSync(dbData);
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const filename = `pos-backup-${timestamp}.db.gz`;
+  // v2.10.119: FIX — was using .replace(/[:.]/g, "-") which created an
+  //   INVALID ISO date (e.g. "2026-10-27T12-00-00-000Z"). The dashes
+  //   make new Date(...) return "Invalid Date" in the frontend.
+  //   Now store BOTH: a valid ISO timestamp AND a safe filename.
+  const now = new Date();
+  const isoTimestamp = now.toISOString(); // valid ISO: "2026-10-27T12:00:00.000Z"
+  const safeFilename = isoTimestamp.replace(/[:.]/g, "-"); // for filename only
+  const filename = `pos-backup-${safeFilename}.db.gz`;
 
   // Multipart upload
   const boundary = "POS" + Math.random().toString(36).substring(2);
@@ -484,7 +518,9 @@ async function uploadBackup(dbPath) {
   const data = JSON.parse(res.body.toString());
   if (data.id) {
     // Save backup record locally
-    saveBackupRecord({ id: data.id, name: filename, size: compressed.length, date: timestamp, cloud: true });
+    // v2.10.119: Store valid ISO timestamp (was using the dash-replaced
+    //   version which caused "Invalid Date" in the frontend)
+    saveBackupRecord({ id: data.id, name: filename, size: compressed.length, date: isoTimestamp, cloud: true });
     return { ok: true, fileId: data.id, name: filename, size: compressed.length };
   }
   throw new Error("Upload failed: " + (data.error?.message || "Unknown response from Google Drive"));

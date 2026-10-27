@@ -3904,7 +3904,22 @@ function CloudBackupCard() {
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Last Backup:</span>
             <span className="font-medium">
-              {new Date(status.lastBackup.date).toLocaleString()}
+              {/* v2.10.119: Handle both old (dash-replaced) and new (valid ISO)
+                  date formats. Old format had colons replaced with dashes
+                  (e.g. "2026-10-27T12-00-00-000Z") which returns Invalid Date.
+                  Try parsing as-is first, then fall back to replacing dashes
+                  back to colons for old records. */}
+              {(() => {
+                const d = new Date(status.lastBackup.date);
+                if (!isNaN(d.getTime())) return d.toLocaleString();
+                // Try fixing old format: replace dashes with colons in the time part
+                const fixed = status.lastBackup.date.replace(
+                  /(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})/,
+                  "$1T$2:$3:$4"
+                );
+                const d2 = new Date(fixed);
+                return !isNaN(d2.getTime()) ? d2.toLocaleString() : "Unknown";
+              })()}
             </span>
           </div>
         )}

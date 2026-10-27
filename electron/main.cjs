@@ -657,11 +657,15 @@ if (!gotLock) {
 
   // IPC: Get last auto-backup status (for UI display)
   ipcMain.handle("gdrive:backup-status", async () => {
+    // v2.10.119: Fix — AUTO_BACKUP_INTERVAL_MS was removed in v2.10.103
+    //   but still referenced here → ReferenceError. Replace with a safe
+    //   hardcoded value (4 hours = 14400000 ms — the old default).
+    const BACKUP_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
     return {
       lastBackupAt: lastAutoBackup > 0 ? new Date(lastAutoBackup).toISOString() : null,
       lastError: lastBackupError,
       connected: gdrive.getStatus().connected,
-      nextScheduledIn: Math.max(0, AUTO_BACKUP_INTERVAL_MS - (Date.now() - lastAutoBackup)),
+      nextScheduledIn: Math.max(0, BACKUP_INTERVAL - (Date.now() - lastAutoBackup)),
     };
   });
 
