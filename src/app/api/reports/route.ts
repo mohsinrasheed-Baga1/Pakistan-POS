@@ -316,28 +316,38 @@ export async function GET(req: NextRequest) {
   // ─── v2.10.108: CASH ON HAND CALCULATION ──────────────────────────────
   // Total cash physically present in the shop's cash drawer.
   //
-  // v2.10.113: REVISED per user request — LoadBill Management totals
-  //   (wallet SEND/RECEIVE, customer card top-up deposits, bill collection,
-  //   load companies, all that lenden system) should NOT appear in Reports.
+  // v2.10.113: REVISED — LoadBill Management totals (wallet SEND/RECEIVE,
+  //   bill collection, load companies) should NOT appear in Reports.
   //   Reports should only reflect the basic karyana (grocery) cash flow.
-  //   The LoadBill Management has its own totals inside its tab.
-  //   User: "بل اینڈ لور مینجمنٹ کے ٹوٹل جو سسٹم ہے اس کا پرافٹ اس کا
-  //   لین دین کا سارا نظام کیش وڈرا کا ڈپوزٹ اور باقی ساری سمز کا لوڈ
-  //   کا کمپنیز کا لوڈ کا پورا سسٹم رپورٹ کے اندر حساب تھا اس کا نہیں
-  //   ہوگا"
   //
-  // Formula (karyana-only cash flow):
+  // v2.10.117: CRITICAL FIX — cashDeposits (CUSTOMER CARD TOP-UPS) were
+  //   incorrectly removed in v2.10.113 along with the LoadBill Management
+  //   stuff. But customer card top-ups are NOT part of LoadBill Management —
+  //   they're part of Shop Cards (CustomerCard ledger). When a customer
+  //   physically hands cash to the shopkeeper to deposit on their card,
+  //   that cash IS in the shop's drawer and SHOULD be in Cash in Hand.
+  //   User: "جو میں نے کھاتے تھے ویسے ریسیو کیے ہیں 10 ہزار روپیہ تو وہ
+  //   کیش کے اندر شامل نہیں ہوا اور کیش ان ہینڈ کے اندر بھی شامل نہیں
+  //   ہوا جو نقد ہے اس میں 10 ہزار شامل ہونا چاہیے تھا. جو نیچے کیش
+  //   رسید سودا تو کسٹمر سے واپس لیے یعنی کہ کسٹمر ڈیپوزٹ جو شاپ کار سے
+  //   سودا لے کر گئے تھے اور واپس پیسے جمع کروائے ہیں اپنے کارڈ کے
+  //   اندر ڈیپوزٹ کروائے ہیں اسے درست کرو"
+  //   Fix: Add cashDeposits BACK to the cashOnHand formula. Cash deposits
+  //   (Rs 10,000 in screenshot) come from CardTransaction (type=DEPOSIT)
+  //   — these are the shopkeeper's own customer ledger top-ups.
+  //
+  // Formula:
   //   opening cash (today's CashEntry OPENING)
   // + cash sales in range (paymentMethod=CASH, status=COMPLETED)
+  // + cash deposits in range (customer card top-ups with cash)
   // - CASH returns in range (only cash payment refunds)
   // + manual cash IN entries (CashEntry CASH_IN)
   // - manual cash OUT entries (CashEntry CASH_OUT)
   // - cash purchases in range (stock buying with cash)
-  // = Cash in Hand (Karyana only)
+  // = Cash in Hand
   //
-  // Removed from cashOnHand (now in LoadBill Management only):
+  // Still removed from cashOnHand (LoadBill Management only):
   //   - wallet SEND/RECEIVE
-  //   - customer card top-up deposits (cashDeposits)
   //   - bill collection totals
   //   - load companies totals
   //
@@ -353,13 +363,22 @@ export async function GET(req: NextRequest) {
   const manualCashIn = cashEntries.filter(e => e.type === "CASH_IN").reduce((s, e) => s + e.amount, 0);
   const manualCashOut = cashEntries.filter(e => e.type === "CASH_OUT").reduce((s, e) => s + e.amount, 0);
 
-  // v2.10.113: cashOnHand is now KARYANA-ONLY — no wallet/card deposits.
-  //   The wallet SEND/RECEIVE and customer card top-up deposits are
-  //   LoadBill Management data — they have their own totals in LoadBill
-  //   tab. Removed from Reports per user request.
+  // v2.10.117: Sum of cash deposits (customer card top-ups with cash).
+  //   cashDepositsList is computed earlier in this function — it includes
+  //   CardTransaction records with type=DEPOSIT, where the description
+  //   is prefixed with "[CASH]" or "[جائز کیش]".
+  //   totalCashDeposits here = sum of BOTH [CASH] + [جائز کیش] (existing
+  //   `totalCashDeposits` variable from earlier code only counts [CASH] —
+  //   we need both because both are physical cash drawer inflows).
+  const totalCashDepositsInDrawer = totalCashDeposits + totalLegitimateCash;
+
+  // v2.10.117: cashOnHand now includes cashDeposits again — customer
+  //   card top-ups ARE cash drawer inflows (the customer handed cash
+  //   to the shopkeeper to deposit on their card balance).
   const cashOnHand =
     openingCash +
     cashSales +
+    totalCashDepositsInDrawer +  // v2.10.117: customer card top-ups with cash
     manualCashIn -
     manualCashOut -
     cashReturnsAmount -
@@ -424,13 +443,17 @@ export async function GET(req: NextRequest) {
       list: cashDepositsList,
     },
     // v2.10.108: CASH ON HAND — total cash physically in the drawer
-    // v2.10.113: KARYANA-ONLY — removed wallet/cashDeposits breakdown
-    //   per user request. Reports should only reflect grocery cash flow.
-    //   LoadBill Management has its own totals inside its tab.
+    // v2.10.113: KARYANA-ONLY — removed wallet breakdown per user request.
+    //   Reports should only reflect grocery cash flow. LoadBill Management
+    //   has its own totals inside its tab.
+    // v2.10.117: cashDeposits (customer card top-ups with cash) ADDED BACK
+    //   — these are NOT LoadBill Management data, they're Shop Cards data.
+    //   Customer physically handed cash to shopkeeper → cash is in drawer.
     cashOnHand: {
       total: cashOnHand,
       opening: openingCash,
       cashSales,
+      cashDeposits: totalCashDepositsInDrawer,  // v2.10.117: customer card top-ups
       cashReturns: cashReturnsAmount,  // v2.10.109: only CASH refunds
       totalReturns: totalReturnsAmount,  // all refunds (informational)
       manualCashIn,
