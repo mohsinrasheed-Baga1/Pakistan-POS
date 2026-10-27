@@ -529,13 +529,17 @@ if (!gotLock) {
   //   User: "ایک دن 12 بجے اور ایک رات اٹھ بجے بیک اپ انٹرنیٹ پہ بھیجنا چاہیے"
   //   Also: removed "after each sale" trigger that was causing hourly backups.
   //   Also: removed the hourly interval check — now checks every 10 min.
+  // v2.10.118: IMPROVED — check every 5 min (was 10 min), 15 min tolerance
+  //   (was 5 min) so we don't miss the window if app was busy at the
+  //   scheduled time. Also retry failed backup every 15 min (was 30 min).
+  //   User: "گوگل ڈرائیو کے اندر بیک اپ نہیں ہو رہا اٹومیٹکلی"
   let backupTimer = null;
   let lastAutoBackup = 0;
   let lastBackupError = null;
   const BACKUP_HOURS = [12, 20]; // 12pm and 8pm
-  const BACKUP_CHECK_INTERVAL_MS = 10 * 60 * 1000; // Check every 10 min
-  const BACKUP_TIME_TOLERANCE_MS = 5 * 60 * 1000; // 5 min window
-  const AUTO_BACKUP_RETRY_MS = 30 * 60 * 1000; // Retry after 30 min on failure
+  const BACKUP_CHECK_INTERVAL_MS = 5 * 60 * 1000; // v2.10.118: Check every 5 min (was 10)
+  const BACKUP_TIME_TOLERANCE_MS = 15 * 60 * 1000; // v2.10.118: 15 min window (was 5)
+  const AUTO_BACKUP_RETRY_MS = 15 * 60 * 1000; // v2.10.118: Retry after 15 min (was 30)
 
   function getLastBackupPath() {
     return path.join(app.getPath("userData"), "last-gdrive-backup.json");

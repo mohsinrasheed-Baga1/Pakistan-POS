@@ -352,6 +352,17 @@ async function getValidAccessToken() {
 
 // ---- Drive API ----
 
+// v2.10.118: Added 30s timeout + better error messages for backup failures.
+// User: "گوگل ڈرائیو کے اندر بیک اپ نہیں ہو رہا اٹومیٹکلی اور جب میں بیک اپ
+// کرنے کی بیک اپ نہ ہو بٹن پر کلک کرتا ہوں تو ریفریش فیلڈ ا جاتا ہے"
+// (Google Drive auto-backup not working; manual backup button shows
+// 'refresh failed' error)
+// Root cause: driveRequest had NO timeout, so if Google API was slow or
+// the network was unstable, the request would hang forever and the user
+// would see a generic 'failed' error. Now we:
+//   1. Add 30s timeout per request
+//   2. Return clearer error messages (status code + body)
+//   3. Handle non-2xx responses properly (was treating 401/500 as success)
 function driveRequest(method, path, headers, body) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -360,15 +371,44 @@ function driveRequest(method, path, headers, body) {
       method: method,
       headers: headers || {},
     };
+
+    // v2.10.118: 30s timeout — prevents hanging forever
+    const timeoutMs = 30000;
+    let timedOut = false;
+
     const req = https.request(options, (res) => {
       const chunks = [];
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => {
+        if (timedOut) return; // already rejected
         const buf = Buffer.concat(chunks);
-        resolve({ status: res.statusCode, headers: res.headers, body: buf });
+        const status = res.statusCode;
+        // v2.10.118: Log non-2xx responses for debugging
+        if (status < 200 || status >= 300) {
+          const bodyStr = buf.toString().substring(0, 500);
+          console.warn(`[gdrive] ${method} ${path} → ${status}: ${bodyStr}`);
+        }
+        resolve({ status, headers: res.headers, body: buf });
       });
     });
-    req.on("error", reject);
+
+    req.on("error", (err) => {
+      if (timedOut) return;
+      reject(new Error(`Network error: ${err.message}`));
+    });
+
+    // v2.10.118: Set timeout — reject if request takes too long
+    const timer = setTimeout(() => {
+      timedOut = true;
+      req.destroy(); // abort the request
+      reject(new Error("Request timed out after 30 seconds (check internet connection)"));
+    }, timeoutMs);
+
+    // Clear timeout when response arrives (so we don't fire spuriously)
+    req.on("response", () => {
+      clearTimeout(timer);
+    });
+
     if (body) req.write(body);
     req.end();
   });
@@ -430,13 +470,24 @@ async function uploadBackup(dbPath) {
     "Content-Length": body.length,
   }, body);
 
+  // v2.10.118: Handle non-2xx responses properly
+  if (res.status < 200 || res.status >= 300) {
+    const errBody = res.body.toString().substring(0, 500);
+    let errMsg = `Upload failed (HTTP ${res.status})`;
+    try {
+      const parsed = JSON.parse(res.body.toString());
+      if (parsed.error?.message) errMsg = `Upload failed: ${parsed.error.message}`;
+    } catch {}
+    throw new Error(errMsg + (errBody ? ` — ${errBody}` : ""));
+  }
+
   const data = JSON.parse(res.body.toString());
   if (data.id) {
     // Save backup record locally
     saveBackupRecord({ id: data.id, name: filename, size: compressed.length, date: timestamp, cloud: true });
     return { ok: true, fileId: data.id, name: filename, size: compressed.length };
   }
-  throw new Error("Upload failed: " + (data.error?.message || "Unknown"));
+  throw new Error("Upload failed: " + (data.error?.message || "Unknown response from Google Drive"));
 }
 
 async function listCloudBackups() {

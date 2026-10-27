@@ -48,26 +48,30 @@ export async function PUT(
 
   const card = await db.customerCard.update({ where: { id }, data });
 
-  // v2.10.40: Sync updated card to Supabase (await — same as POST route)
-  let syncWarning: string | null = null;
-  try {
-    const { syncCard } = await import("@/lib/supabase-sync");
-    await syncCard({
-      cardNumber: card.cardNumber,
-      name: card.name,
-      phone: card.phone || null,
-      address: card.address || null,
-      type: card.type,
-      balance: card.balance,
-      active: card.active,
-    });
-    console.log("[Cards PUT] Card synced to cloud:", card.cardNumber);
-  } catch (e: any) {
-    console.error("[Cards PUT] Sync failed (local save OK):", e?.message);
-    syncWarning = "Card saved locally but cloud sync failed.";
-  }
+  // v2.10.118: NON-BLOCKING SYNC — return the card IMMEDIATELY so the
+  // user doesn't have to wait for Supabase sync. Fire sync in the background.
+  //   User: "جب کسٹمر کارڈ کے اندر کیش یا کیش اؤٹ کرتے ہیں تو اس وقت بھی
+  //   سائنس ہوتا رہتا ہے تو یہ ہر ٹائم سائنس نہیں ہونا چاہیے سائنس بیک اپ
+  //   پہ ہوتا رہنا چاہیے"
+  Promise.resolve().then(async () => {
+    try {
+      const { syncCard } = await import("@/lib/supabase-sync");
+      await syncCard({
+        cardNumber: card.cardNumber,
+        name: card.name,
+        phone: card.phone || null,
+        address: card.address || null,
+        type: card.type,
+        balance: card.balance,
+        active: card.active,
+      });
+      console.log("[Cards PUT bg-sync] ✓ Card synced to cloud:", card.cardNumber);
+    } catch (e: any) {
+      console.warn("[Cards PUT bg-sync] Failed (non-fatal, local save OK):", e?.message || e);
+    }
+  }).catch(() => {});
 
-  return NextResponse.json({ card, syncWarning });
+  return NextResponse.json({ card, syncWarning: null });
 }
 
 export async function DELETE(

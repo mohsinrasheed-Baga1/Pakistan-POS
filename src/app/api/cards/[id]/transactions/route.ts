@@ -148,73 +148,68 @@ export async function POST(
       return { transaction, card: updatedCard };
     });
 
-    // v2.10.51: Sync transaction + new balance to Supabase (cloud)
-    // This was MISSING — deposits were only saved locally, so the customer
-    // card QR page showed wrong balance (only sales deducted, no deposits added).
-    try {
-      const { getShopSupabaseAsync } = await import("@/lib/supabase-sync");
-      const sb = await getShopSupabaseAsync();
-      if (sb) {
-        const cardNumber = result.card.cardNumber;
+    // v2.10.118: NON-BLOCKING SYNC — return the transaction IMMEDIATELY so
+    // the user doesn't have to wait 30 seconds for Supabase sync. Fire sync
+    // in the background. If it fails (no internet, etc.), the transaction is
+    // still saved locally and will sync on next Google Drive backup.
+    //   User: "جب ہم کسٹمر کارڈ کے اندر کیش یا کیش اؤٹ کرتے ہیں تو اس وقت
+    //   بھی سائنس ہوتا رہتا ہے تو یہ ہر ٹائم سائنس نہیں ہونا چاہیے سائنس
+    //   بیک اپ پہ ہوتا رہنا چاہیے"
+    //   + "وہ اکثر پیسے جمع کرتے وقت کافی ٹائم لیتا ہے 30 سیکنڈ لے جاتا ہے"
+    Promise.resolve().then(async () => {
+      try {
+        const { getShopSupabaseAsync } = await import("@/lib/supabase-sync");
+        const sb = await getShopSupabaseAsync();
+        if (sb) {
+          const cardNumber = result.card.cardNumber;
 
-        // 1) Upsert the card with the NEW (correct) balance from local DB
-        const { error: cardSyncError } = await sb.from("customer_cards").upsert({
-          card_number: cardNumber,
-          customer_name: result.card.name,
-          customer_phone: result.card.phone || null,
-          customer_address: result.card.address || null,
-          balance: result.card.balance, // ← NEW balance (local is the source of truth)
-          card_type: result.card.type || "REGULAR",
-          is_active: result.card.active !== false,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "card_number" });
-
-        if (cardSyncError) {
-          console.warn("[txn sync] card upsert failed:", cardSyncError.message);
-        } else {
-          console.log("[txn sync] ✓ card balance synced:", cardNumber, "=", result.card.balance);
-        }
-
-        // 2) Insert the transaction record with signed amount
-        //    DEPOSIT/CREDIT/REFUND → positive (money added to card)
-        //    WITHDRAWAL/PURCHASE/PAYMENT/DEBIT → negative (money taken from card)
-        //    ADJUSTMENT → 0 (just sets balance; skip txn record since old balance is unknown)
-        if (type !== "ADJUSTMENT") {
-          const signedAmount = ["DEPOSIT", "CREDIT", "REFUND"].includes(type)
-            ? parsedAmount
-            : -parsedAmount;
-
-          // v2.10.60: Map local transaction types to Supabase's allowed types.
-          // The card_transactions table has a CHECK constraint that only allows
-          // specific type values. We tested and found: 'sale' and 'topup' work.
-          // All other types (deposit, withdrawal, etc.) are rejected with error
-          // code 23514 (check constraint violation).
-          // Map:
-          //   DEPOSIT/CREDIT/REFUND → 'topup' (money added, positive amount)
-          //   WITHDRAWAL/PURCHASE/PAYMENT/DEBIT → 'sale' (money taken, negative amount)
-          const supabaseType = ["DEPOSIT", "CREDIT", "REFUND"].includes(type)
-            ? "topup"
-            : "sale";
-
-          const { error: txnSyncError } = await sb.from("card_transactions").upsert({
+          // 1) Upsert the card with the NEW (correct) balance from local DB
+          const { error: cardSyncError } = await sb.from("customer_cards").upsert({
             card_number: cardNumber,
-            amount: signedAmount,
-            type: supabaseType,
-            description: description?.toString().trim() || type,
-            created_at: new Date().toISOString(),
-          }, { onConflict: "created_at" });
+            customer_name: result.card.name,
+            customer_phone: result.card.phone || null,
+            customer_address: result.card.address || null,
+            balance: result.card.balance,
+            card_type: result.card.type || "REGULAR",
+            is_active: result.card.active !== false,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "card_number" });
 
-          if (txnSyncError) {
-            console.warn("[txn sync] txn upsert failed:", txnSyncError.message);
+          if (cardSyncError) {
+            console.warn("[txn bg-sync] card upsert failed:", cardSyncError.message);
           } else {
-            console.log("[txn sync] ✓ transaction synced:", cardNumber, type, signedAmount);
+            console.log("[txn bg-sync] ✓ card balance synced:", cardNumber, "=", result.card.balance);
+          }
+
+          // 2) Insert the transaction record with signed amount
+          if (type !== "ADJUSTMENT") {
+            const signedAmount = ["DEPOSIT", "CREDIT", "REFUND"].includes(type)
+              ? parsedAmount
+              : -parsedAmount;
+            const supabaseType = ["DEPOSIT", "CREDIT", "REFUND"].includes(type)
+              ? "topup"
+              : "sale";
+
+            const { error: txnSyncError } = await sb.from("card_transactions").upsert({
+              card_number: cardNumber,
+              amount: signedAmount,
+              type: supabaseType,
+              description: description?.toString().trim() || type,
+              created_at: new Date().toISOString(),
+            }, { onConflict: "created_at" });
+
+            if (txnSyncError) {
+              console.warn("[txn bg-sync] txn upsert failed:", txnSyncError.message);
+            } else {
+              console.log("[txn bg-sync] ✓ transaction synced:", cardNumber, type, signedAmount);
+            }
           }
         }
+      } catch (syncErr: any) {
+        // Non-fatal — local save already succeeded
+        console.warn("[txn bg-sync] Cloud sync failed (non-fatal):", syncErr?.message);
       }
-    } catch (syncErr: any) {
-      // Non-fatal — local save already succeeded
-      console.warn("[txn sync] Cloud sync failed (non-fatal):", syncErr?.message);
-    }
+    }).catch(() => {});
 
     return NextResponse.json(result, { status: 201 });
   } catch (error: any) {
