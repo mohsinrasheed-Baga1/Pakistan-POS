@@ -21,6 +21,7 @@ import {
   CreditCard,
   Banknote,
   ShieldCheck,
+  FileText,  // v2.10.121: Fix — was missing, caused Reports page crash
 } from "lucide-react";
 import { format } from "date-fns";
 import {
