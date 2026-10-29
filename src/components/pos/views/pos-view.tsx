@@ -113,6 +113,9 @@ export function PosView({ settings }: PosViewProps) {
   }>>([{ category: "electricity", amount: "", charges: "" }]);
   const [billPayReceived, setBillPayReceived] = React.useState("");
   const [billPaySaving, setBillPaySaving] = React.useState(false);
+  // v2.10.120: Refs for bill payment inputs — used for auto-focus on
+  // "Add More Bill" and arrow key navigation (Right=Tab, Left=Shift+Tab).
+  const billInputRefs = React.useRef<(HTMLInputElement | null)[]>([]);
   // -1 means NO product is highlighted. Only after the user starts typing
   // in the search box do we auto-highlight the first match (index 0).
   // This prevents the first product from being accidentally added to cart
@@ -3178,9 +3181,31 @@ export function PosView({ settings }: PosViewProps) {
                       }}
                       placeholder="Bill"
                       autoFocus={idx === 0}
+                      // v2.10.120: Ref for auto-focus + arrow key navigation
+                      ref={(el) => { billInputRefs.current[idx] = el; }}
                       className="h-9 text-sm text-center font-mono font-bold border-amber-300"
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") {
+                        // v2.10.120: Arrow key navigation
+                        // Right arrow = Tab (next field)
+                        // Left arrow = Shift+Tab (previous field)
+                        // Home = first bill amount input
+                        if (e.key === "ArrowRight") {
+                          e.preventDefault();
+                          // Move to charges input of same row
+                          const charges = (e.target as HTMLElement).closest("div")?.parentElement?.querySelector('input[name="bill-charges-' + idx + '"]') as HTMLInputElement;
+                          charges?.focus();
+                        } else if (e.key === "ArrowLeft") {
+                          e.preventDefault();
+                          // Move to previous input (charges of previous row, or amount of same row if idx > 0)
+                          if (idx > 0) {
+                            const prevCharges = document.querySelector('input[name="bill-charges-' + (idx - 1) + '"]') as HTMLInputElement;
+                            prevCharges?.focus();
+                          }
+                        } else if (e.key === "Home") {
+                          e.preventDefault();
+                          billInputRefs.current[0]?.focus();
+                          billInputRefs.current[0]?.select();
+                        } else if (e.key === "Enter") {
                           e.preventDefault();
                           // Move focus to charges input of same row
                           const next = (e.target as HTMLElement).closest("div")?.parentElement?.querySelector('input[name="bill-charges-' + idx + '"]') as HTMLInputElement;
@@ -3228,7 +3253,13 @@ export function PosView({ settings }: PosViewProps) {
               variant="outline"
               size="sm"
               onClick={() => {
+                const newIdx = billItems.length;
                 setBillItems(prev => [...prev, { category: "electricity", amount: "", charges: "" }]);
+                // v2.10.120: Auto-focus the new bill's amount input
+                setTimeout(() => {
+                  billInputRefs.current[newIdx]?.focus();
+                  billInputRefs.current[newIdx]?.select();
+                }, 100);
               }}
               className="w-full border-amber-400 text-amber-700 hover:bg-amber-50 border-dashed"
             >

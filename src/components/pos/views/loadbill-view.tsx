@@ -886,7 +886,18 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
   // Total withdrawn (money taken out of bill collection)
   const totalWithdrawn = withdrawTxns.reduce((s, t) => s + Math.abs(t.billAmount || 0), 0);
   // Currently with us (collected - withdrawn)
-  const currentlyWithUs = totalCollected - totalWithdrawn;
+  // v2.10.120: FIX — "بقایا" (With Us) should only include the BILL AMOUNT,
+  // NOT the extra charges (profit). The charges are the shopkeeper's income
+  // and should NOT be counted as money "held for the company".
+  //   User: "جو لاسٹ اماؤنٹ دکھاتا ہے یعنی جو ہمارے پاس موجود ہیں اس کے
+  //   اندر وہ پرافٹ یعنی کہ جو ایکسٹرا چارجز ہم نے کسٹمر سے لیے ہوتے ہیں
+  //   وہ بھی ایڈ کر کے دکھاتا ہے جبکہ اسے صرف اور صرف بل کی اماؤنٹ ٹوٹل
+  //   دکھانی چاہیے اور ایکسٹرا جو ہے چارجز وہ علیحدہ دکھا دیں"
+  //   OLD: currentlyWithUs = totalCollected - totalWithdrawn
+  //        (totalCollected includes bill + charges)
+  //   NEW: currentlyWithUs = totalBillAmount - totalWithdrawn
+  //        (only the bill portion, charges shown separately)
+  const currentlyWithUs = totalBillAmount - totalWithdrawn;
 
   // Today's totals
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -933,6 +944,30 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
     } catch { toast.error("Network error"); }
     finally { setWithdrawSaving(false); }
   }
+
+  // v2.10.120: Custom date filter — user can select any date to see
+  // how many bills and what total amount was collected on that date.
+  //   User: "بل اینڈ لوڈ مینجمنٹ کے اندر جب ہم بل والے سیکشن کے اندر
+  //   جاتے ہیں تو یہاں پر کسٹمر کسٹم ڈیٹ بھی رکھو جہاں سے ہم دیکھ سکیں
+  //   کہ کل کی تاریخ میں ہم نے کتنے بل کی اماؤنٹ کتنے بل لیے اور کل
+  //   کتنی اماؤنٹ بنی اور اج کی تاریخ کے اندر کتنی ہے جب ڈیٹ سلیکٹ
+  //   کر کے ہم چیک کر سکیں"
+  const [filterDate, setFilterDate] = React.useState<string>(""); // YYYY-MM-DD
+
+  // Compute filtered totals for selected date
+  const filteredBills = filterDate
+    ? billTxns.filter(t => {
+        const d = new Date(t.createdAt);
+        const dStr = d.getFullYear() + "-" +
+          String(d.getMonth() + 1).padStart(2, "0") + "-" +
+          String(d.getDate()).padStart(2, "0");
+        return dStr === filterDate;
+      })
+    : [];
+  const filteredCount = filteredBills.length;
+  const filteredBillAmount = filteredBills.reduce((s, t) => s + (t.billAmount || 0), 0);
+  const filteredCharges = filteredBills.reduce((s, t) => s + (t.serviceCharge || 0), 0);
+  const filteredTotal = filteredBills.reduce((s, t) => s + (t.totalPaid || 0), 0);
 
   const billNum = parseFloat(billAmount) || 0;
   const chargeNum = parseFloat(charge) || 0;
@@ -1028,24 +1063,27 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
             <Badge variant="outline" className="bg-white">{totalCount} bills collected</Badge>
           </div>
 
-          {/* MAIN بقایا display — collected − withdrawn = remaining */}
+          {/* MAIN بقایا display — bill amount − withdrawn = remaining
+              v2.10.120: Uses totalBillAmount (NOT totalCollected) so
+              extra charges are NOT included in the بقایا. */}
           <div className={`rounded-lg border-2 p-4 text-center ${
             currentlyWithUs >= 0
               ? "border-emerald-500 bg-white"
               : "border-rose-500 bg-rose-50"
           }`}>
             <div className="text-xs font-bold text-emerald-900 mb-1">
-              بقایا — ہمارے پاس (Remaining with us)
+              بقایا — ہمارے پاس (Bill Amount Remaining)
             </div>
             <div className={`text-4xl font-bold mb-2 ${
               currentlyWithUs >= 0 ? "text-emerald-700" : "text-rose-700"
             }`}>
               Rs {currentlyWithUs.toLocaleString()}
             </div>
-            {/* Arithmetic breakdown showing exactly how بقایا is computed */}
+            {/* Arithmetic breakdown — bill amount − withdrawn = remaining
+                (does NOT include charges/profit — that's separate) */}
             <div className="text-xs text-muted-foreground flex items-center justify-center gap-2 flex-wrap">
-              <span className="px-2 py-0.5 rounded bg-violet-100 text-violet-800">
-                موصول Rs {totalCollected.toLocaleString()}
+              <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                بل Rs {totalBillAmount.toLocaleString()}
               </span>
               <span className="font-bold text-rose-700">−</span>
               <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800">
@@ -1055,6 +1093,10 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
               <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">
                 بقایا Rs {currentlyWithUs.toLocaleString()}
               </span>
+            </div>
+            {/* v2.10.120: Note that charges/profit are separate */}
+            <div className="text-[10px] text-amber-700 mt-1">
+              منافع (Charges): Rs {totalCharges.toLocaleString()} — علیحدہ (not included in بقایا)
             </div>
           </div>
 
@@ -1112,6 +1154,46 @@ function BillTab({ refreshKey, onRefresh }: { refreshKey: number; onRefresh: () 
             <div className="text-sm font-bold text-violet-700">Rs {todayTotal.toLocaleString()}</div>
             <div className="text-[9px] text-rose-600">Due: Rs {todayDue.toLocaleString()}</div>
           </div>
+        </div>
+
+        {/* v2.10.120: Custom date filter — select any date to see bill
+            totals for that specific date. */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1">
+            <Label className="text-xs font-bold text-muted-foreground">Custom Date:</Label>
+            <Input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="h-8 w-40 text-xs"
+            />
+            {filterDate && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 text-xs"
+                onClick={() => setFilterDate("")}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+          {filterDate && (
+            <div className="flex gap-2 flex-wrap">
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-700 text-[10px]">
+                Bills: {filteredCount}
+              </Badge>
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 text-[10px]">
+                Bill Amount: Rs {filteredBillAmount.toLocaleString()}
+              </Badge>
+              <Badge variant="outline" className="bg-amber-50 text-amber-700 text-[10px]">
+                Profit: Rs {filteredCharges.toLocaleString()}
+              </Badge>
+              <Badge variant="outline" className="bg-violet-50 text-violet-700 text-[10px]">
+                Total Received: Rs {filteredTotal.toLocaleString()}
+              </Badge>
+            </div>
+          )}
         </div>
 
         {loading ? <div className="h-20 rounded bg-muted animate-pulse" /> : txns.length === 0 ? (

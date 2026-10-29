@@ -79,6 +79,11 @@ const UNITS = [
 const emptyForm = {
   name: "",
   barcode: "",
+  // v2.10.120: Search Code — manual or auto-generated based on product name.
+  //   User: "نیو پروڈکٹ ایڈ کریں تو اس میں ایک سیکشن رکھو نیم کے ساتھ
+  //   کوئی سرچ نمبر خود بھی دیا جا سکے ونڈمل بھی اور اٹو بھی اگر خود
+  //   نہ دے تو اٹو سافٹ وئر اسے کوئی سرچ نمبر دے دے"
+  searchCode: "",
   categoryId: "",
   vendorId: "",
   costPrice: "",
@@ -223,7 +228,11 @@ export function ProductsView({ userRole }: ProductsViewProps) {
     try {
       const body = {
         name: form.name.trim(),
-        barcode: form.barcode.trim(),
+        // v2.10.120: If searchCode is provided, use it as barcode.
+        //   Otherwise, leave barcode empty and the API will auto-generate
+        //   one based on the product name (first letter + sequential number).
+        barcode: (form.searchCode?.trim() || form.barcode.trim()),
+        searchCode: form.searchCode?.trim() || undefined,
         categoryId: form.categoryId || null,
         vendorId: form.vendorId || null,
         costPrice: Number(form.costPrice) || 0,
@@ -386,11 +395,13 @@ export function ProductsView({ userRole }: ProductsViewProps) {
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          {/* v2.10.120: Auto-focus search bar when entering Shop Store page */}
           <Input
             placeholder="Search by name or barcode..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="pl-10"
+            autoFocus
           />
         </div>
         <Select value={activeCat} onValueChange={setActiveCat}>
@@ -715,12 +726,25 @@ export function ProductsView({ userRole }: ProductsViewProps) {
                 />
               </div>
               {form.hasBarcode ? (
-                <Input
-                  value={form.barcode}
-                  onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-                  placeholder="Scan or type the barcode..."
-                  className="text-left"
-                />
+                <div className="space-y-2">
+                  {/* v2.10.120: Search Code field — manual or auto-generated */}
+                  <Input
+                    value={form.searchCode}
+                    onChange={(e) => setForm({ ...form, searchCode: e.target.value })}
+                    placeholder="Search Code (e.g. L235, M405) — leave empty for auto"
+                    className="text-left border-amber-300"
+                  />
+                  <Input
+                    value={form.barcode}
+                    onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                    placeholder="Scan or type the barcode..."
+                    className="text-left"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Enter a Search Code (first letter + number, e.g. "L235" for "Loose") or leave empty for auto-generation.
+                    If barcode is also empty, the system will auto-generate a unique search code.
+                  </p>
+                </div>
               ) : (
                 <p className="text-xs text-emerald-700">
                   ✓ A barcode will be auto-generated for this product (best for

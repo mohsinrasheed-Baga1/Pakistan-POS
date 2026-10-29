@@ -384,6 +384,27 @@ export async function GET(req: NextRequest) {
     cashReturnsAmount -
     totalPurchases;
 
+  // v2.10.120: Bill Payment totals — show in Reports as a separate section.
+  //   User: "بلز کو رپورٹ کے اندر بھی دکھائے ٹوٹل اماؤنٹ ریسیو کتنی ہوئی
+  //   ہے پرافٹس سمیٹ یعنی کہ ٹوٹل رقم جو بلوں سے ہم نے وصول کی ہے اس
+  //   میں ایکسٹرا چارجز اور باقی سارا کچھ بھی اس شیئرز کے اندر شامل
+  //   نہیں ہونے چاہیے یہ رپورٹ میں کیش جو موجود ہیں اس کے اندر اسے
+  //   دکھانا چاہیے"
+  const billTxns = await db.billPaymentTxn.findMany({
+    where: {
+      createdAt: { gte: start, lte: end },
+      billAmount: { gt: 0 },  // only positive (bills, not withdrawals)
+    },
+    select: { billAmount: true, serviceCharge: true, totalPaid: true, due: true },
+  });
+  const billPaymentTotals = {
+    count: billTxns.length,
+    totalBillAmount: billTxns.reduce((s, t) => s + (t.billAmount || 0), 0),
+    totalCharges: billTxns.reduce((s, t) => s + (t.serviceCharge || 0), 0),
+    totalReceived: billTxns.reduce((s, t) => s + (t.totalPaid || 0), 0),
+    totalDue: billTxns.reduce((s, t) => s + (t.due || 0), 0),
+  };
+
   return NextResponse.json({
     range,
     totalSales,
@@ -449,6 +470,8 @@ export async function GET(req: NextRequest) {
     // v2.10.117: cashDeposits (customer card top-ups with cash) ADDED BACK
     //   — these are NOT LoadBill Management data, they're Shop Cards data.
     //   Customer physically handed cash to shopkeeper → cash is in drawer.
+    // v2.10.120: Bill Payment totals — separate from Cash in Hand
+    billPaymentTotals,
     cashOnHand: {
       total: cashOnHand,
       opening: openingCash,

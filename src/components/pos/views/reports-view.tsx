@@ -642,6 +642,52 @@ export function ReportsView() {
           )}
         </div>
 
+        {/* v2.10.120: Bill Payment Totals — separate section in Reports.
+            Shows total bill amount received, profit (extra charges), total
+            received, and due. Separate from Cash in Hand. */}
+        {((data as any)?.billPaymentTotals?.count > 0) && (
+          <div className="rounded-lg border-2 border-amber-300 bg-amber-50/50 p-4 space-y-2">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-amber-600" />
+                <div>
+                  <h3 className="font-bold text-amber-900">Bill Payment Summary — بل وصولی</h3>
+                  <div className="text-xs text-amber-700">Bills collected in this period (separate from Cash in Hand)</div>
+                </div>
+              </div>
+              <Badge variant="outline" className="bg-white">
+                {(data as any)?.billPaymentTotals?.count ?? 0} bills
+              </Badge>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="bg-white rounded-lg p-2 border border-blue-200 text-center">
+                <div className="text-[10px] text-blue-700 font-medium">Bill Amount — بل کی رقم</div>
+                <div className="text-base font-bold text-blue-800">
+                  {formatMoney((data as any)?.billPaymentTotals?.totalBillAmount ?? 0, currency)}
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-2 border border-amber-200 text-center">
+                <div className="text-[10px] text-amber-700 font-medium">Profit — منافع (charges)</div>
+                <div className="text-base font-bold text-amber-800">
+                  {formatMoney((data as any)?.billPaymentTotals?.totalCharges ?? 0, currency)}
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-2 border border-violet-200 text-center">
+                <div className="text-[10px] text-violet-700 font-medium">Total Received — موصول</div>
+                <div className="text-base font-bold text-violet-800">
+                  {formatMoney((data as any)?.billPaymentTotals?.totalReceived ?? 0, currency)}
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-2 border border-rose-200 text-center">
+                <div className="text-[10px] text-rose-700 font-medium">Due — بقایا</div>
+                <div className="text-base font-bold text-rose-800">
+                  {formatMoney((data as any)?.billPaymentTotals?.totalDue ?? 0, currency)}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <MiniStat
             label="Products"

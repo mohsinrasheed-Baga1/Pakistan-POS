@@ -125,11 +125,46 @@ export async function POST(req: NextRequest) {
   let barcodeType = body.barcodeType || "CODE128";
   const hasBarcode = body.hasBarcode !== false;
 
+  // v2.10.120: If user provided a searchCode, use it as the barcode.
+  //   User: "جس میں جیسا کہ ہم عارضی طور پر رکھتے ہیں ایم فائو یا ایم وی
+  //   فائی五 ایم 3021 اس طرح پروڈکٹ کے لحاظ سے پروڈکٹ کے پہلے جو لفظ ہے
+  //   جیسا کہ لو ہے تو لو کے لیے ایل لگا کر ساتھ دو تین پانچ یا اس
+  //   لحاظ سے نمبر دیتا جائے جو کسی دوسری پروڈکٹ کے سچ نمبر سے میچ نہ ہو"
+  if (body.searchCode?.trim()) {
+    barcode = body.searchCode.trim().toUpperCase();
+    barcodeType = "CODE128";
+  }
+
   if (!barcode || barcode === "") {
-    // Auto-generate an internal product code (e.g. "RICE00120") for new products
-    // This becomes both the human-readable product code AND the barcode value.
-    const productCode = await generateProductCode(body.categoryId);
-    barcode = generateBarcodeValue(productCode); // For CODE128, this equals productCode
+    // v2.10.120: Auto-generate based on PRODUCT NAME (not category).
+    //   Format: first letter of name (uppercase) + 3-digit sequential number.
+    //   e.g., "Loose" → "L001", "Milk" → "M001", etc.
+    //   Must be unique — increment number until we find one not in use.
+    const productName = body.name?.trim() || "X";
+    const firstLetter = productName.charAt(0).toUpperCase();
+    // Find all products whose barcode starts with this letter
+    const existingBarcodes = await db.product.findMany({
+      where: { barcode: { startsWith: firstLetter } },
+      select: { barcode: true },
+    });
+    // Extract numbers from existing barcodes to find the max
+    let maxNum = 0;
+    for (const p of existingBarcodes) {
+      const numPart = p.barcode.substring(1); // everything after first letter
+      const num = parseInt(numPart, 10);
+      if (!isNaN(num) && num > maxNum) maxNum = num;
+    }
+    const nextNum = maxNum + 1;
+    // Format: "L001" (padded to 3 digits, or more if needed)
+    barcode = firstLetter + String(nextNum).padStart(3, "0");
+    // Ensure uniqueness (double-check)
+    let uniquenessCounter = 0;
+    while (true) {
+      const checkDup = await db.product.findUnique({ where: { barcode } });
+      if (!checkDup) break;
+      uniquenessCounter++;
+      barcode = firstLetter + String(nextNum + uniquenessCounter).padStart(3, "0");
+    }
     barcodeType = "CODE128";
   } else {
     // User scanned or typed a real manufacturer barcode.
