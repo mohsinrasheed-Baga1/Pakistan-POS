@@ -425,6 +425,7 @@ export function ReportsView() {
             (data as any).cashOnHand.opening > 0 ||
             (data as any).cashOnHand.cashSales > 0 ||
             (data as any).cashOnHand.cashDeposits > 0 ||
+            (data as any).cashOnHand.billPayments > 0 ||
             (data as any).cashOnHand.cashReturns > 0 ||
             (data as any).cashOnHand.cashPurchases > 0 ||
             (data as any).cashOnHand.manualCashIn > 0 ||
@@ -450,6 +451,11 @@ export function ReportsView() {
                   <div className="text-emerald-700">Cash Deposits — کارڈ ٹاپ اپ</div>
                   <div className="font-bold text-emerald-900">+{formatMoney((data as any)?.cashOnHand?.cashDeposits ?? 0, currency)}</div>
                   <div className="text-[10px] text-muted-foreground">customer card top-ups</div>
+                </div>
+                <div className="bg-white rounded p-2 border border-amber-200">
+                  <div className="text-amber-700">Bill Payments — بل وصولی</div>
+                  <div className="font-bold text-amber-900">+{formatMoney((data as any)?.cashOnHand?.billPayments ?? 0, currency)}</div>
+                  <div className="text-[10px] text-muted-foreground">electricity/gas/water</div>
                 </div>
                 <div className="bg-white rounded p-2 border border-rose-200">
                   <div className="text-rose-700">Cash Returns — واپسی</div>

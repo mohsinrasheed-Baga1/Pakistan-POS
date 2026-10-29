@@ -379,6 +379,7 @@ export async function GET(req: NextRequest) {
     openingCash +
     cashSales +
     totalCashDepositsInDrawer +  // v2.10.117: customer card top-ups with cash
+    billPaymentTotals.totalReceived +  // v2.10.122: bill payments received
     manualCashIn -
     manualCashOut -
     cashReturnsAmount -
@@ -477,6 +478,7 @@ export async function GET(req: NextRequest) {
       opening: openingCash,
       cashSales,
       cashDeposits: totalCashDepositsInDrawer,  // v2.10.117: customer card top-ups
+      billPayments: billPaymentTotals.totalReceived,  // v2.10.122: bill payments received
       cashReturns: cashReturnsAmount,  // v2.10.109: only CASH refunds
       totalReturns: totalReturnsAmount,  // all refunds (informational)
       manualCashIn,
