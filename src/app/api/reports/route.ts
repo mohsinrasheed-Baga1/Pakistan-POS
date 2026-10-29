@@ -372,6 +372,25 @@ export async function GET(req: NextRequest) {
   //   we need both because both are physical cash drawer inflows).
   const totalCashDepositsInDrawer = totalCashDeposits + totalLegitimateCash;
 
+  // v2.10.123: FIX - Moved billTxns query BEFORE cashOnHand formula.
+  //   In v2.10.122, billPaymentTotals was used in the formula BEFORE it
+  //   was defined, causing ReferenceError -> Reports API crash -> page
+  //   fails to load.
+  const billTxns = await db.billPaymentTxn.findMany({
+    where: {
+      createdAt: { gte: start, lte: end },
+      billAmount: { gt: 0 },
+    },
+    select: { billAmount: true, serviceCharge: true, totalPaid: true, due: true },
+  });
+  const billPaymentTotals = {
+    count: billTxns.length,
+    totalBillAmount: billTxns.reduce((s, t) => s + (t.billAmount || 0), 0),
+    totalCharges: billTxns.reduce((s, t) => s + (t.serviceCharge || 0), 0),
+    totalReceived: billTxns.reduce((s, t) => s + (t.totalPaid || 0), 0),
+    totalDue: billTxns.reduce((s, t) => s + (t.due || 0), 0),
+  };
+
   // v2.10.117: cashOnHand now includes cashDeposits again — customer
   //   card top-ups ARE cash drawer inflows (the customer handed cash
   //   to the shopkeeper to deposit on their card balance).
@@ -385,26 +404,6 @@ export async function GET(req: NextRequest) {
     cashReturnsAmount -
     totalPurchases;
 
-  // v2.10.120: Bill Payment totals — show in Reports as a separate section.
-  //   User: "بلز کو رپورٹ کے اندر بھی دکھائے ٹوٹل اماؤنٹ ریسیو کتنی ہوئی
-  //   ہے پرافٹس سمیٹ یعنی کہ ٹوٹل رقم جو بلوں سے ہم نے وصول کی ہے اس
-  //   میں ایکسٹرا چارجز اور باقی سارا کچھ بھی اس شیئرز کے اندر شامل
-  //   نہیں ہونے چاہیے یہ رپورٹ میں کیش جو موجود ہیں اس کے اندر اسے
-  //   دکھانا چاہیے"
-  const billTxns = await db.billPaymentTxn.findMany({
-    where: {
-      createdAt: { gte: start, lte: end },
-      billAmount: { gt: 0 },  // only positive (bills, not withdrawals)
-    },
-    select: { billAmount: true, serviceCharge: true, totalPaid: true, due: true },
-  });
-  const billPaymentTotals = {
-    count: billTxns.length,
-    totalBillAmount: billTxns.reduce((s, t) => s + (t.billAmount || 0), 0),
-    totalCharges: billTxns.reduce((s, t) => s + (t.serviceCharge || 0), 0),
-    totalReceived: billTxns.reduce((s, t) => s + (t.totalPaid || 0), 0),
-    totalDue: billTxns.reduce((s, t) => s + (t.due || 0), 0),
-  };
 
   return NextResponse.json({
     range,
