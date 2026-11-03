@@ -123,6 +123,14 @@ model Product {
   // instead of the product's own stock field.
   inventorySource       String  @default("SHOP") // SHOP | MAIN_STORE
   linkedStoreProductId  String?                   // FK to StoreProduct (loose items)
+  // v2.10.124: Search Code — short 2-3 character code for quick POS search.
+  //   Based on first letter(s) of product name (e.g. "L" for "Loose", "M" for "Milk").
+  //   Auto-generated if user doesn't provide one manually.
+  //   Separate from barcode — when searching in POS, typing this code finds the
+  //   product, but the code is NOT shown alongside the name.
+  //   User: "اس کے پہلے نام کے پہلے حرف سے شارٹ دو یا تین حصوں کا جو سرچ
+  //   کے اندر ہم سرچ کریں تو ائے لیکن نام کے ساتھ نہ ائے"
+  searchCode            String?
 }
 
 model Sale {

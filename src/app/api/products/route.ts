@@ -41,6 +41,8 @@ export async function GET(req: NextRequest) {
       { name: { contains: q } },
       { barcode: { contains: q } },
       { productCode: { contains: q } },
+      // v2.10.124: Also search by searchCode (short 2-3 char code)
+      { searchCode: { contains: q } },
     ];
   }
   if (categoryId) where.categoryId = categoryId;
@@ -96,6 +98,7 @@ export async function GET(req: NextRequest) {
         stickerSize: true,
         inventorySource: true,
         linkedStoreProductId: true,
+        searchCode: true,  // v2.10.124: include searchCode in response
         createdAt: true,
         updatedAt: true,
         category: { select: { id: true, name: true } },
@@ -220,6 +223,27 @@ export async function POST(req: NextRequest) {
     // Continue without pre-rendered barcode — StickerPrinter will generate on-demand
   }
 
+  // v2.10.124: Generate searchCode — short 2-3 char code based on product name.
+  //   If user provided one, use it. Otherwise auto-generate: first letter + number.
+  let searchCode = body.searchCode?.trim().toUpperCase() || "";
+  if (!searchCode) {
+    const productName = (body.name || "").trim();
+    const firstLetter = productName.charAt(0).toUpperCase() || "X";
+    // Find max number for this letter
+    const existing = await db.product.findMany({
+      where: { searchCode: { startsWith: firstLetter } },
+      select: { searchCode: true },
+    });
+    let maxNum = 0;
+    for (const p of existing) {
+      if (!p.searchCode) continue;
+      const numPart = p.searchCode.substring(1);
+      const num = parseInt(numPart, 10);
+      if (!isNaN(num) && num > maxNum) maxNum = num;
+    }
+    searchCode = firstLetter + String(maxNum + 1).padStart(2, "0");
+  }
+
   const product = await db.product.create({
     data: {
       name: body.name,
@@ -254,6 +278,8 @@ export async function POST(req: NextRequest) {
       // Loose Product Support
       inventorySource: body.inventorySource || "SHOP",
       linkedStoreProductId: body.linkedStoreProductId || null,
+      // v2.10.124: Search Code — separate from barcode, used for POS search
+      searchCode,
     },
     include: { category: true, vendor: true },
   });

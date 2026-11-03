@@ -43,6 +43,12 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Tabs,
   TabsList,
   TabsTrigger,
@@ -150,6 +156,8 @@ export function ReportsView() {
   const [customTo, setCustomTo] = React.useState<Date | undefined>(undefined);
   const [appliedFrom, setAppliedFrom] = React.useState<Date | undefined>(undefined);
   const [appliedTo, setAppliedTo] = React.useState<Date | undefined>(undefined);
+  // v2.10.124: Profit detail dialog state
+  const [profitDetailOpen, setProfitDetailOpen] = React.useState(false);
 
   const currency = settings?.currency || "Rs";
 
@@ -371,10 +379,23 @@ export function ReportsView() {
                   ? `Margin: ${(
                       ((data?.totalProfit ?? 0) / (data?.totalRevenue ?? 1)) *
                       100
-                    ).toFixed(1)}%`
-                  : "Margin: —"
+                    ).toFixed(1)}% (click for detail)`
+                  : "Margin: — (click for detail)"
               }
             />
+            {/* v2.10.124: Profit detail button — click to see per-product
+                profit breakdown. User: "پرافٹ کی ڈیٹیل کہ کس پروڈکٹ سے
+                کتنا پرافٹ ا رہا ہے اس ساری ہسٹری چیک کی جا سکے رپورٹ
+                کے اندر پرافٹ پر کلک کر کے" */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute top-2 right-2 text-teal-600 hover:bg-teal-50"
+              onClick={() => setProfitDetailOpen(true)}
+              title="View profit detail per product"
+            >
+              <TrendingUp className="w-4 h-4" />
+            </Button>
             <KpiCard
               title="Sales Count"
               value={`${data?.totalSales ?? 0}`}
@@ -1096,6 +1117,64 @@ export function ReportsView() {
           background: hsl(var(--muted-foreground));
         }
       `}</style>
+
+      {/* v2.10.124: Profit Detail Dialog — shows per-product profit breakdown
+          User: "پرافٹ کی ڈیٹیل کہ کس پروڈکٹ سے کتنا پرافٹ ا رہا ہے اس ساری
+          ہسٹری چیک کی جا سکے رپورٹ کے اندر پرافٹ پر کلک کر کے تاکہ کہیں پر
+          غلطی ہو تو غلطی کا پتہ چل سکے" */}
+      <Dialog open={profitDetailOpen} onOpenChange={setProfitDetailOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-teal-600" />
+              Profit Detail — پرافٹ کی تفصیل
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {/* Summary row */}
+            <div className="flex justify-between bg-teal-50 rounded-lg p-3 text-sm">
+              <span className="font-bold text-teal-900">
+                Total Profit: {formatMoney(data?.totalProfit ?? 0, currency)}
+              </span>
+              <span className="text-muted-foreground">
+                {((data as any)?.profitByProduct ?? []).length} products with sales
+              </span>
+            </div>
+            {/* Per-product table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-2 font-semibold">Product — پروڈکٹ</th>
+                    <th className="text-right py-2 px-2 font-semibold">Qty Sold</th>
+                    <th className="text-right py-2 px-2 font-semibold">Revenue</th>
+                    <th className="text-right py-2 px-2 font-semibold">Cost</th>
+                    <th className="text-right py-2 px-2 font-semibold text-teal-700">Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {((data as any)?.profitByProduct ?? []).map((p: any, i: number) => (
+                    <tr key={i} className="border-b hover:bg-muted/50">
+                      <td className="py-2 px-2 font-medium">{p.name}</td>
+                      <td className="text-right py-2 px-2">{p.qtySold}</td>
+                      <td className="text-right py-2 px-2 font-mono">{formatMoney(p.revenue, currency)}</td>
+                      <td className="text-right py-2 px-2 font-mono text-muted-foreground">{formatMoney(p.cost, currency)}</td>
+                      <td className={`text-right py-2 px-2 font-mono font-bold ${p.profit >= 0 ? "text-teal-700" : "text-rose-700"}`}>
+                        {p.profit >= 0 ? "+" : ""}{formatMoney(p.profit, currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {((data as any)?.profitByProduct ?? []).length === 0 && (
+              <div className="text-center py-8 text-muted-foreground">
+                No sales in this period — اس مدت میں کوئی سیلز نہیں
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

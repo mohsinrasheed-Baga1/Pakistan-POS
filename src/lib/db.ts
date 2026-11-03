@@ -692,6 +692,8 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     // ─── Loose Product Support (v2.9.8) ──────────────────────────────────
     ["inventorySource", "TEXT NOT NULL DEFAULT 'SHOP'"],
     ["linkedStoreProductId", "TEXT"],
+    // v2.10.124: Search Code
+    ["searchCode", "TEXT"],
   ],
   Sale: [
     ["cardId", "TEXT"],
