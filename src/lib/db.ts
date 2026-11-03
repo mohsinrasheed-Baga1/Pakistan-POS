@@ -262,12 +262,16 @@ CREATE TABLE IF NOT EXISTS Product (
   packBarcode TEXT,
   packQuantity REAL NOT NULL DEFAULT 0,
   packPrice REAL NOT NULL DEFAULT 0,
+  -- v2.10.125: Search Code for quick POS search (separate from barcode)
+  searchCode TEXT,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL,
   FOREIGN KEY (categoryId) REFERENCES Category(id) ON DELETE SET NULL,
   FOREIGN KEY (vendorId) REFERENCES Vendor(id) ON DELETE SET NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS Product_barcode_key ON Product(barcode);
+-- v2.10.125: Index for searchCode
+CREATE INDEX IF NOT EXISTS Product_searchCode_idx ON Product(searchCode);
 -- v2.10.116: Performance indexes — speeds up product search by name/code,
 -- and active-products listing. Critical when product count grows to 1000+
 -- (user reported slow store page when adding many items).
@@ -692,7 +696,7 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
     // ─── Loose Product Support (v2.9.8) ──────────────────────────────────
     ["inventorySource", "TEXT NOT NULL DEFAULT 'SHOP'"],
     ["linkedStoreProductId", "TEXT"],
-    // v2.10.124: Search Code
+    // v2.10.125: Search Code — MUST be here or Prisma query crashes
     ["searchCode", "TEXT"],
   ],
   Sale: [
@@ -786,6 +790,8 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
   Product: [
     ["inventorySource", "TEXT NOT NULL DEFAULT 'SHOP'"],
     ["linkedStoreProductId", "TEXT"],
+    // v2.10.125: Search Code — MUST be here or Prisma query crashes
+    ["searchCode", "TEXT"],
   ],
 }
 
