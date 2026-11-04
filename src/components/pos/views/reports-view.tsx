@@ -368,8 +368,12 @@ export function ReportsView() {
                   : `Cost: ${formatMoney(data?.totalCost ?? 0, currency)}`
               }
             />
+            {/* v2.10.126: Make Profit KpiCard clickable — wrap in a div
+                with onClick so the entire card opens the detail dialog.
+                User: "ڈیٹیل نہیں نکل رہی کلک کرنے پر" */}
+            <div onClick={() => setProfitDetailOpen(true)} className="cursor-pointer">
             <KpiCard
-              title="Profit"
+              title="Profit (click for detail)"
               value={formatMoney(data?.totalProfit ?? 0, currency)}
               icon={<TrendingUp className="w-5 h-5" />}
               accent="bg-teal-600"
@@ -379,23 +383,11 @@ export function ReportsView() {
                   ? `Margin: ${(
                       ((data?.totalProfit ?? 0) / (data?.totalRevenue ?? 1)) *
                       100
-                    ).toFixed(1)}% (click for detail)`
-                  : "Margin: — (click for detail)"
+                    ).toFixed(1)}% — click to see per-product breakdown`
+                  : "click to see per-product breakdown"
               }
             />
-            {/* v2.10.124: Profit detail button — click to see per-product
-                profit breakdown. User: "پرافٹ کی ڈیٹیل کہ کس پروڈکٹ سے
-                کتنا پرافٹ ا رہا ہے اس ساری ہسٹری چیک کی جا سکے رپورٹ
-                کے اندر پرافٹ پر کلک کر کے" */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="absolute top-2 right-2 text-teal-600 hover:bg-teal-50"
-              onClick={() => setProfitDetailOpen(true)}
-              title="View profit detail per product"
-            >
-              <TrendingUp className="w-4 h-4" />
-            </Button>
+            </div>
             <KpiCard
               title="Sales Count"
               value={`${data?.totalSales ?? 0}`}
