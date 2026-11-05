@@ -1115,30 +1115,55 @@ export function ReportsView() {
           ہسٹری چیک کی جا سکے رپورٹ کے اندر پرافٹ پر کلک کر کے تاکہ کہیں پر
           غلطی ہو تو غلطی کا پتہ چل سکے" */}
       <Dialog open={profitDetailOpen} onOpenChange={setProfitDetailOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-teal-600" />
-              Profit Detail — پرافٹ کی تفصیل
+              Profit Detail — پرافٹ کی تفصیل (All Products)
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
-            {/* Summary row */}
-            <div className="flex justify-between bg-teal-50 rounded-lg p-3 text-sm">
-              <span className="font-bold text-teal-900">
-                Total Profit: {formatMoney(data?.totalProfit ?? 0, currency)}
-              </span>
-              <span className="text-muted-foreground">
-                {((data as any)?.profitByProduct ?? []).length} products with sales
-              </span>
-            </div>
-            {/* Per-product table */}
+            {/* v2.10.127: Summary cards — show total revenue, cost, profit,
+                qty sold, and product count. User: "ٹوٹل سارے دن کی سیل کی
+                جتنی بھی پرافٹ لائن دیکھنی ہو" */}
+            {(() => {
+              const items = (data as any)?.profitByProduct ?? [];
+              const totalQty = items.reduce((s: number, p: any) => s + (p.qtySold || 0), 0);
+              const totalRev = items.reduce((s: number, p: any) => s + (p.revenue || 0), 0);
+              const totalCst = items.reduce((s: number, p: any) => s + (p.cost || 0), 0);
+              const totalPft = items.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="bg-violet-50 rounded-lg p-2 text-center border border-violet-200">
+                    <div className="text-[10px] text-violet-700 font-medium">Total Revenue — کل آمدنی</div>
+                    <div className="text-base font-bold text-violet-800">{formatMoney(totalRev, currency)}</div>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-2 text-center border border-blue-200">
+                    <div className="text-[10px] text-blue-700 font-medium">Total Cost — کل لاگت</div>
+                    <div className="text-base font-bold text-blue-800">{formatMoney(totalCst, currency)}</div>
+                  </div>
+                  <div className={`rounded-lg p-2 text-center border-2 ${totalPft >= 0 ? "bg-teal-50 border-teal-300" : "bg-rose-50 border-rose-300"}`}>
+                    <div className={`text-[10px] font-medium ${totalPft >= 0 ? "text-teal-700" : "text-rose-700"}`}>Total Profit — کل منافع</div>
+                    <div className={`text-base font-bold ${totalPft >= 0 ? "text-teal-800" : "text-rose-800"}`}>
+                      {totalPft >= 0 ? "+" : ""}{formatMoney(totalPft, currency)}
+                    </div>
+                  </div>
+                  <div className="bg-emerald-50 rounded-lg p-2 text-center border border-emerald-200">
+                    <div className="text-[10px] text-emerald-700 font-medium">Qty Sold — تعداد</div>
+                    <div className="text-base font-bold text-emerald-800">{totalQty}</div>
+                    <div className="text-[9px] text-muted-foreground">{items.length} products</div>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* Per-product table — ALL products (v2.10.127: no more 20 limit) */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 bg-background z-10">
                   <tr className="border-b">
+                    <th className="text-left py-2 px-2 font-semibold">#</th>
                     <th className="text-left py-2 px-2 font-semibold">Product — پروڈکٹ</th>
-                    <th className="text-right py-2 px-2 font-semibold">Qty Sold</th>
+                    <th className="text-right py-2 px-2 font-semibold">Qty</th>
                     <th className="text-right py-2 px-2 font-semibold">Revenue</th>
                     <th className="text-right py-2 px-2 font-semibold">Cost</th>
                     <th className="text-right py-2 px-2 font-semibold text-teal-700">Profit</th>
@@ -1146,17 +1171,39 @@ export function ReportsView() {
                 </thead>
                 <tbody>
                   {((data as any)?.profitByProduct ?? []).map((p: any, i: number) => (
-                    <tr key={i} className="border-b hover:bg-muted/50">
-                      <td className="py-2 px-2 font-medium">{p.name}</td>
-                      <td className="text-right py-2 px-2">{p.qtySold}</td>
-                      <td className="text-right py-2 px-2 font-mono">{formatMoney(p.revenue, currency)}</td>
-                      <td className="text-right py-2 px-2 font-mono text-muted-foreground">{formatMoney(p.cost, currency)}</td>
-                      <td className={`text-right py-2 px-2 font-mono font-bold ${p.profit >= 0 ? "text-teal-700" : "text-rose-700"}`}>
+                    <tr key={i} className={`border-b hover:bg-muted/50 ${p.profit < 0 ? "bg-rose-50/40" : ""}`}>
+                      <td className="py-1.5 px-2 text-muted-foreground text-xs">{i + 1}</td>
+                      <td className="py-1.5 px-2 font-medium">{p.name}</td>
+                      <td className="text-right py-1.5 px-2">{p.qtySold}</td>
+                      <td className="text-right py-1.5 px-2 font-mono">{formatMoney(p.revenue, currency)}</td>
+                      <td className="text-right py-1.5 px-2 font-mono text-muted-foreground">{formatMoney(p.cost, currency)}</td>
+                      <td className={`text-right py-1.5 px-2 font-mono font-bold ${p.profit >= 0 ? "text-teal-700" : "text-rose-700"}`}>
                         {p.profit >= 0 ? "+" : ""}{formatMoney(p.profit, currency)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
+                {/* v2.10.127: Totals row at the bottom */}
+                {((data as any)?.profitByProduct ?? []).length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-teal-300 bg-teal-50 font-bold">
+                      <td colSpan={2} className="py-2 px-2 text-teal-900">TOTAL — کل</td>
+                      <td className="text-right py-2 px-2 text-teal-900">
+                        {((data as any)?.profitByProduct ?? []).reduce((s: number, p: any) => s + (p.qtySold || 0), 0)}
+                      </td>
+                      <td className="text-right py-2 px-2 font-mono text-teal-900">
+                        {formatMoney(((data as any)?.profitByProduct ?? []).reduce((s: number, p: any) => s + (p.revenue || 0), 0), currency)}
+                      </td>
+                      <td className="text-right py-2 px-2 font-mono text-teal-900">
+                        {formatMoney(((data as any)?.profitByProduct ?? []).reduce((s: number, p: any) => s + (p.cost || 0), 0), currency)}
+                      </td>
+                      <td className={`text-right py-2 px-2 font-mono ${((data as any)?.profitByProduct ?? []).reduce((s: number, p: any) => s + (p.profit || 0), 0) >= 0 ? "text-teal-700" : "text-rose-700"}`}>
+                        {((data as any)?.profitByProduct ?? []).reduce((s: number, p: any) => s + (p.profit || 0), 0) >= 0 ? "+" : ""}
+                        {formatMoney(((data as any)?.profitByProduct ?? []).reduce((s: number, p: any) => s + (p.profit || 0), 0), currency)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
             {((data as any)?.profitByProduct ?? []).length === 0 && (

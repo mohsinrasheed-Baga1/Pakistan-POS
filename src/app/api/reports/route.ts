@@ -429,7 +429,10 @@ export async function GET(req: NextRequest) {
     shopCardTotal,
     mobileTotal,
     pendingTotal,
-    profitByProduct: profitByProduct.slice(0, 20),
+    // v2.10.127: Show ALL products in profit detail (was sliced to 20)
+    //   User: "پرافٹ صرف 20 پروڈکٹ کا دکھا رہا ہے ہمارا سافٹ ویئر تو میں
+    //   چاہتا ہوں کہ ٹوٹل سارے دن کی سیل کی جتنی بھی پرافٹ لائن دیکھنی ہو"
+    profitByProduct,
     // v2.10.106: Total purchases (stock buying)
     totalPurchases,
     purchasesList: purchases.map(p => ({
