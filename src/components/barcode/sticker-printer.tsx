@@ -79,6 +79,11 @@ export function StickerPrinter({ data, count, defaultSize = "50x30", onClose }: 
   const [customWidth, setCustomWidth] = React.useState("50");
   const [customHeight, setCustomHeight] = React.useState("30");
   const [printTarget, setPrintTarget] = React.useState<PrintTarget>("thermal203");
+  // v2.10.128: Stickers per row — 1 (single), 2 (double), 3 (triple), 4 (quadruple)
+  //   User: "ایک لائن کے اندر دو اور تین سٹیکر... ایک لائن کے اندر تین سٹیکر
+  //   ہوتے ہیں چار سٹیکر ہوتے ہیں... سنگل سٹیکر یا ڈبل یا ٹرپل یا فور سٹکر
+  //   کی سیٹنگ کے مطابق پرنٹ نکالنا چاہے"
+  const [stickersPerRow, setStickersPerRow] = React.useState<number>(1);
   const [includeWeight, setIncludeWeight] = React.useState(!!data.weight);
   const [includePackingDate, setIncludePackingDate] = React.useState(!!data.packingDate);
   const [includeExpiryDate, setIncludeExpiryDate] = React.useState(!!data.expiryDate);
@@ -147,17 +152,64 @@ export function StickerPrinter({ data, count, defaultSize = "50x30", onClose }: 
         }
       `;
     } else {
-      // Thermal: one sticker per page, page size = sticker size
-      const stickers: string[] = [];
-      for (let i = 0; i < count; i++) {
-        stickers.push(stickerHtml);
+      // v2.10.128: Thermal printing with stickersPerRow support.
+      //   When stickersPerRow = 1: page width = sticker width (current behavior)
+      //   When stickersPerRow = 2: page width = 2 × sticker width, 2 stickers side by side
+      //   When stickersPerRow = 3: page width = 3 × sticker width, 3 stickers side by side
+      //   When stickersPerRow = 4: page width = 4 × sticker width, 4 stickers side by side
+      if (stickersPerRow > 1) {
+        // Multi-sticker per row layout
+        const pageWidthMm = widthMm * stickersPerRow;
+        const totalRows = Math.ceil(count / stickersPerRow);
+
+        // Build rows of stickers
+        const rows: string[] = [];
+        let stickerIdx = 0;
+        for (let row = 0; row < totalRows; row++) {
+          const rowStickers: string[] = [];
+          for (let col = 0; col < stickersPerRow; col++) {
+            if (stickerIdx < count) {
+              rowStickers.push(`<div class="sticker-cell">${stickerHtml}</div>`);
+              stickerIdx++;
+            } else {
+              // Empty cell to maintain grid alignment
+              rowStickers.push(`<div class="sticker-cell empty"></div>`);
+            }
+          }
+          rows.push(`<div class="sticker-row">${rowStickers.join("")}</div>`);
+        }
+
+        bodyHtml = `<div class="multi-sticker">${rows.join("")}</div>`;
+        pageStyle = `
+          @page { size: ${pageWidthMm}mm ${heightMm}mm; margin: 0; }
+          .multi-sticker { width: ${pageWidthMm}mm; }
+          .sticker-row {
+            display: flex;
+            width: ${pageWidthMm}mm;
+            height: ${heightMm}mm;
+            page-break-after: always;
+          }
+          .sticker-row:last-child { page-break-after: auto; }
+          .sticker-cell {
+            width: ${widthMm}mm;
+            height: ${heightMm}mm;
+            overflow: hidden;
+          }
+          .sticker-cell.empty { visibility: hidden; }
+        `;
+      } else {
+        // Single sticker per page (original behavior)
+        const stickers: string[] = [];
+        for (let i = 0; i < count; i++) {
+          stickers.push(stickerHtml);
+        }
+        bodyHtml = stickers.join("");
+        pageStyle = `
+          @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
+          .sticker { page-break-after: always; }
+          .sticker:last-child { page-break-after: auto; }
+        `;
       }
-      bodyHtml = stickers.join("");
-      pageStyle = `
-        @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
-        .sticker { page-break-after: always; }
-        .sticker:last-child { page-break-after: auto; }
-      `;
     }
 
     win.document.write(`
@@ -285,6 +337,42 @@ export function StickerPrinter({ data, count, defaultSize = "50x30", onClose }: 
           ))}
         </div>
       </div>
+
+      {/* v2.10.128: Stickers per row selector — Single/Double/Triple/Quadruple
+          User: "ایک لائن کے اندر دو اور تین سٹیکر... سنگل سٹیکر یا ڈبل یا
+          ٹرپل یا فور سٹکر کی سیٹنگ کے مطابق پرنٹ نکالنا چاہے" */}
+      {printTarget !== "a4" && (
+        <div className="space-y-2">
+          <Label className="text-xs font-medium">Stickers Per Row — فی لائن سٹیکر</Label>
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { val: 1, label: "Single", urdu: "ایک" },
+              { val: 2, label: "Double", urdu: "دو" },
+              { val: 3, label: "Triple", urdu: "تین" },
+              { val: 4, label: "Quad", urdu: "چار" },
+            ].map(opt => (
+              <button
+                key={opt.val}
+                onClick={() => setStickersPerRow(opt.val)}
+                className={`px-2 py-2 rounded-md text-xs font-medium border-2 transition-colors ${
+                  stickersPerRow === opt.val
+                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                    : "border-muted hover:border-blue-300"
+                }`}
+              >
+                <div>{opt.label}</div>
+                <div className="text-[9px] opacity-70">{opt.urdu}</div>
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            {stickersPerRow === 1
+              ? "One sticker per line (current default)"
+              : `${stickersPerRow} stickers per line — page width = ${sizeConfig.widthMm * stickersPerRow}mm (${sizeConfig.widthMm}mm × ${stickersPerRow})`
+            }
+          </p>
+        </div>
+      )}
 
       {/* Optional fields */}
       <div className="space-y-2">
