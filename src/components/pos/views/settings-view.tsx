@@ -372,7 +372,7 @@ export function SettingsView() {
       {activeSection === "barcode" && <BarcodeSettingsPage />}
       {activeSection === "receipt" && <ReceiptSettingsPage />}
       {/* v2.10.129: POS Settings — scan behavior + sticker layout */}
-      {activeSection === "pos" && <POSSettingsCard settings={settings} onSave={handleSave} />}
+      {activeSection === "pos" && <POSSettingsCard settings={settings} />}
       {activeSection === "license" && <LicenseSettingsCard />}
     </div>
   );
@@ -4359,7 +4359,7 @@ function DataMigrationCard() {
 //   User: "پی او ایس نیا اپشن سیٹنگ کے اندر بناؤ پی او ایس سیٹنگ کے نام سے
 //   اس کے اندر یہ چیزیں ایڈ کرو یعنی کہ جمپ والی"
 // ═════════════════════════════════════════════════════════════════════════════
-function POSSettingsCard({ settings, onSave }: { settings: any; onSave?: (data: any) => void }) {
+function POSSettingsCard({ settings }: { settings: any }) {
   const [posScanBehavior, setPosScanBehavior] = React.useState<string>("ASK_QUANTITY");
   const [stickersPerRow, setStickersPerRow] = React.useState<number>(1);
   const [saving, setSaving] = React.useState(false);

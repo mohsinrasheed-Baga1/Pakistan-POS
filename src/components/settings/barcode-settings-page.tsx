@@ -365,6 +365,22 @@ function BarcodeSettingsPageInner() {
                   Direct Add: scan → add 1 immediately (no prompt).
                 </p>
               </div>
+
+              {/* v2.10.130: Stickers Per Row — for larger rolls */}
+              <div className="space-y-1">
+                <Label className="text-[10px] font-medium">Stickers Per Row — فی لائن سٹیکر</Label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[1, 2, 3, 4].map(n => (
+                    <button key={n} onClick={() => update("stickersPerRow", n as any)}
+                      className={`px-2 py-1.5 rounded text-xs font-medium border ${(draft as any).stickersPerRow === n ? "border-blue-500 bg-blue-50 text-blue-700" : "border-muted hover:border-blue-300"}`}>
+                      {n === 1 ? "Single" : n === 2 ? "Double" : n === 3 ? "Triple" : "Quad"}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  بڑے رول کے لیے: 2/3/4 سٹیکر ایک لائن میں پرنٹ کریں
+                </p>
+              </div>
             </CardContent>
           </Card>
 
