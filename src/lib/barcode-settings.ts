@@ -50,6 +50,8 @@ export interface BarcodeSettings {
   barcodePosition: "left" | "center" | "right";
   // POS scan behavior
   posScanBehavior: "ASK_QUANTITY" | "DIRECT_ADD";
+  // v2.10.129: Stickers per row for thermal printing (1=Single, 2=Double, 3=Triple, 4=Quad)
+  stickersPerRow: number;
 }
 
 export const ALL_STICKER_FIELDS = [
@@ -103,6 +105,7 @@ export const DEFAULT_BARCODE_SETTINGS: BarcodeSettings = {
   highResSvg: true,
   barcodePosition: "center",
   posScanBehavior: "ASK_QUANTITY",
+  stickersPerRow: 1,
 };
 
 export const STICKER_SIZES = [

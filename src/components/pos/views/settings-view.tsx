@@ -327,6 +327,8 @@ export function SettingsView() {
           { id: "scanner", label: "Barcode Scanner", icon: ScanBarcode, color: "emerald" },
           { id: "barcode", label: "Barcode & Sticker", icon: BarcodeIcon, color: "emerald" },
           { id: "receipt", label: "Receipt Settings", icon: Receipt, color: "emerald" },
+          // v2.10.129: New POS Settings section — scan behavior + sticker layout
+          { id: "pos", label: "POS Settings", icon: ScanBarcode, color: "emerald" },
           { id: "license", label: "License Info", icon: ShieldCheck, color: "amber" },
         ].map((item) => {
           const Icon = item.icon;
@@ -369,6 +371,8 @@ export function SettingsView() {
       {activeSection === "scanner" && <ScannerCard />}
       {activeSection === "barcode" && <BarcodeSettingsPage />}
       {activeSection === "receipt" && <ReceiptSettingsPage />}
+      {/* v2.10.129: POS Settings — scan behavior + sticker layout */}
+      {activeSection === "pos" && <POSSettingsCard settings={settings} onSave={handleSave} />}
       {activeSection === "license" && <LicenseSettingsCard />}
     </div>
   );
@@ -4345,6 +4349,159 @@ function DataMigrationCard() {
           </AlertDialogContent>
         </AlertDialog>
         <input ref={fileRef} type="file" accept=".db,.sqlite,.sqlite3" onChange={handleImport} className="hidden" />
+      </CardContent>
+    </Card>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v2.10.129: POS Settings Card — scan behavior + sticker layout
+//   User: "پی او ایس نیا اپشن سیٹنگ کے اندر بناؤ پی او ایس سیٹنگ کے نام سے
+//   اس کے اندر یہ چیزیں ایڈ کرو یعنی کہ جمپ والی"
+// ═════════════════════════════════════════════════════════════════════════════
+function POSSettingsCard({ settings, onSave }: { settings: any; onSave?: (data: any) => void }) {
+  const [posScanBehavior, setPosScanBehavior] = React.useState<string>("ASK_QUANTITY");
+  const [stickersPerRow, setStickersPerRow] = React.useState<number>(1);
+  const [saving, setSaving] = React.useState(false);
+  const [loaded, setLoaded] = React.useState(false);
+
+  // Load barcode settings on mount
+  React.useEffect(() => {
+    fetch("/api/settings/barcode", { cache: "no-store" })
+      .then(r => r.json())
+      .then(d => {
+        if (d.settings) {
+          setPosScanBehavior(d.settings.posScanBehavior === "DIRECT_ADD" ? "DIRECT_ADD" : "ASK_QUANTITY");
+          setStickersPerRow(Number(d.settings.stickersPerRow) || 1);
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  async function handleSavePOS() {
+    setSaving(true);
+    try {
+      // Fetch current barcode settings first
+      const getRes = await fetch("/api/settings/barcode", { cache: "no-store" });
+      const getData = await getRes.json();
+      const current = getData.settings || {};
+      // Merge with new POS settings
+      const res = await fetch("/api/settings/barcode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...current,
+          posScanBehavior,
+          stickersPerRow,
+        }),
+      });
+      if (res.ok) {
+        toast.success("POS settings saved");
+      } else {
+        toast.error("Failed to save POS settings");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!loaded) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-center text-muted-foreground">
+          Loading POS settings...
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ScanBarcode className="w-5 h-5 text-emerald-600" />
+          POS Settings — پی او ایس سیٹنگز
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* POS Scan Behavior */}
+        <div className="space-y-2">
+          <Label className="text-sm font-bold">POS Scan Behavior — سکین پر کیا ہو</Label>
+          <p className="text-xs text-muted-foreground mb-2">
+            جب بارکوڈ سکین کریں یا سرچ کر کے انٹر دبائیں، تو کیا ہو؟
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPosScanBehavior("ASK_QUANTITY")}
+              className={`flex-1 px-3 py-2.5 rounded-md text-sm font-medium border-2 transition-colors ${
+                posScanBehavior === "ASK_QUANTITY"
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                  : "border-muted hover:border-emerald-300"
+              }`}
+            >
+              <div className="font-bold">Ask Quantity</div>
+              <div className="text-[10px] opacity-70">تعداد پوچھے پھر ایڈ کرے</div>
+            </button>
+            <button
+              onClick={() => setPosScanBehavior("DIRECT_ADD")}
+              className={`flex-1 px-3 py-2.5 rounded-md text-sm font-medium border-2 transition-colors ${
+                posScanBehavior === "DIRECT_ADD"
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                  : "border-muted hover:border-emerald-300"
+              }`}
+            >
+              <div className="font-bold">Direct Add</div>
+              <div className="text-[10px] opacity-70">براہ راست ایڈ (qty=1)</div>
+            </button>
+          </div>
+        </div>
+
+        {/* Stickers Per Row */}
+        <div className="space-y-2">
+          <Label className="text-sm font-bold">Stickers Per Row — فی لائن سٹیکر</Label>
+          <p className="text-xs text-muted-foreground mb-2">
+            بڑے رول کے لیے ایک لائن میں 2/3/4 سٹیکر پرنٹ کریں
+          </p>
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { val: 1, label: "Single", urdu: "ایک" },
+              { val: 2, label: "Double", urdu: "دو" },
+              { val: 3, label: "Triple", urdu: "تین" },
+              { val: 4, label: "Quad", urdu: "چار" },
+            ].map(opt => (
+              <button
+                key={opt.val}
+                onClick={() => setStickersPerRow(opt.val)}
+                className={`px-2 py-2 rounded-md text-xs font-medium border-2 transition-colors ${
+                  stickersPerRow === opt.val
+                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                    : "border-muted hover:border-blue-300"
+                }`}
+              >
+                <div className="font-bold">{opt.label}</div>
+                <div className="text-[9px] opacity-70">{opt.urdu}</div>
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            {stickersPerRow === 1
+              ? "ایک سٹیکر فی لائن (ڈیفالٹ)"
+              : `${stickersPerRow} سٹیکر فی لائن — ${stickersPerRow * 50}mm page width (50mm x ${stickersPerRow})`
+            }
+          </p>
+        </div>
+
+        {/* Save button */}
+        <Button
+          className="bg-emerald-600 hover:bg-emerald-700 w-full"
+          disabled={saving}
+          onClick={handleSavePOS}
+        >
+          {saving ? "Saving..." : "Save POS Settings"}
+        </Button>
       </CardContent>
     </Card>
   );
