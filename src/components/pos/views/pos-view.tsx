@@ -1164,7 +1164,6 @@ export function PosView({ settings }: PosViewProps) {
       toast.info("Loading items into cart for editing...");
 
       // 1. Return all items from the original sale
-      //    (This also refunds the card balance if it was a card payment)
       const returnRes = await fetch(`/api/sales/${sale.id}/return`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1176,29 +1175,40 @@ export function PosView({ settings }: PosViewProps) {
         return;
       }
 
-      // 2. Clear current cart
+      // 2. Close ALL dialogs FIRST and wait for them to unmount
+      setReceiptOpen(false);
+      setLastSale(null);
+      setCheckoutOpen(false);
+      setReturnOpen(false);
+      setCalcOpen(false);
+      setQtyOpen(false);
+      setLoadDialogOpen(false);
+      setWalletDialogOpen(false);
+      setPurchaseDialogOpen(false);
+      setCashInDialogOpen(false);
+      setBillPayDialogOpen(false);
+
+      // v2.10.131: CRITICAL FIX — Radix Dialog leaves pointer-events:none
+      // on <body> after closing. This is the #1 cause of "can't click
+      // anywhere after Edit Sale". Force-restore pointer events.
+      document.body.style.pointerEvents = "auto";
+      document.body.style.overflow = "auto";
+
+      // Also remove any lingering Radix overlay elements
+      document.querySelectorAll('[data-radix-overlay], [data-radix-portal] [style*="pointer-events: none"]').forEach(el => {
+        (el as HTMLElement).style.pointerEvents = "auto";
+      });
+
+      // 3. Clear cart AFTER dialogs are closed
       cart.clear();
       if (cart.setCustomerName) cart.setCustomerName("");
       if (cart.setCustomerPhone) cart.setCustomerPhone("");
 
-      // 3. Close the receipt FIRST (before loading items)
-      //    This prevents the receipt dialog from re-rendering while cart changes
-      setReceiptOpen(false);
-      setLastSale(null);
-
-      // 4. v2.10.99: Defer cart operations to next tick to prevent UI freeze.
-      //    v2.10.101: Also clear ALL dialog states + reload products + longer
-      //    focus delay. User reported search bar not clickable after Edit Sale.
-      //    v2.10.114: CRITICAL FIX — was calling cart.addItem in a loop, which
-      //      triggers a separate state update per item → N re-renders → UI
-      //      freeze for 10+ items. Now uses cart.batchAddItems which does it
-      //      in a SINGLE state update (1 re-render total).
-      //      User: "جب ہم کوئی بھی ایڈٹ کرتے ہیں تو سافٹ وئر میں کہیں پر بھی
-      //      ہم کلک نہیں کر سکتے سرچ کرنے کے لیے یا تبدیلی کے لیے یہ بہت
-      //      بڑا مسئلہ ہے اسے سولو کرو"
+      // 4. Defer cart operations — 500ms to ensure Dialog fully unmounts
+      //    (Radix Dialog exit animation takes ~200-300ms)
       const items = sale.items || [];
       setTimeout(() => {
-        // v2.10.114: Build all items in one pass, then add via batchAddItems
+        // Build all items in one pass via batchAddItems (single state update)
         const batchItems = items.map((it: any) => ({
           product: {
             id: it.productId || it.id,
@@ -1236,18 +1246,17 @@ export function PosView({ settings }: PosViewProps) {
           qty: it.quantity,
         }));
 
-        // Single state update — only 1 re-render instead of N
         try {
           cart.batchAddItems(batchItems);
         } catch (e) {
           console.warn("Failed to batch-load sale items into cart:", e);
         }
 
-        // 5. Set customer info if present
+        // Set customer info
         if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
         if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
 
-        // 6. If the sale was card-paid, restore the card link
+        // Restore card link if card-paid sale
         if (sale.cardId) {
           fetch(`/api/cards/${sale.cardId}`, { cache: "no-store" })
             .then(r => r.json())
@@ -1262,29 +1271,30 @@ export function PosView({ settings }: PosViewProps) {
             .catch(() => {});
         }
 
-        // v2.10.101: Clear ALL dialog states to prevent stuck overlays
-        setCheckoutOpen(false);
-        setReturnOpen(false);
-        setCalcOpen(false);
-        setQtyOpen(false);
-        setLoadDialogOpen(false);
-        setWalletDialogOpen(false);
-
-        // v2.10.101: Reload products to refresh the product list
+        // Reload products
         loadProducts();
 
+        // v2.10.131: Force-restore pointer events AGAIN (in case
+        // batchAddItems or any other state update re-triggered overlay)
+        document.body.style.pointerEvents = "auto";
+        document.body.style.overflow = "auto";
+
         toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
-        // v2.10.101: Longer delay (300ms) for search bar focus
-        // Previous 50ms was too short — search bar wasn't clickable
+
+        // Focus search bar — 500ms delay to be safe
         setTimeout(() => {
           if (searchRef.current) {
             searchRef.current.disabled = false;
             searchRef.current.readOnly = false;
+            searchRef.current.style.pointerEvents = "auto";
             searchRef.current.focus();
             searchRef.current.select();
           }
-        }, 300);
-      }, 100);
+          // Final pointer-events cleanup
+          document.body.style.pointerEvents = "auto";
+          document.body.style.overflow = "auto";
+        }, 500);
+      }, 500);
     } catch (e: any) {
       toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
     }

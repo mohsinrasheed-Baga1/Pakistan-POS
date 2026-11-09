@@ -404,12 +404,16 @@ export function CardsView({ userRole }: CardsViewProps) {
       // 3. Clear cart
       cart.clear();
 
-      // 4. Close card details dialog + receipt dialog (the full-screen overlay)
+      // 4. Close card details dialog + receipt dialog
       setDetailCard(null);
       setReceiptSale(null);
 
-      // 5. Defer cart operations to next tick to prevent UI freeze
-      //    Use batchAddItems (v2.10.114) — single state update for all items
+      // v2.10.131: Force-restore pointer events (Radix Dialog leaves
+      // pointer-events:none on body after closing → "can't click anywhere")
+      document.body.style.pointerEvents = "auto";
+      document.body.style.overflow = "auto";
+
+      // 5. Defer cart operations — 500ms for Dialog to fully unmount
       const items = sale.items || [];
       setTimeout(() => {
         const batchItems = items.map((it: any) => ({
@@ -458,8 +462,11 @@ export function CardsView({ userRole }: CardsViewProps) {
         if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
         // Navigate to POS view
         setView("pos");
+        // v2.10.131: Force-restore pointer events again after state updates
+        document.body.style.pointerEvents = "auto";
+        document.body.style.overflow = "auto";
         toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
-      }, 150);
+      }, 500);
     } catch (e: any) {
       toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
     }

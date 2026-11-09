@@ -79,14 +79,25 @@ export function StickerPrinter({ data, count, defaultSize = "50x30", onClose }: 
   const [customWidth, setCustomWidth] = React.useState("50");
   const [customHeight, setCustomHeight] = React.useState("30");
   const [printTarget, setPrintTarget] = React.useState<PrintTarget>("thermal203");
-  // v2.10.128: Stickers per row — 1 (single), 2 (double), 3 (triple), 4 (quadruple)
-  //   User: "ایک لائن کے اندر دو اور تین سٹیکر... ایک لائن کے اندر تین سٹیکر
-  //   ہوتے ہیں چار سٹیکر ہوتے ہیں... سنگل سٹیکر یا ڈبل یا ٹرپل یا فور سٹکر
-  //   کی سیٹنگ کے مطابق پرنٹ نکالنا چاہے"
+  // v2.10.128/131: Stickers per row — loaded from saved barcode settings
+  //   so the setting from Settings → Barcode & Sticker (or POS Settings)
+  //   is applied automatically when printing.
   const [stickersPerRow, setStickersPerRow] = React.useState<number>(1);
   const [includeWeight, setIncludeWeight] = React.useState(!!data.weight);
   const [includePackingDate, setIncludePackingDate] = React.useState(!!data.packingDate);
   const [includeExpiryDate, setIncludeExpiryDate] = React.useState(!!data.expiryDate);
+
+  // v2.10.131: Load stickersPerRow from saved barcode settings on mount
+  React.useEffect(() => {
+    fetch("/api/settings/barcode", { cache: "no-store" })
+      .then(r => r.json())
+      .then(d => {
+        if (d.settings?.stickersPerRow) {
+          setStickersPerRow(Number(d.settings.stickersPerRow) || 1);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const sizeConfig = stickerSize === "custom"
     ? { widthMm: parseFloat(customWidth) || 50, heightMm: parseFloat(customHeight) || 30, label: "Custom" }
