@@ -464,6 +464,8 @@ model BarcodeSettings {
   highResSvg        Boolean @default(true)
   barcodePosition   String  @default("center")
   posScanBehavior   String  @default("ASK_QUANTITY")
+  // v2.10.133: Stickers per row (1=Single, 2=Double, 3=Triple, 4=Quad)
+  stickersPerRow    Int     @default(1)
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

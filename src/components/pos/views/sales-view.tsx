@@ -39,12 +39,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/pos-utils";
 import { Receipt as ReceiptComponent } from "@/components/pos/receipt";
+import { useCartStore, useAppStore } from "@/stores/use-pos-store";
 import type { Sale } from "@/types";
 
 export function SalesView() {
   const [sales, setSales] = React.useState<Sale[]>([]);
   const [settings, setSettings] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
+  // v2.10.133: Direct cart + view access for Edit Sale
+  const cart = useCartStore();
+  const { setView } = useAppStore();
   const [q, setQ] = React.useState("");
   const [todayOnly, setTodayOnly] = React.useState(true);
   // Custom date filter — allows selecting any specific date
@@ -431,19 +435,97 @@ export function SalesView() {
         settings={settings}
         open={receiptOpen}
         onOpenChange={setReceiptOpen}
-        onEdit={canEdit ? (sale: any) => {
-          // Navigate to POS and load the sale for editing
-          // We use window.location to switch views
+        onEdit={canEdit ? async (sale: any) => {
+          // v2.10.133: CRITICAL FIX — was using broken localStorage +
+          // CustomEvent approach that POS view NEVER listened to.
+          // Now directly loads items into cart + navigates to POS,
+          // same pattern as cards-view.tsx editSaleFromCard.
+          if (!sale?.id) return;
+
+          // Close receipt IMMEDIATELY
           setReceiptOpen(false);
-          // Store the sale in localStorage so PosView can pick it up
+          setSelected(null);
+          setCanEdit(false);
+
+          // Force-restore pointer events
+          document.body.style.pointerEvents = "auto";
+          document.body.style.overflow = "auto";
+
+          toast.info("Loading sale for editing...");
+
           try {
-            localStorage.setItem("pendingEditSale", JSON.stringify(sale));
-          } catch {}
-          // Navigate to POS
-          window.location.hash = "pos";
-          // Also try the app's internal navigation
-          const event = new CustomEvent("pos:edit-sale", { detail: sale });
-          window.dispatchEvent(event);
+            // 1. Return the original sale
+            const returnRes = await fetch(`/api/sales/${sale.id}/return`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reason: "Editing sale — returned for re-checkout", itemIds: [] }),
+            });
+            if (!returnRes.ok) {
+              const d = await returnRes.json();
+              toast.error(d.error || "Failed to return sale");
+              return;
+            }
+
+            // 2. Clear cart
+            cart.clear();
+            document.body.style.pointerEvents = "auto";
+            document.body.style.overflow = "auto";
+
+            // 3. Load items + navigate to POS
+            const items = sale.items || [];
+            requestAnimationFrame(() => {
+              const batchItems = items.map((it: any) => ({
+                product: {
+                  id: it.productId || it.id,
+                  name: it.name || "Unknown",
+                  barcode: it.barcode || "",
+                  salePrice: it.price || 0,
+                  costPrice: it.costPrice || 0,
+                  stock: 9999,
+                  unit: it.unit || "piece",
+                  wholesalePrice: 0,
+                  shopkeeperPrice: 0,
+                  taxRate: 0,
+                  active: true,
+                  hasBarcode: !!it.barcode,
+                  barcodeType: "CODE128",
+                  minStock: 0,
+                  categoryId: null,
+                  vendorId: null,
+                  storeStock: 0,
+                  image: null,
+                  expiryDate: null,
+                  manufacturingDate: null,
+                  packBarcode: null,
+                  packQuantity: 0,
+                  packPrice: 0,
+                  productCode: null,
+                  barcodeSvg: null,
+                  barcodePng: null,
+                  barcodeVerified: false,
+                  stickerSize: "50x30",
+                  packingDate: null,
+                  inventorySource: "SHOP",
+                  linkedStoreProductId: null,
+                } as any,
+                qty: it.quantity,
+              }));
+              try {
+                cart.batchAddItems(batchItems);
+              } catch (e) {
+                console.warn("Failed to load items:", e);
+              }
+              if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
+              if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
+              // Navigate to POS
+              setView("pos");
+              document.body.style.pointerEvents = "auto";
+              document.body.style.overflow = "auto";
+              toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
+            });
+          } catch (e: any) {
+            toast.error("Failed to edit sale: " + (e?.message || "Unknown"));
+          }
         } : undefined}
       />
 
