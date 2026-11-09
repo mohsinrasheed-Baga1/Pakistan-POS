@@ -116,6 +116,8 @@ export async function PUT(req: NextRequest) {
       highResSvg: body.highResSvg !== false,
       barcodePosition: body.barcodePosition === "left" || body.barcodePosition === "right" ? body.barcodePosition : "center",
       posScanBehavior: body.posScanBehavior === "DIRECT_ADD" ? "DIRECT_ADD" : "ASK_QUANTITY",
+      // v2.10.132: Save stickersPerRow to barcode settings
+      stickersPerRow: [1, 2, 3, 4].includes(Number(body.stickersPerRow)) ? Number(body.stickersPerRow) : 1,
     };
 
     const settings = await db.barcodeSettings.upsert({

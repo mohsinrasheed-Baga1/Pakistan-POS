@@ -598,6 +598,8 @@ CREATE TABLE IF NOT EXISTS BarcodeSettings (
   highResSvg BOOLEAN NOT NULL DEFAULT 1,
   posScanBehavior TEXT NOT NULL DEFAULT 'ASK_QUANTITY',
   barcodePosition TEXT NOT NULL DEFAULT 'center',
+  -- v2.10.132: Stickers per row (1=Single, 2=Double, 3=Triple, 4=Quad)
+  stickersPerRow INTEGER NOT NULL DEFAULT 1,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL
 );
@@ -785,6 +787,8 @@ const COLUMN_ADDITIONS: Record<string, [string, string][]> = {
   BarcodeSettings: [
     ["posScanBehavior", "TEXT NOT NULL DEFAULT 'ASK_QUANTITY'"],
     ["barcodePosition", "TEXT NOT NULL DEFAULT 'center'"],
+    // v2.10.132: stickersPerRow for thermal printing
+    ["stickersPerRow", "INTEGER NOT NULL DEFAULT 1"],
   ],
   // Product: inventorySource + linkedStoreProductId added in v2.9.8
   Product: [

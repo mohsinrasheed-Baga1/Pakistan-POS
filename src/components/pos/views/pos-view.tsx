@@ -1161,21 +1161,11 @@ export function PosView({ settings }: PosViewProps) {
       return;
     }
     try {
-      toast.info("Loading items into cart for editing...");
-
-      // 1. Return all items from the original sale
-      const returnRes = await fetch(`/api/sales/${sale.id}/return`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "Editing sale — returned for re-checkout", itemIds: [] }),
-      });
-      const returnData = await returnRes.json();
-      if (!returnRes.ok) {
-        toast.error(returnData.error || "Failed to return original sale");
-        return;
-      }
-
-      // 2. Close ALL dialogs FIRST and wait for them to unmount
+      // v2.10.132: CRITICAL FIX — close ALL dialogs IMMEDIATELY, BEFORE
+      // the fetch. The old code did `await fetch()` first, which meant
+      // the receipt dialog stayed open for 1-5 seconds during the fetch,
+      // blocking all interaction. User: "جب ایڈٹ پر ہم کلک کرتے ہیں تو
+      // سیم اسی طرح نا سرچ بار پر کلک نہیں ہو رہا"
       setReceiptOpen(false);
       setLastSale(null);
       setCheckoutOpen(false);
@@ -1188,27 +1178,42 @@ export function PosView({ settings }: PosViewProps) {
       setCashInDialogOpen(false);
       setBillPayDialogOpen(false);
 
-      // v2.10.131: CRITICAL FIX — Radix Dialog leaves pointer-events:none
-      // on <body> after closing. This is the #1 cause of "can't click
-      // anywhere after Edit Sale". Force-restore pointer events.
+      // Force-restore pointer events IMMEDIATELY (before fetch)
       document.body.style.pointerEvents = "auto";
       document.body.style.overflow = "auto";
-
-      // Also remove any lingering Radix overlay elements
-      document.querySelectorAll('[data-radix-overlay], [data-radix-portal] [style*="pointer-events: none"]').forEach(el => {
-        (el as HTMLElement).style.pointerEvents = "auto";
+      document.querySelectorAll('[data-radix-overlay], [role="dialog"]').forEach(el => {
+        const html = el as HTMLElement;
+        if (html.style.pointerEvents === "none") {
+          html.style.pointerEvents = "auto";
+        }
       });
 
-      // 3. Clear cart AFTER dialogs are closed
+      toast.info("Loading items into cart for editing...");
+
+      // NOW do the fetch (receipt dialog is already closed)
+      const returnRes = await fetch(`/api/sales/${sale.id}/return`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Editing sale — returned for re-checkout", itemIds: [] }),
+      });
+      const returnData = await returnRes.json();
+      if (!returnRes.ok) {
+        toast.error(returnData.error || "Failed to return original sale");
+        return;
+      }
+
+      // Clear cart
       cart.clear();
       if (cart.setCustomerName) cart.setCustomerName("");
       if (cart.setCustomerPhone) cart.setCustomerPhone("");
 
-      // 4. Defer cart operations — 500ms to ensure Dialog fully unmounts
-      //    (Radix Dialog exit animation takes ~200-300ms)
+      // Force pointer events again after clear
+      document.body.style.pointerEvents = "auto";
+      document.body.style.overflow = "auto";
+
       const items = sale.items || [];
-      setTimeout(() => {
-        // Build all items in one pass via batchAddItems (single state update)
+      // Use requestAnimationFrame for smoother UI update
+      requestAnimationFrame(() => {
         const batchItems = items.map((it: any) => ({
           product: {
             id: it.productId || it.id,
@@ -1252,11 +1257,9 @@ export function PosView({ settings }: PosViewProps) {
           console.warn("Failed to batch-load sale items into cart:", e);
         }
 
-        // Set customer info
         if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
         if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
 
-        // Restore card link if card-paid sale
         if (sale.cardId) {
           fetch(`/api/cards/${sale.cardId}`, { cache: "no-store" })
             .then(r => r.json())
@@ -1271,18 +1274,16 @@ export function PosView({ settings }: PosViewProps) {
             .catch(() => {});
         }
 
-        // Reload products
         loadProducts();
 
-        // v2.10.131: Force-restore pointer events AGAIN (in case
-        // batchAddItems or any other state update re-triggered overlay)
+        // Final pointer-events cleanup
         document.body.style.pointerEvents = "auto";
         document.body.style.overflow = "auto";
 
         toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
 
-        // Focus search bar — 500ms delay to be safe
-        setTimeout(() => {
+        // Focus search bar on next frame
+        requestAnimationFrame(() => {
           if (searchRef.current) {
             searchRef.current.disabled = false;
             searchRef.current.readOnly = false;
@@ -1290,11 +1291,10 @@ export function PosView({ settings }: PosViewProps) {
             searchRef.current.focus();
             searchRef.current.select();
           }
-          // Final pointer-events cleanup
           document.body.style.pointerEvents = "auto";
           document.body.style.overflow = "auto";
-        }, 500);
-      }, 500);
+        });
+      });
     } catch (e: any) {
       toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
     }

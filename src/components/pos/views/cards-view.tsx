@@ -382,6 +382,12 @@ export function CardsView({ userRole }: CardsViewProps) {
   const { setView } = useAppStore();
   async function editSaleFromCard(saleId: string) {
     try {
+      // v2.10.132: Close dialogs IMMEDIATELY before fetch
+      setDetailCard(null);
+      setReceiptSale(null);
+      document.body.style.pointerEvents = "auto";
+      document.body.style.overflow = "auto";
+
       toast.info("Loading sale for editing...");
       // 1. Fetch full sale details
       const res = await fetch(`/api/sales/${saleId}`, { cache: "no-store" });
@@ -389,7 +395,7 @@ export function CardsView({ userRole }: CardsViewProps) {
       const data = await res.json();
       const sale = data.sale || data;
 
-      // 2. Mark original sale as returned (also refunds card if card payment)
+      // 2. Mark original sale as returned
       const returnRes = await fetch(`/api/sales/${sale.id}/return`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -404,18 +410,13 @@ export function CardsView({ userRole }: CardsViewProps) {
       // 3. Clear cart
       cart.clear();
 
-      // 4. Close card details dialog + receipt dialog
-      setDetailCard(null);
-      setReceiptSale(null);
-
-      // v2.10.131: Force-restore pointer events (Radix Dialog leaves
-      // pointer-events:none on body after closing → "can't click anywhere")
+      // 4. Force pointer events
       document.body.style.pointerEvents = "auto";
       document.body.style.overflow = "auto";
 
-      // 5. Defer cart operations — 500ms for Dialog to fully unmount
+      // 5. Load items into cart via batchAddItems + navigate to POS
       const items = sale.items || [];
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         const batchItems = items.map((it: any) => ({
           product: {
             id: it.productId || it.id,
@@ -457,16 +458,13 @@ export function CardsView({ userRole }: CardsViewProps) {
         } catch (e) {
           console.warn("Failed to batch-load sale items:", e);
         }
-        // Set customer info
         if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
         if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
-        // Navigate to POS view
         setView("pos");
-        // v2.10.131: Force-restore pointer events again after state updates
         document.body.style.pointerEvents = "auto";
         document.body.style.overflow = "auto";
         toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
-      }, 500);
+      });
     } catch (e: any) {
       toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
     }
