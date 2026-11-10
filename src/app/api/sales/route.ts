@@ -451,6 +451,11 @@ async function processSale(userId: string, body: any, items: any[]) {
             await db.product.update({
               where: { id: boxProduct.id },
               data: { stock: { decrement: actualBoxesToOpen } },
+            // v2.10.136: Clamp box stock to 0
+            const afterBoxDec = await db.product.findUnique({ where: { id: product.id }, select: { stock: true } });
+            if (afterBoxDec && afterBoxDec.stock < 0) {
+              await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
+            }
             });
             await db.product.update({
               where: { id: it.productId },
@@ -477,11 +482,26 @@ async function processSale(userId: string, body: any, items: any[]) {
         }
 
         // Now deduct the sold quantity
+        // v2.10.136: CRITICAL FIX — stock should NEVER go negative.
+        //   User: "کبھی بھی کوئی بھی پروڈکٹ منفی میں نہیں جانی چاہیے"
+        //   After decrement, check if stock < 0 and clamp to 0.
         const stockDeduction = it.quantity;
         await db.product.update({
           where: { id: it.productId },
           data: { stock: { decrement: stockDeduction } },
         });
+        // v2.10.136: Clamp negative stock to 0
+        const afterDecrement = await db.product.findUnique({
+          where: { id: it.productId },
+          select: { stock: true, name: true },
+        });
+        if (afterDecrement && afterDecrement.stock < 0) {
+          console.warn(`[sales] Stock went negative for ${afterDecrement.name}: ${afterDecrement.stock} → clamping to 0`);
+          await db.product.update({
+            where: { id: it.productId },
+            data: { stock: 0 },
+          });
+        }
         await db.stockLog.create({
           data: {
             productId: it.productId,
@@ -616,7 +636,7 @@ async function processSale(userId: string, body: any, items: any[]) {
           });
           await db.product.update({
             where: { id: product.id },
-            data: { stock: Math.floor(newBalance) },
+            data: { stock: Math.max(0, Math.floor(newBalance)) },
           });
           console.log(`[sales] Load company ${company.name}: balance ${company.balance}→${newBalance} (deducted ${principalAmount}), profit ${chargesAmount}`);
         }
@@ -687,7 +707,7 @@ async function processSale(userId: string, body: any, items: any[]) {
           });
           await db.product.update({
             where: { id: product.id },
-            data: { stock: Math.floor(newBalance) },
+            data: { stock: Math.max(0, Math.floor(newBalance)) },
           });
           console.log(`[sales] Wallet ${account.name} ${isReceive ? "RECEIVE" : "SEND"}: balance ${account.balance}→${newBalance} (principal ${principalAmount}), profit ${chargesAmount}`);
         }

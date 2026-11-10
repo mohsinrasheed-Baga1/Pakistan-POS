@@ -256,7 +256,7 @@ export async function POST(req: NextRequest) {
       wholesalePrice: Number(body.wholesalePrice) || 0,
       shopkeeperPrice: Number(body.shopkeeperPrice) || 0,
       unit: body.unit || "piece",
-      stock: Number(body.stock) || 0,
+      stock: Math.max(0, Number(body.stock) || 0), // v2.10.136: Never negative
       storeStock: Number(body.storeStock) || 0,
       minStock: Number(body.minStock) || 0,
       taxRate: Number(body.taxRate) || 0,

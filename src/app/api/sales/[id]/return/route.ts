@@ -55,6 +55,11 @@ export async function POST(
       where: { id: it.productId },
       data: { stock: { increment: it.quantity } },
     });
+    // v2.10.136: Clamp to 0 if somehow negative
+    const afterReturn = await db.product.findUnique({ where: { id: it.productId }, select: { stock: true } });
+    if (afterReturn && afterReturn.stock < 0) {
+      await db.product.update({ where: { id: it.productId }, data: { stock: 0 } });
+    }
     await db.stockLog.create({
       data: {
         productId: it.productId,

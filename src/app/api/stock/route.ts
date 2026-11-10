@@ -16,6 +16,11 @@ export async function POST(req: NextRequest) {
   const product = await db.product.update({
     where: { id: productId },
     data: { stock: { increment: Number(quantity) } },
+    // v2.10.136: Stock should never be negative — clamp after increment
+    const afterInc = await db.product.findUnique({ where: { id: productId }, select: { stock: true } });
+    if (afterInc && afterInc.stock < 0) {
+      await db.product.update({ where: { id: productId }, data: { stock: 0 } });
+    }
   });
   await db.stockLog.create({
     data: {
