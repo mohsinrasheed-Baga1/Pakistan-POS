@@ -451,6 +451,7 @@ export function SalesView() {
           document.body.style.pointerEvents = "auto";
           document.body.style.overflow = "auto";
           document.body.removeAttribute("aria-hidden");
+          document.body.removeAttribute("data-scroll-locked");
           document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
           document.querySelectorAll("[data-radix-portal]").forEach(el => {
             if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
@@ -478,7 +479,11 @@ export function SalesView() {
 
             // 3. Load items + navigate to POS
             const items = sale.items || [];
-            requestAnimationFrame(() => {
+            // v2.10.135: Use setTimeout(300) instead of requestAnimationFrame
+            //   to give Radix Dialog time to fully clean up its portals.
+            //   requestAnimationFrame fires too fast — Radix hasn't finished
+            //   removing its overlay from document.body yet.
+            setTimeout(() => {
               const batchItems = items.map((it: any) => ({
                 product: {
                   id: it.productId || it.id,
@@ -524,10 +529,32 @@ export function SalesView() {
               if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
               // Navigate to POS
               setView("pos");
-              document.body.style.pointerEvents = "auto";
-              document.body.style.overflow = "auto";
+
+              // v2.10.135: AFTER setView("pos"), clean up Radix leftovers
+              //   again. When SalesView unmounts, Radix portals in body
+              //   may still be present. This delayed cleanup ensures they're
+              //   gone before user tries to click search bar.
+              setTimeout(() => {
+                document.body.style.pointerEvents = "auto";
+                document.body.style.overflow = "auto";
+                document.body.removeAttribute("aria-hidden");
+                document.body.removeAttribute("data-scroll-locked");
+                document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
+                document.querySelectorAll("[data-radix-portal]").forEach(el => {
+                  if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
+                });
+                // Try to focus search bar in POS view
+                const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
+                if (searchInput) {
+                  searchInput.disabled = false;
+                  searchInput.readOnly = false;
+                  searchInput.style.pointerEvents = "auto";
+                  searchInput.focus();
+                }
+              }, 200);
+
               toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
-            });
+            }, 300);
           } catch (e: any) {
             toast.error("Failed to edit sale: " + (e?.message || "Unknown"));
           }
