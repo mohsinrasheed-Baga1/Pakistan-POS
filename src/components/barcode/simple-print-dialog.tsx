@@ -154,14 +154,54 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
 
   function handlePrint() {
     const stickerHtml = buildPrintStickerHtml();
-    const stickers = Array.from({ length: count }, () => stickerHtml).join("");
+    // v2.10.138: Use stickersPerRow from saved barcode settings
+    //   User: "سیٹنگ میں ٹرپل لائن سیو ہو چکا ہے لیکن جب ہم شاپ سٹور کے
+    //   اندر جا کر سٹیکر پر پرنٹ کرنے کی کوشش کرتے ہیں تو وہ سنگل پرنٹ
+    //   ہی نکل رہا ہے"
+    const perRow = (settings as any).stickersPerRow || 1;
 
     const win = window.open("", "_blank", "width=600,height=600");
     if (!win) { toast.error("Pop-up blocked"); return; }
 
-    const pageStyle = settings.printerType === "a4"
-      ? `@page { size: A4; margin: 5mm; } .sticker { page-break-inside: avoid; display: inline-block; margin: ${settings.labelGap}mm; }`
-      : `@page { size: ${widthMm}mm ${heightMm}mm; margin: 0; } .sticker { page-break-after: always; } .sticker:last-child { page-break-after: auto; }`;
+    let stickersHtml: string;
+    let pageStyle: string;
+
+    if (perRow > 1 && settings.printerType !== "a4") {
+      // Multi-sticker per row layout (Triple/Double/Quad)
+      const pageWidthMm = widthMm * perRow;
+      const totalRows = Math.ceil(count / perRow);
+      const rows: string[] = [];
+      let idx = 0;
+      for (let row = 0; row < totalRows; row++) {
+        const rowStickers: string[] = [];
+        for (let col = 0; col < perRow; col++) {
+          if (idx < count) {
+            rowStickers.push(`<div class="sticker-cell">${stickerHtml}</div>`);
+            idx++;
+          } else {
+            rowStickers.push(`<div class="sticker-cell empty"></div>`);
+          }
+        }
+        rows.push(`<div class="sticker-row">${rowStickers.join("")}</div>`);
+      }
+      stickersHtml = `<div class="multi-sticker">${rows.join("")}</div>`;
+      pageStyle = `
+        @page { size: ${pageWidthMm}mm ${heightMm}mm; margin: 0; }
+        .multi-sticker { width: ${pageWidthMm}mm; }
+        .sticker-row { display: flex; width: ${pageWidthMm}mm; height: ${heightMm}mm; page-break-after: always; }
+        .sticker-row:last-child { page-break-after: auto; }
+        .sticker-cell { width: ${widthMm}mm; height: ${heightMm}mm; overflow: hidden; }
+        .sticker-cell.empty { visibility: hidden; }
+        .sticker { width: ${widthMm}mm; height: ${heightMm}mm; }
+      `;
+    } else if (settings.printerType === "a4") {
+      stickersHtml = Array.from({ length: count }, () => stickerHtml).join("");
+      pageStyle = `@page { size: A4; margin: 5mm; } .sticker { page-break-inside: avoid; display: inline-block; margin: ${settings.labelGap}mm; }`;
+    } else {
+      // Single sticker per page (original behavior)
+      stickersHtml = Array.from({ length: count }, () => stickerHtml).join("");
+      pageStyle = `@page { size: ${widthMm}mm ${heightMm}mm; margin: 0; } .sticker { page-break-after: always; } .sticker:last-child { page-break-after: auto; }`;
+    }
 
     win.document.write(`
       <html dir="ltr"><head><title>Sticker — ${esc(product!.name)}</title>
@@ -171,7 +211,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
         ${pageStyle}
         .sticker svg { display: block; max-width: 100%; height: auto; }
       </style></head>
-      <body>${stickers}
+      <body>${stickersHtml}
       <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
       <script>
         var barcodeValue = '${(barcodeValue || "").replace(/'/g, "\\'")}';
