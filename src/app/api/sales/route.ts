@@ -451,12 +451,12 @@ async function processSale(userId: string, body: any, items: any[]) {
             await db.product.update({
               where: { id: boxProduct.id },
               data: { stock: { decrement: actualBoxesToOpen } },
-            // v2.10.136: Clamp box stock to 0
-            const afterBoxDec = await db.product.findUnique({ where: { id: product.id }, select: { stock: true } });
-            if (afterBoxDec && afterBoxDec.stock < 0) {
-              await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
-            }
             });
+            // v2.10.137: Clamp box stock to 0 (was INSIDE update call — syntax error)
+            const afterBoxDec = await db.product.findUnique({ where: { id: boxProduct.id }, select: { stock: true } });
+            if (afterBoxDec && afterBoxDec.stock < 0) {
+              await db.product.update({ where: { id: boxProduct.id }, data: { stock: 0 } });
+            }
             await db.product.update({
               where: { id: it.productId },
               data: { stock: { increment: piecesToAdd } },
