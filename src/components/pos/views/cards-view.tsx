@@ -382,11 +382,16 @@ export function CardsView({ userRole }: CardsViewProps) {
   const { setView } = useAppStore();
   async function editSaleFromCard(saleId: string) {
     try {
-      // v2.10.132: Close dialogs IMMEDIATELY before fetch
+      // v2.10.134: Close dialogs + physically remove Radix overlays
       setDetailCard(null);
       setReceiptSale(null);
       document.body.style.pointerEvents = "auto";
       document.body.style.overflow = "auto";
+      document.body.removeAttribute("aria-hidden");
+      document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
+      document.querySelectorAll("[data-radix-portal]").forEach(el => {
+        if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
+      });
 
       toast.info("Loading sale for editing...");
       // 1. Fetch full sale details

@@ -447,9 +447,14 @@ export function SalesView() {
           setSelected(null);
           setCanEdit(false);
 
-          // Force-restore pointer events
+          // v2.10.134: Physically remove Radix overlays
           document.body.style.pointerEvents = "auto";
           document.body.style.overflow = "auto";
+          document.body.removeAttribute("aria-hidden");
+          document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
+          document.querySelectorAll("[data-radix-portal]").forEach(el => {
+            if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
+          });
 
           toast.info("Loading sale for editing...");
 

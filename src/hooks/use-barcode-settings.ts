@@ -54,6 +54,7 @@ export function useBarcodeSettings() {
             highResSvg: s.highResSvg !== false,
             barcodePosition: (s.barcodePosition as any) || "center",
             posScanBehavior: s.posScanBehavior === "DIRECT_ADD" ? "DIRECT_ADD" : "ASK_QUANTITY",
+            stickersPerRow: [1, 2, 3, 4].includes(Number(s.stickersPerRow)) ? Number(s.stickersPerRow) : 1,
           });
         }
       }
