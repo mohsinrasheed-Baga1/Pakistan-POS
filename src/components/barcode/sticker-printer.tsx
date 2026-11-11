@@ -87,16 +87,23 @@ export function StickerPrinter({ data, count, defaultSize = "50x30", onClose }: 
   const [includePackingDate, setIncludePackingDate] = React.useState(!!data.packingDate);
   const [includeExpiryDate, setIncludeExpiryDate] = React.useState(!!data.expiryDate);
 
-  // v2.10.131: Load stickersPerRow from saved barcode settings on mount
+  // v2.10.131: Load stickersPerRow from saved barcode settings on mount.
+  // v2.10.139: Also keep a `settingsLoaded` flag so the Print button can be
+  //   disabled until the saved value has been read. This prevents the race
+  //   where the user opens the dialog and clicks Print before the fetch
+  //   completes — which was causing Single to print even when Triple was saved.
+  const [settingsLoaded, setSettingsLoaded] = React.useState(false);
   React.useEffect(() => {
     fetch("/api/settings/barcode", { cache: "no-store" })
       .then(r => r.json())
       .then(d => {
         if (d.settings?.stickersPerRow) {
-          setStickersPerRow(Number(d.settings.stickersPerRow) || 1);
+          const v = Number(d.settings.stickersPerRow) || 1;
+          if ([1, 2, 3, 4].includes(v)) setStickersPerRow(v);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setSettingsLoaded(true));
   }, []);
 
   const sizeConfig = stickerSize === "custom"
@@ -108,7 +115,17 @@ export function StickerPrinter({ data, count, defaultSize = "50x30", onClose }: 
   // mm to px conversion for preview
   const mmToPx = (mm: number, dpiVal: number) => Math.round((mm * dpiVal) / 25.4);
 
-  function handlePrint() {
+  // v2.10.139: Print button is disabled until `settingsLoaded` is true, so the
+  //   saved `stickersPerRow` value from /api/settings/barcode (loaded via the
+  //   useEffect below) is guaranteed to be applied to the in-dialog selector
+  //   before the user can click Print. This fixes the race condition where
+  //   Triple was saved but Single was printed because the user clicked Print
+  //   before the fetch completed.
+  //   User: "جب بھی ہم سیٹنگ کے اندر ٹرپل سلیکٹ کریں یا ڈبل یا سنگل اس
+  //   لحاظ سے شاپ سٹور کے اندر سٹکر کی تعداد لائن میں بدل جانی چاہیے"
+  const [printing, setPrinting] = React.useState(false);
+
+  async function handlePrint() {
     if (!data.barcodeSvg) {
       toast.error("No barcode SVG available. Generate barcode first.");
       return;
@@ -354,7 +371,12 @@ export function StickerPrinter({ data, count, defaultSize = "50x30", onClose }: 
           ٹرپل یا فور سٹکر کی سیٹنگ کے مطابق پرنٹ نکالنا چاہے" */}
       {printTarget !== "a4" && (
         <div className="space-y-2">
-          <Label className="text-xs font-medium">Stickers Per Row — فی لائن سٹیکر</Label>
+          <Label className="text-xs font-medium">
+            Stickers Per Row — فی لائن سٹیکر
+            {!settingsLoaded && (
+              <span className="ml-2 text-[9px] text-muted-foreground italic">(loading saved…)</span>
+            )}
+          </Label>
           <div className="grid grid-cols-4 gap-2">
             {[
               { val: 1, label: "Single", urdu: "ایک" },
@@ -433,17 +455,25 @@ export function StickerPrinter({ data, count, defaultSize = "50x30", onClose }: 
       {/* Print button */}
       <div className="flex gap-2">
         {onClose && (
-          <Button variant="outline" onClick={onClose} className="flex-1">
+          <Button variant="outline" onClick={onClose} className="flex-1" disabled={printing}>
             Close
           </Button>
         )}
         <Button
-          onClick={handlePrint}
+          onClick={async () => {
+            if (printing) return;
+            setPrinting(true);
+            try { await handlePrint(); } finally { setPrinting(false); }
+          }}
           className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-          disabled={!data.barcodeSvg}
+          disabled={!data.barcodeSvg || printing || !settingsLoaded}
         >
           <Printer className="w-4 h-4 mr-2" />
-          Print {count} Sticker{count > 1 ? "s" : ""}
+          {!settingsLoaded
+            ? "Loading settings…"
+            : printing
+              ? "Preparing…"
+              : `Print ${count} Sticker${count > 1 ? "s" : ""}`}
         </Button>
       </div>
     </div>

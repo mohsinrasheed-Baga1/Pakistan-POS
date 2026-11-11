@@ -152,13 +152,32 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     </div>`;
   }
 
-  function handlePrint() {
+  // v2.10.139: handlePrint is now ASYNC. It re-fetches the saved barcode
+  // settings right before generating the print HTML, so the print ALWAYS uses
+  // the latest saved `stickersPerRow` value — even if the dialog was opened
+  // before useBarcodeSettings finished loading (which was the root cause of
+  // the Triple setting being ignored and Single being printed instead).
+  //   User: "جب بھی ہم سیٹنگ کے اندر ٹرپل سلیکٹ کریں یا ڈبل یا سنگل اس
+  //   لحاظ سے شاپ سٹور کے اندر سٹکر کی تعداد لائن میں بدل جانی چاہیے"
+  async function handlePrint() {
+    // Re-fetch saved settings synchronously so we use the latest saved value
+    let savedStickersPerRow = (settings as any).stickersPerRow || 1;
+    let savedPrinterType = settings.printerType;
+    try {
+      const r = await fetch("/api/settings/barcode", { cache: "no-store" });
+      if (r.ok) {
+        const d = await r.json();
+        const s = d?.settings;
+        if (s) {
+          const v = Number(s.stickersPerRow);
+          if ([1, 2, 3, 4].includes(v)) savedStickersPerRow = v;
+          if (s.printerType) savedPrinterType = s.printerType;
+        }
+      }
+    } catch {}
+
     const stickerHtml = buildPrintStickerHtml();
-    // v2.10.138: Use stickersPerRow from saved barcode settings
-    //   User: "سیٹنگ میں ٹرپل لائن سیو ہو چکا ہے لیکن جب ہم شاپ سٹور کے
-    //   اندر جا کر سٹیکر پر پرنٹ کرنے کی کوشش کرتے ہیں تو وہ سنگل پرنٹ
-    //   ہی نکل رہا ہے"
-    const perRow = (settings as any).stickersPerRow || 1;
+    const perRow = savedStickersPerRow;
 
     const win = window.open("", "_blank", "width=600,height=600");
     if (!win) { toast.error("Pop-up blocked"); return; }
@@ -166,7 +185,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     let stickersHtml: string;
     let pageStyle: string;
 
-    if (perRow > 1 && settings.printerType !== "a4") {
+    if (perRow > 1 && savedPrinterType !== "a4") {
       // Multi-sticker per row layout (Triple/Double/Quad)
       const pageWidthMm = widthMm * perRow;
       const totalRows = Math.ceil(count / perRow);
@@ -194,7 +213,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
         .sticker-cell.empty { visibility: hidden; }
         .sticker { width: ${widthMm}mm; height: ${heightMm}mm; }
       `;
-    } else if (settings.printerType === "a4") {
+    } else if (savedPrinterType === "a4") {
       stickersHtml = Array.from({ length: count }, () => stickerHtml).join("");
       pageStyle = `@page { size: A4; margin: 5mm; } .sticker { page-break-inside: avoid; display: inline-block; margin: ${settings.labelGap}mm; }`;
     } else {
@@ -253,6 +272,23 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     `);
     win.document.close();
     win.focus();
+  }
+
+  // v2.10.139: Track in-flight print to prevent double-clicks during async fetch
+  const [printing, setPrinting] = React.useState(false);
+
+  async function handlePrintClicked() {
+    if (printing) return;
+    if (settingsLoading) {
+      toast.info("Settings are still loading — please wait a moment and try again.");
+      return;
+    }
+    setPrinting(true);
+    try {
+      await handlePrint();
+    } finally {
+      setPrinting(false);
+    }
   }
 
   return (
@@ -370,14 +406,14 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
         </div>
 
         <DialogFooter className="flex-shrink-0 gap-2">
-          <Button variant="outline" onClick={onClose} className="flex-1">
+          <Button variant="outline" onClick={onClose} className="flex-1" disabled={printing}>
             <X className="w-4 h-4 mr-1" /> Close
           </Button>
-          <Button variant="outline" onClick={handlePrint} className="flex-1">
-            <FileDown className="w-4 h-4 mr-1" /> PDF
+          <Button variant="outline" onClick={handlePrintClicked} className="flex-1" disabled={printing || settingsLoading}>
+            <FileDown className="w-4 h-4 mr-1" /> {printing ? "Preparing…" : "PDF"}
           </Button>
-          <Button onClick={handlePrint} className="flex-1 bg-emerald-600 hover:bg-emerald-700">
-            <Printer className="w-4 h-4 mr-1" /> Print
+          <Button onClick={handlePrintClicked} className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={printing || settingsLoading}>
+            <Printer className="w-4 h-4 mr-1" /> {printing ? "Preparing…" : "Print"}
           </Button>
         </DialogFooter>
       </DialogContent>

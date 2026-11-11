@@ -13,15 +13,18 @@ export async function POST(req: NextRequest) {
   if (!productId || !quantity) {
     return NextResponse.json({ error: "Invalid data" }, { status: 400 });
   }
+  // v2.10.136: Stock should never be negative — clamp after increment.
+  // v2.10.139: HOTFIX — clamp code was INSIDE the update() object literal
+  //   (same class of bug as v2.10.137 sales API hotfix). Moved OUTSIDE the
+  //   update call so the TypeScript compiles and the route actually works.
   const product = await db.product.update({
     where: { id: productId },
     data: { stock: { increment: Number(quantity) } },
-    // v2.10.136: Stock should never be negative — clamp after increment
-    const afterInc = await db.product.findUnique({ where: { id: productId }, select: { stock: true } });
-    if (afterInc && afterInc.stock < 0) {
-      await db.product.update({ where: { id: productId }, data: { stock: 0 } });
-    }
   });
+  const afterInc = await db.product.findUnique({ where: { id: productId }, select: { stock: true } });
+  if (afterInc && afterInc.stock < 0) {
+    await db.product.update({ where: { id: productId }, data: { stock: 0 } });
+  }
   await db.stockLog.create({
     data: {
       productId,
