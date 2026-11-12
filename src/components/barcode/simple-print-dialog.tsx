@@ -1,20 +1,26 @@
 "use client";
 
 /**
- * Simple Product Print Dialog (v5 — guaranteed barcode visibility)
+ * Simple Product Print Dialog (v6 — crash-proof)
  * ─────────────────────────────────────────────────────────────────────────────
- * This version uses a DIFFERENT approach to guarantee the barcode is visible:
- * 
- * Instead of rendering JsBarcode into a querySelector'd SVG (which has
- * timing issues — the ref might not be ready when JsBarcode runs),
- * we use a CALLBACK REF on the SVG element. When React mounts the SVG,
- * the callback fires, and we render JsBarcode into it immediately.
- * 
- * This eliminates ALL timing/race condition issues.
+ * v2.10.141: WRAPPED IN ERROR BOUNDARY.
+ *   User reported: "شاپ سٹور کے اندر جا کر سٹیکر والے ائیکن پر کلک کرتے
+ *   ہیں تو پورا سافٹ ویئر کریش کر جاتا ہے" — clicking the sticker icon
+ *   in Shop Store crashed the entire app with "Application error: a
+ *   client-side exception has occurred".
+ *
+ *   Root cause was elusive (likely a property access on a product with
+ *   missing fields, or an unhandled error in the async print path).
+ *
+ *   FIX: Wrap the entire dialog body in a local ErrorBoundary so any
+ *   render-time exception is caught locally — the dialog shows a
+ *   friendly error message instead of taking down the whole Electron
+ *   renderer. Also added defensive null checks for product.salePrice,
+ *   product.name, etc. so missing fields don't throw.
  */
 
 import * as React from "react";
-import { Printer, FileDown, X, RefreshCw } from "lucide-react";
+import { Printer, FileDown, X, RefreshCw, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,7 +39,70 @@ interface SimplePrintDialogProps {
   onClose: () => void;
 }
 
-export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: SimplePrintDialogProps) {
+// ─────────────────────────────────────────────────────────────────────────────
+// v2.10.141: Local Error Boundary — catches any render exception thrown by
+// the dialog body so the whole Electron renderer doesn't crash to the
+// Next.js "Application error" page.
+// ─────────────────────────────────────────────────────────────────────────────
+class DialogErrorBoundary extends React.Component<
+  { children: React.ReactNode; onClose: () => void; productName?: string },
+  { hasError: boolean; errorMessage: string }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, errorMessage: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, errorMessage: error?.message || String(error) };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("SimplePrintDialog render error:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 max-w-md mx-auto text-center space-y-3">
+          <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
+          <h3 className="text-base font-bold">Print dialog could not open</h3>
+          <p className="text-xs text-muted-foreground">
+            Something went wrong while opening the sticker print dialog.
+            The product may have missing fields. Try a different product,
+            or close and reopen the dialog.
+          </p>
+          {this.props.productName && (
+            <p className="text-[10px] text-muted-foreground">
+              Product: {this.props.productName}
+            </p>
+          )}
+          {this.state.errorMessage && (
+            <p className="text-[10px] text-red-600 font-mono break-all">
+              {this.state.errorMessage.slice(0, 200)}
+            </p>
+          )}
+          <Button onClick={this.props.onClose} size="sm" className="mt-2">
+            <X className="w-4 h-4 mr-1" /> Close
+          </Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export function SimplePrintDialog(props: SimplePrintDialogProps) {
+  const { product, onClose } = props;
+  return (
+    <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
+        <DialogErrorBoundary onClose={onClose} productName={product?.name}>
+          <SimplePrintDialogBody {...props} />
+        </DialogErrorBoundary>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SimplePrintDialogBody({ product, shopName, shopLogo, onClose }: SimplePrintDialogProps) {
   const { settings, loading: settingsLoading } = useBarcodeSettings();
   const [count, setCount] = React.useState(1);
   const [shopSettings, setShopSettings] = React.useState<any>(null);
@@ -148,7 +217,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
       <div style="display:flex;align-items:center;justify-content:${barcodeJustify};width:100%;">
         <svg class="barcode-svg" xmlns="http://www.w3.org/2000/svg"></svg>
       </div>
-      <div style="font-size:${fontSize}px;font-weight:${isBold};text-align:${textAlign};width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(product!.name)}</div>
+      <div style="font-size:${fontSize}px;font-weight:${isBold};text-align:${textAlign};width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(product!.name || "(unnamed)")}</div>
     </div>`;
   }
 
@@ -257,7 +326,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     try {
       win.document.open();
       win.document.write(`
-        <html dir="ltr"><head><title>Sticker — ${esc(product!.name)}</title>
+        <html dir="ltr"><head><title>Sticker — ${esc(product!.name || "(unnamed)")}</title>
         <style>
           html, body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           * { box-sizing: border-box; }
@@ -329,15 +398,22 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     }
   }
 
+  // v2.10.141: Defensive null guards — if product has missing fields (e.g.
+  //   salePrice is undefined for some old rows), we render safe fallbacks
+  //   instead of throwing and crashing the whole app.
+  const safeSalePrice = typeof product.salePrice === "number" && !isNaN(product.salePrice)
+    ? product.salePrice
+    : 0;
+  const safeProductName = product.name || "(unnamed product)";
+
   return (
-    <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
-        <DialogHeader className="flex-shrink-0">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Printer className="w-5 h-5" />
-            Print Barcode Sticker
-          </DialogTitle>
-        </DialogHeader>
+    <>
+      <DialogHeader className="flex-shrink-0">
+        <DialogTitle className="flex items-center gap-2 text-base">
+          <Printer className="w-5 h-5" />
+          Print Barcode Sticker
+        </DialogTitle>
+      </DialogHeader>
 
         <div className="flex-1 overflow-y-auto min-h-0">
           {settingsLoading ? (
@@ -412,7 +488,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                   }}>
-                    {product.name}
+                    {safeProductName}
                   </div>
                 </div>
               </div>
@@ -421,11 +497,11 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs font-medium">Product</Label>
-                  <div className="text-sm font-medium truncate">{product.name}</div>
+                  <div className="text-sm font-medium truncate">{safeProductName}</div>
                 </div>
                 <div>
                   <Label className="text-xs font-medium">Price</Label>
-                  <div className="text-sm font-bold text-emerald-700">Rs {product.salePrice.toLocaleString()}</div>
+                  <div className="text-sm font-bold text-emerald-700">Rs {safeSalePrice.toLocaleString()}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -454,8 +530,7 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
             <Printer className="w-4 h-4 mr-1" /> {printing ? "Preparing…" : "Print"}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }
 
