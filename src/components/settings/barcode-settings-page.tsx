@@ -282,7 +282,11 @@ function BarcodeSettingsPageInner() {
 
   const { widthMm, heightMm } = getStickerDimensions(draft);
   // Smaller preview scale — fits in sidebar without covering settings
-  const previewScale = Math.min(120 / widthMm, 3);
+  // v2.10.140: Divide scale by stickersPerRow so N stickers fit side-by-side
+  //   in the sidebar preview. User asked for live preview of layer change:
+  //   "سیٹنگ کے اندر سے سٹکر کی لیئر چینج ہونی چاہیے"
+  const perRow = ([1, 2, 3, 4].includes(Number((draft as any).stickersPerRow)) ? Number((draft as any).stickersPerRow) : 1);
+  const previewScale = Math.min(120 / widthMm, 3) / perRow;
 
   return (
     <div className="space-y-3">
@@ -542,56 +546,79 @@ function BarcodeSettingsPageInner() {
                 <div className="text-[10px] text-muted-foreground text-center">
                   {widthMm} × {heightMm} mm
                 </div>
-                {/* Compact preview box — shows ACTUAL sticker with barcode */}
+                {/* Compact preview box — shows ACTUAL sticker(s) with barcode.
+                    v2.10.140: When stickersPerRow > 1, render N stickers
+                    side-by-side so the user can SEE the layer change live. */}
                 <div className="flex justify-center bg-muted/30 rounded-lg p-2 overflow-hidden" style={{ minHeight: "100px", maxHeight: "140px" }}>
-                  {/* Render sticker preview as REAL HTML (not dangerouslySetInnerHTML)
-                      so the barcode SVG is a LIVE element that JsBarcode can render into */}
+                  {/* Outer row holds N sticker copies */}
                   <div
-                    key={previewProduct.barcodeSvg ? "ready" : "pending"}
                     style={{
-                      width: `${widthMm * 3.78}px`,
-                      minHeight: `${heightMm * 3.78}px`,
-                      padding: `${(draft.margin || 1.5) * 3.78}px`,
                       display: "flex",
-                      flexDirection: "column",
-                      alignItems: draft.textAlign === "left" ? "flex-start" : draft.textAlign === "right" ? "flex-end" : "center",
-                      justifyContent: "space-between",
-                      fontFamily: `${draft.fontFamily}, Arial, sans-serif`,
-                      fontSize: `${draft.fontSize}px`,
-                      lineHeight: draft.lineSpacing || 1.1,
-                      color: draft.textColor,
-                      background: "#fff",
-                      textAlign: draft.textAlign as any,
-                      overflow: "hidden",
-                      boxSizing: "border-box",
-                      border: "1px solid #ccc",
-                      flexShrink: 0,
+                      flexDirection: "row",
+                      gap: "1px",
                       transformOrigin: "top center",
                       transform: `scale(${previewScale})`,
+                      flexShrink: 0,
                     }}
                   >
-                    {/* Shop Name */}
-                    <div style={{ fontSize: `${draft.fontSize + 1}px`, fontWeight: "bold", width: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {previewProduct.shopName}
-                    </div>
-                    {/* Product Name */}
-                    <div style={{ fontSize: `${draft.fontSize}px`, fontWeight: draft.fontBold ? "bold" : "normal", width: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {previewProduct.productName}
-                    </div>
-                    {/* Barcode SVG — LIVE element, JsBarcode renders directly into it */}
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: (draft.barcodePosition || "center") === "left" ? "flex-start" : (draft.barcodePosition || "center") === "right" ? "flex-end" : "center", width: "100%", flex: 1 }}>
-                      <svg
-                        ref={previewBarcodeCallbackRef}
-                        xmlns="http://www.w3.org/2000/svg"
-                        style={{ maxWidth: "100%", height: "auto" }}
-                      />
-                    </div>
-                    {/* Price */}
-                    <div style={{ fontSize: `${draft.fontSize + 3}px`, fontWeight: "bold" }}>
-                      Rs {previewProduct.salePrice.toLocaleString("en-PK")}
-                    </div>
+                    {Array.from({ length: perRow }, (_, idx) => (
+                      /* Render sticker preview as REAL HTML (not dangerouslySetInnerHTML)
+                         so the barcode SVG is a LIVE element that JsBarcode can render into.
+                         v2.10.140: Render N copies so the user sees the layer change. */
+                      <div
+                        key={`${idx}-${previewProduct.barcodeSvg ? "ready" : "pending"}`}
+                        style={{
+                          width: `${widthMm * 3.78}px`,
+                          minHeight: `${heightMm * 3.78}px`,
+                          padding: `${(draft.margin || 1.5) * 3.78}px`,
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: draft.textAlign === "left" ? "flex-start" : draft.textAlign === "right" ? "flex-end" : "center",
+                          justifyContent: "space-between",
+                          fontFamily: `${draft.fontFamily}, Arial, sans-serif`,
+                          fontSize: `${draft.fontSize}px`,
+                          lineHeight: draft.lineSpacing || 1.1,
+                          color: draft.textColor,
+                          background: "#fff",
+                          textAlign: draft.textAlign as any,
+                          overflow: "hidden",
+                          boxSizing: "border-box",
+                          border: "1px solid #ccc",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {/* Shop Name */}
+                        <div style={{ fontSize: `${draft.fontSize + 1}px`, fontWeight: "bold", width: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {previewProduct.shopName}
+                        </div>
+                        {/* Product Name */}
+                        <div style={{ fontSize: `${draft.fontSize}px`, fontWeight: draft.fontBold ? "bold" : "normal", width: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {previewProduct.productName}
+                        </div>
+                        {/* Barcode SVG — LIVE element, JsBarcode renders directly into it.
+                            v2.10.140: Each sticker gets its own SVG. The callback ref
+                            fires once per SVG mount, so all N barcodes render. */}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: (draft.barcodePosition || "center") === "left" ? "flex-start" : (draft.barcodePosition || "center") === "right" ? "flex-end" : "center", width: "100%", flex: 1 }}>
+                          <svg
+                            ref={previewBarcodeCallbackRef}
+                            xmlns="http://www.w3.org/2000/svg"
+                            style={{ maxWidth: "100%", height: "auto" }}
+                          />
+                        </div>
+                        {/* Price */}
+                        <div style={{ fontSize: `${draft.fontSize + 3}px`, fontWeight: "bold" }}>
+                          Rs {previewProduct.salePrice.toLocaleString("en-PK")}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
+                {/* v2.10.140: Show a hint when multiple stickers per row are selected */}
+                {perRow > 1 && (
+                  <div className="text-[10px] text-center text-blue-600 font-medium">
+                    {perRow} stickers per line — {widthMm * perRow}mm wide
+                  </div>
+                )}
                 {/* Editable preview data */}
                 <div className="space-y-1">
                   <Input value={previewProduct.productName} onChange={e => setPreviewProduct(p => ({ ...p, productName: e.target.value }))} className="h-7 text-xs" placeholder="Product name" />

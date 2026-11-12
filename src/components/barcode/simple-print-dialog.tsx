@@ -152,15 +152,48 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
     </div>`;
   }
 
-  // v2.10.139: handlePrint is now ASYNC. It re-fetches the saved barcode
-  // settings right before generating the print HTML, so the print ALWAYS uses
-  // the latest saved `stickersPerRow` value — even if the dialog was opened
-  // before useBarcodeSettings finished loading (which was the root cause of
-  // the Triple setting being ignored and Single being printed instead).
-  //   User: "جب بھی ہم سیٹنگ کے اندر ٹرپل سلیکٹ کریں یا ڈبل یا سنگل اس
-  //   لحاظ سے شاپ سٹور کے اندر سٹکر کی تعداد لائن میں بدل جانی چاہیے"
+  // v2.10.139→140: handlePrint restructured to fix CRASH.
+  //   v2.10.139 made handlePrint async and put `await fetch(...)` BEFORE
+  //   `window.open(...)`. In Chromium/Electron, calling window.open() AFTER
+  //   an await loses the user gesture → popup blocked → `win` is null or a
+  //   broken proxy → writing to win.document throws → app crashes.
+  //
+  //   v2.10.140 FIX: Open the window FIRST (synchronously, user gesture
+  //   preserved), THEN do the async fetch, THEN write content to the
+  //   already-open window. This eliminates the popup-blocker crash entirely.
+  //
+  //   User: "جب میں نے شاپ سٹور کے اندر جا کر سٹیکر کو پرنٹ کرنے کی کوشش
+  //   کرتا ہوں سٹکر پر کلک کرتا ہوں تو سافٹ ویئر کریش کر جاتا ہے"
   async function handlePrint() {
-    // Re-fetch saved settings synchronously so we use the latest saved value
+    // 1. Open the print window IMMEDIATELY (sync, before any await) so the
+    //    user gesture is preserved and Electron's popup blocker doesn't fire.
+    const win = window.open("", "_blank", "width=600,height=600");
+    if (!win) {
+      toast.error("Pop-up blocked. Please allow pop-ups for this app.");
+      return;
+    }
+
+    // 2. Show a "Preparing…" placeholder in the window while we fetch settings.
+    //    This also confirms the window was opened successfully.
+    try {
+      win.document.open();
+      win.document.write(`
+        <html><head><title>Preparing sticker…</title></head>
+        <body style="font-family:sans-serif;padding:24px;color:#555;">
+          <h3>Preparing sticker…</h3>
+          <p>Loading barcode settings, please wait.</p>
+        </body></html>
+      `);
+      win.document.close();
+    } catch (e) {
+      console.error("Print window write failed:", e);
+      toast.error("Could not open print window.");
+      return;
+    }
+
+    // 3. Re-fetch the saved stickersPerRow so the print always honors the
+    //    latest saved setting (Triple/Double/Quad), regardless of whether
+    //    useBarcodeSettings has finished loading.
     let savedStickersPerRow = (settings as any).stickersPerRow || 1;
     let savedPrinterType = settings.printerType;
     try {
@@ -176,11 +209,9 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
       }
     } catch {}
 
+    // 4. Build the sticker HTML + page style using the SAVED stickersPerRow.
     const stickerHtml = buildPrintStickerHtml();
     const perRow = savedStickersPerRow;
-
-    const win = window.open("", "_blank", "width=600,height=600");
-    if (!win) { toast.error("Pop-up blocked"); return; }
 
     let stickersHtml: string;
     let pageStyle: string;
@@ -222,56 +253,63 @@ export function SimplePrintDialog({ product, shopName, shopLogo, onClose }: Simp
       pageStyle = `@page { size: ${widthMm}mm ${heightMm}mm; margin: 0; } .sticker { page-break-after: always; } .sticker:last-child { page-break-after: auto; }`;
     }
 
-    win.document.write(`
-      <html dir="ltr"><head><title>Sticker — ${esc(product!.name)}</title>
-      <style>
-        html, body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        * { box-sizing: border-box; }
-        ${pageStyle}
-        .sticker svg { display: block; max-width: 100%; height: auto; }
-      </style></head>
-      <body>${stickersHtml}
-      <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-      <script>
-        var barcodeValue = '${(barcodeValue || "").replace(/'/g, "\\'")}';
-        var format = /^\\d{13}$/.test(barcodeValue) ? 'EAN13' : 'CODE128';
-        function renderBarcodes() {
-          var svgs = document.querySelectorAll('.sticker .barcode-svg');
-          svgs.forEach(function(svg) {
-            try {
-              JsBarcode(svg, barcodeValue, {
-                format: format,
-                width: ${settings.barcodeWidth || 2},
-                height: ${settings.barcodeHeight || 40},
-                displayValue: ${settings.humanReadable},
-                fontSize: 12,
-                font: 'monospace',
-                fontOptions: 'bold',
-                margin: ${settings.quietZone || 4},
-                textMargin: 2,
-                background: '#ffffff',
-                lineColor: '#000000',
-              });
-            } catch (e) {
-              try { JsBarcode(svg, barcodeValue, { format: 'CODE128', width: 2, height: 40, displayValue: true, fontSize: 12, margin: 4 }); } catch(e2) {}
-            }
-          });
-        }
-        window.onload = function () {
-          setTimeout(function () {
-            renderBarcodes();
+    // 5. Write the actual print HTML to the already-open window.
+    try {
+      win.document.open();
+      win.document.write(`
+        <html dir="ltr"><head><title>Sticker — ${esc(product!.name)}</title>
+        <style>
+          html, body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          * { box-sizing: border-box; }
+          ${pageStyle}
+          .sticker svg { display: block; max-width: 100%; height: auto; }
+        </style></head>
+        <body>${stickersHtml}
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+        <script>
+          var barcodeValue = '${(barcodeValue || "").replace(/'/g, "\\'")}';
+          var format = /^\\d{13}$/.test(barcodeValue) ? 'EAN13' : 'CODE128';
+          function renderBarcodes() {
+            var svgs = document.querySelectorAll('.sticker .barcode-svg');
+            svgs.forEach(function(svg) {
+              try {
+                JsBarcode(svg, barcodeValue, {
+                  format: format,
+                  width: ${settings.barcodeWidth || 2},
+                  height: ${settings.barcodeHeight || 40},
+                  displayValue: ${settings.humanReadable},
+                  fontSize: 12,
+                  font: 'monospace',
+                  fontOptions: 'bold',
+                  margin: ${settings.quietZone || 4},
+                  textMargin: 2,
+                  background: '#ffffff',
+                  lineColor: '#000000',
+                });
+              } catch (e) {
+                try { JsBarcode(svg, barcodeValue, { format: 'CODE128', width: 2, height: 40, displayValue: true, fontSize: 12, margin: 4 }); } catch(e2) {}
+              }
+            });
+          }
+          window.onload = function () {
             setTimeout(function () {
-              window.focus();
-              window.print();
-              setTimeout(function () { window.close(); }, 500);
-            }, 500);
-          }, 300);
-        };
-      </script>
-      </body></html>
-    `);
-    win.document.close();
-    win.focus();
+              renderBarcodes();
+              setTimeout(function () {
+                window.focus();
+                window.print();
+                setTimeout(function () { window.close(); }, 500);
+              }, 500);
+            }, 300);
+          };
+        </script>
+        </body></html>
+      `);
+      win.document.close();
+      win.focus();
+    } catch (e) {
+      console.error("Print window final write failed:", e);
+      toast.error("Failed to write sticker to print window.");
+    }
   }
 
   // v2.10.139: Track in-flight print to prevent double-clicks during async fetch
