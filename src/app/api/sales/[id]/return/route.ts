@@ -37,9 +37,34 @@ export async function POST(
     return NextResponse.json({ error: "No items selected for return" }, { status: 400 });
   }
 
-  // Calculate refund amount (sum of lineTotals for returned items)
-  const refundAmount = itemsToReturn.reduce((sum, it) => sum + (it.lineTotal || 0), 0);
+  // v2.10.142: CRITICAL FIX — refund amount was WRONG.
+  //   Previously: refundAmount = sum of line totals (subtotal).
+  //   But sale.total = subtotal + tax - discount + serviceTax + extraCharges.
+  //   When a sale had a DISCOUNT, subtotal > total, so the customer got
+  //   back MORE than they actually paid (e.g. paid Rs 581.6 after Rs 52
+  //   discount, but refunded Rs 633.6 = the pre-discount subtotal).
+  //   User: "ریفنڈ ہونے والی رقم اور ہے اور جو پرچیز وہ اور ہے  ریفنڈ
+  //   زیادہ ہوا ہے پیمنٹ پرچیز تھوڑا ہوا ہے"
+  //
+  //   FIX: refundAmount is now based on the ACTUAL sale.total paid,
+  //   scaled proportionally for partial returns.
   const isFullReturn = itemsToReturn.length === sale.items.length;
+  const returnedSubtotal = itemsToReturn.reduce((sum, it) => sum + (it.lineTotal || 0), 0);
+  const saleSubtotal = sale.subtotal || sale.items.reduce((sum, it) => sum + (it.lineTotal || 0), 0);
+  const saleTotalPaid = sale.total || 0;
+
+  let refundAmount: number;
+  if (isFullReturn || saleSubtotal <= 0) {
+    // Full return: refund exactly what was paid (sale.total).
+    // If saleSubtotal is 0 (edge case), also use sale.total.
+    refundAmount = saleTotalPaid;
+  } else {
+    // Partial return: proportional refund based on returned items' share of subtotal.
+    // E.g. if returning 50% of items (by subtotal value), refund 50% of sale.total.
+    refundAmount = (returnedSubtotal / saleSubtotal) * saleTotalPaid;
+  }
+  // Round to 2 decimal places to avoid floating-point drift (e.g. 581.60000001)
+  refundAmount = Math.round(refundAmount * 100) / 100;
 
   // Mark sale returned only if ALL items returned
   if (isFullReturn) {
@@ -82,7 +107,11 @@ export async function POST(
     await db.cardTransaction.create({
       data: {
         cardId: sale.cardId,
-        type: "PAYMENT",
+        // v2.10.142: Changed from "PAYMENT" to "REFUND" so the transaction
+        //   shows with the correct color (green/credit) and label ("واپسی")
+        //   in the card detail view, instead of looking like a purchase (red/debit).
+        //   User: "اس میں کلر بھی سیم ہی رکھا ہے" (refund and purchase same color)
+        type: "REFUND",
         amount: refundAmount,
         description: `Return refund ${sale.invoiceNo} (${isFullReturn ? "full" : "partial"})`,
         saleId: sale.id,

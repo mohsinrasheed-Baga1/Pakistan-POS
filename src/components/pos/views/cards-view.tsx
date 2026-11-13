@@ -382,12 +382,29 @@ export function CardsView({ userRole }: CardsViewProps) {
   const { setView } = useAppStore();
   async function editSaleFromCard(saleId: string) {
     try {
-      // v2.10.134: Close dialogs + physically remove Radix overlays
+      // v2.10.142: CRITICAL FIX — Edit Sale from card detail was freezing
+      //   the entire app. The previous fix (v2.10.131-135) used
+      //   requestAnimationFrame + immediate cleanup, but Radix Dialog
+      //   portals in document.body survive the unmount and keep
+      //   pointer-events:none on body. The sales-view.tsx fix uses
+      //   setTimeout(300) + a SECOND delayed cleanup at 200ms after
+      //   setView("pos"). cards-view was missing the second cleanup.
+      //   User: "ایڈٹ پر کلک کرنے کے بعد سارا سسٹم پورے کو پورا سافٹ وئر
+      //   کہیں پر ہم کلک نہیں کر سکتے یعنی سرچ میں کوئی چیز کاٹنی ہو یا
+      //   کہیں کے اوپر کچھ چینجنگ کرنے کی کوشش کر رہے ہیں تو وہ نہیں کر سکتے"
+      //
+      //   FIX: Mirror sales-view.tsx pattern exactly:
+      //     1. Close dialogs + remove Radix overlays IMMEDIATELY
+      //     2. Return the sale (await fetch)
+      //     3. Clear cart + reset body styles
+      //     4. setTimeout(300) → load items + setView("pos")
+      //     5. setTimeout(200) AFTER setView → second cleanup + focus search
       setDetailCard(null);
       setReceiptSale(null);
       document.body.style.pointerEvents = "auto";
       document.body.style.overflow = "auto";
       document.body.removeAttribute("aria-hidden");
+      document.body.removeAttribute("data-scroll-locked");
       document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
       document.querySelectorAll("[data-radix-portal]").forEach(el => {
         if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
@@ -414,14 +431,15 @@ export function CardsView({ userRole }: CardsViewProps) {
 
       // 3. Clear cart
       cart.clear();
-
-      // 4. Force pointer events
       document.body.style.pointerEvents = "auto";
       document.body.style.overflow = "auto";
 
-      // 5. Load items into cart via batchAddItems + navigate to POS
+      // 4. Load items into cart + navigate to POS
+      // v2.10.142: Use setTimeout(300) instead of requestAnimationFrame.
+      //   requestAnimationFrame fires too fast — Radix hasn't finished
+      //   removing its overlay from document.body yet.
       const items = sale.items || [];
-      requestAnimationFrame(() => {
+      setTimeout(() => {
         const batchItems = items.map((it: any) => ({
           product: {
             id: it.productId || it.id,
@@ -466,10 +484,33 @@ export function CardsView({ userRole }: CardsViewProps) {
         if (sale.customerName && cart.setCustomerName) cart.setCustomerName(sale.customerName);
         if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
         setView("pos");
-        document.body.style.pointerEvents = "auto";
-        document.body.style.overflow = "auto";
+
+        // v2.10.142: AFTER setView("pos"), clean up Radix leftovers AGAIN.
+        //   When CardsView unmounts, Radix portals in document.body may
+        //   still be present. This delayed cleanup ensures they're gone
+        //   before user tries to click search bar. Also focus search bar
+        //   so user can immediately type to add more products.
+        setTimeout(() => {
+          document.body.style.pointerEvents = "auto";
+          document.body.style.overflow = "auto";
+          document.body.removeAttribute("aria-hidden");
+          document.body.removeAttribute("data-scroll-locked");
+          document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
+          document.querySelectorAll("[data-radix-portal]").forEach(el => {
+            if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
+          });
+          // Try to focus search bar in POS view
+          const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
+          if (searchInput) {
+            searchInput.disabled = false;
+            searchInput.readOnly = false;
+            searchInput.style.pointerEvents = "auto";
+            searchInput.focus();
+          }
+        }, 200);
+
         toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
-      });
+      }, 300);
     } catch (e: any) {
       toast.error("Failed to edit sale: " + (e?.message || "Unknown error"));
     }
