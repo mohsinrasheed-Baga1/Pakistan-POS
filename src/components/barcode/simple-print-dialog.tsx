@@ -106,6 +106,26 @@ function SimplePrintDialogBody({ product, shopName, shopLogo, onClose }: SimpleP
   const { settings, loading: settingsLoading } = useBarcodeSettings();
   const [count, setCount] = React.useState(1);
   const [shopSettings, setShopSettings] = React.useState<any>(null);
+  // v2.10.143: Local stickersPerRow state — initialized from saved settings,
+  //   but user can override it RIGHT IN THE DIALOG without going to Settings.
+  //   This fixes the issue where the saved setting wasn't being applied:
+  //   the user can now SEE the current value and change it for this print.
+  //   User: "سٹکر کی سیٹنگ تو چینج ہو رہی ہے لیکن جب ہم شاپ سٹور کے اندر
+  //   جا کر سٹکر کے ائیکون پر کلک کر کے پرنٹ کرتے ہیں تو سنگل سٹکر ہی
+  //   نکلتا ہے"
+  const [localStickersPerRow, setLocalStickersPerRow] = React.useState<number>(1);
+  const [userOverrodeStickersPerRow, setUserOverrodeStickersPerRow] = React.useState(false);
+
+  // When settings load, initialize localStickersPerRow from the saved value
+  // (but only if the user hasn't manually changed it in this dialog session)
+  React.useEffect(() => {
+    if (!settingsLoading && !userOverrodeStickersPerRow) {
+      const saved = Number((settings as any).stickersPerRow);
+      if ([1, 2, 3, 4].includes(saved)) {
+        setLocalStickersPerRow(saved);
+      }
+    }
+  }, [settingsLoading, settings, userOverrodeStickersPerRow]);
 
   // Fetch shop settings
   React.useEffect(() => {
@@ -260,27 +280,33 @@ function SimplePrintDialogBody({ product, shopName, shopLogo, onClose }: SimpleP
       return;
     }
 
-    // 3. Re-fetch the saved stickersPerRow so the print always honors the
-    //    latest saved setting (Triple/Double/Quad), regardless of whether
-    //    useBarcodeSettings has finished loading.
-    let savedStickersPerRow = (settings as any).stickersPerRow || 1;
+    // 3. Determine effective stickersPerRow.
+    // v2.10.143: If the user changed the selector in THIS dialog session,
+    //   use their value (userOverrodeStickersPerRow=true). Otherwise, fetch
+    //   the saved value from the API to get the latest.
+    let effectiveStickersPerRow = localStickersPerRow;
     let savedPrinterType = settings.printerType;
-    try {
-      const r = await fetch("/api/settings/barcode", { cache: "no-store" });
-      if (r.ok) {
-        const d = await r.json();
-        const s = d?.settings;
-        if (s) {
-          const v = Number(s.stickersPerRow);
-          if ([1, 2, 3, 4].includes(v)) savedStickersPerRow = v;
-          if (s.printerType) savedPrinterType = s.printerType;
+    if (!userOverrodeStickersPerRow) {
+      try {
+        const r = await fetch("/api/settings/barcode", { cache: "no-store" });
+        if (r.ok) {
+          const d = await r.json();
+          const s = d?.settings;
+          if (s) {
+            const v = Number(s.stickersPerRow);
+            if ([1, 2, 3, 4].includes(v)) {
+              effectiveStickersPerRow = v;
+              setLocalStickersPerRow(v); // also update the UI selector
+            }
+            if (s.printerType) savedPrinterType = s.printerType;
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
-    // 4. Build the sticker HTML + page style using the SAVED stickersPerRow.
+    // 4. Build the sticker HTML + page style using effectiveStickersPerRow.
     const stickerHtml = buildPrintStickerHtml();
-    const perRow = savedStickersPerRow;
+    const perRow = effectiveStickersPerRow;
 
     let stickersHtml: string;
     let pageStyle: string;
@@ -491,6 +517,49 @@ function SimplePrintDialogBody({ product, shopName, shopLogo, onClose }: SimpleP
                     {safeProductName}
                   </div>
                 </div>
+              </div>
+
+              {/* v2.10.143: Stickers Per Row selector — RIGHT IN THE DIALOG.
+                  User can see the current setting and change it for this
+                  print without going back to Settings → Barcode & Sticker.
+                  User: "سٹکر کی سیٹنگ تو چینج ہو رہی ہے لیکن ... سنگل سٹکر
+                  ہی نکلتا ہے" */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">
+                  Stickers Per Row — فی لائن سٹیکر
+                  <span className="ml-1 text-[9px] text-muted-foreground">
+                    (saved: {Number((settings as any).stickersPerRow) || 1})
+                  </span>
+                </Label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { val: 1, label: "Single", urdu: "ایک" },
+                    { val: 2, label: "Double", urdu: "دو" },
+                    { val: 3, label: "Triple", urdu: "تین" },
+                    { val: 4, label: "Quad", urdu: "چار" },
+                  ].map(opt => (
+                    <button
+                      key={opt.val}
+                      onClick={() => {
+                        setLocalStickersPerRow(opt.val);
+                        setUserOverrodeStickersPerRow(true);
+                      }}
+                      className={`px-2 py-1.5 rounded text-xs font-medium border-2 transition-colors ${
+                        localStickersPerRow === opt.val
+                          ? "border-blue-500 bg-blue-50 text-blue-700"
+                          : "border-muted hover:border-blue-300"
+                      }`}
+                    >
+                      <div>{opt.label}</div>
+                      <div className="text-[9px] opacity-70">{opt.urdu}</div>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  {localStickersPerRow === 1
+                    ? "One sticker per line"
+                    : `${localStickersPerRow} stickers per line — page width = ${widthMm * localStickersPerRow}mm`}
+                </p>
               </div>
 
               {/* Product info + quantity */}

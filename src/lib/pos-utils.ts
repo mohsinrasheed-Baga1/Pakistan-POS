@@ -120,3 +120,94 @@ export function todayRange(): { start: Date; end: Date } {
   end.setHours(23, 59, 59, 999);
   return { start, end };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v2.10.143: Aggressive Radix Dialog cleanup utility.
+// ─────────────────────────────────────────────────────────────────────────────
+// The "Edit Sale hang" bug has been recurring across multiple versions
+// (v2.10.131-142). Root cause: Radix Dialog sets pointer-events:none and
+// overflow:hidden on document.body when a dialog opens. When the dialog
+// closes + the component unmounts in the same tick (e.g., navigating to
+// POS view after Edit Sale), Radix doesn't get a chance to run its
+// cleanup logic, leaving body permanently locked.
+//
+// This utility does THREE things:
+//   1. IMMEDIATE cleanup — reset body styles + remove Radix DOM elements
+//   2. MUTATION OBSERVER — for 2 seconds, watch for any NEW Radix overlays
+//      that appear (Radix sometimes adds them asynchronously) and remove them
+//   3. Periodic re-cleanup at 50ms, 100ms, 200ms, 500ms, 1000ms, 2000ms
+//      — catches late cleanup that the mutation observer might miss
+//
+// User: "ایڈٹ پر کلک کرنے کے بعد سارا سسٹم پورے کو پورا سافٹ وئر کہیں پر
+// ہم کلک نہیں کر سکتے ... اکثر اسی طرح سیم پرانا مسئلہ بھی شو کر دیتا ہے"
+//
+// Usage: call this RIGHT BEFORE setView("pos") in any Edit Sale handler.
+export function aggressiveRadixCleanup(): void {
+  // 1. IMMEDIATE cleanup
+  const cleanup = () => {
+    try {
+      // Reset body
+      document.body.style.pointerEvents = "auto";
+      document.body.style.overflow = "auto";
+      document.body.removeAttribute("aria-hidden");
+      document.body.removeAttribute("data-scroll-locked");
+      document.body.removeAttribute("data-radix-scroll-locked");
+      // Reset html element too (Radix sometimes locks this)
+      document.documentElement.style.pointerEvents = "auto";
+      document.documentElement.style.overflow = "auto";
+      // Remove Radix overlay + portal elements
+      document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
+      document.querySelectorAll("[data-radix-portal]").forEach(el => {
+        if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) {
+          el.remove();
+        }
+      });
+      // Also remove any leftover role="dialog" elements that aren't inside a portal
+      document.querySelectorAll('[role="dialog"]').forEach(el => {
+        // Only remove if it's orphaned (no visible parent)
+        const parent = el.parentElement;
+        if (!parent || parent.tagName === "BODY") {
+          el.remove();
+        }
+      });
+    } catch (e) {
+      console.warn("aggressiveRadixCleanup error:", e);
+    }
+  };
+
+  cleanup();
+
+  // 2. Periodic re-cleanup at escalating intervals
+  [50, 100, 200, 500, 1000, 2000].forEach(ms => {
+    setTimeout(cleanup, ms);
+  });
+
+  // 3. Mutation observer — catches late-appearing Radix elements
+  try {
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+          const el = node as HTMLElement;
+          if (
+            el.hasAttribute("data-radix-overlay") ||
+            el.hasAttribute("data-radix-portal") ||
+            el.getAttribute("role") === "dialog"
+          ) {
+            // Remove it immediately
+            el.remove();
+          }
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: false });
+    // Stop observing after 2 seconds
+    setTimeout(() => {
+      observer.disconnect();
+      // Final cleanup
+      cleanup();
+    }, 2000);
+  } catch (e) {
+    console.warn("aggressiveRadixCleanup observer error:", e);
+  }
+}

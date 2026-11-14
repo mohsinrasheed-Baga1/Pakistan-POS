@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { formatMoney } from "@/lib/pos-utils";
+import { formatMoney, aggressiveRadixCleanup } from "@/lib/pos-utils";
 import { Receipt as ReceiptComponent } from "@/components/pos/receipt";
 import { useCartStore, useAppStore } from "@/stores/use-pos-store";
 import type { Sale } from "@/types";
@@ -447,15 +447,9 @@ export function SalesView() {
           setSelected(null);
           setCanEdit(false);
 
-          // v2.10.134: Physically remove Radix overlays
-          document.body.style.pointerEvents = "auto";
-          document.body.style.overflow = "auto";
-          document.body.removeAttribute("aria-hidden");
-          document.body.removeAttribute("data-scroll-locked");
-          document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
-          document.querySelectorAll("[data-radix-portal]").forEach(el => {
-            if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
-          });
+          // v2.10.143: Use shared aggressiveRadixCleanup utility
+          //   User: "اکثر اسی طرح سیم پرانا مسئلہ بھی شو کر دیتا ہے"
+          aggressiveRadixCleanup();
 
           toast.info("Loading sale for editing...");
 
@@ -474,8 +468,7 @@ export function SalesView() {
 
             // 2. Clear cart
             cart.clear();
-            document.body.style.pointerEvents = "auto";
-            document.body.style.overflow = "auto";
+            aggressiveRadixCleanup();
 
             // 3. Load items + navigate to POS
             const items = sale.items || [];
@@ -530,19 +523,11 @@ export function SalesView() {
               // Navigate to POS
               setView("pos");
 
-              // v2.10.135: AFTER setView("pos"), clean up Radix leftovers
-              //   again. When SalesView unmounts, Radix portals in body
-              //   may still be present. This delayed cleanup ensures they're
-              //   gone before user tries to click search bar.
+              // v2.10.143: Use shared aggressiveRadixCleanup utility after setView.
+              //   This catches any Radix leftovers that appeared during the view
+              //   transition. Also focus the search bar so user can immediately type.
               setTimeout(() => {
-                document.body.style.pointerEvents = "auto";
-                document.body.style.overflow = "auto";
-                document.body.removeAttribute("aria-hidden");
-                document.body.removeAttribute("data-scroll-locked");
-                document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
-                document.querySelectorAll("[data-radix-portal]").forEach(el => {
-                  if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
-                });
+                aggressiveRadixCleanup();
                 // Try to focus search bar in POS view
                 const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
                 if (searchInput) {

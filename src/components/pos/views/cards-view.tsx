@@ -68,7 +68,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 // v2.10.114: toast imported above (line 37) — removed duplicate import
-import { formatMoney } from "@/lib/pos-utils";
+import { formatMoney, aggressiveRadixCleanup } from "@/lib/pos-utils";
 import { BarcodeDisplay } from "@/components/barcode/barcode-display";
 import { Receipt as ReceiptComponent } from "@/components/pos/receipt";
 // @ts-ignore - qrcode has no bundled types in this project
@@ -393,22 +393,14 @@ export function CardsView({ userRole }: CardsViewProps) {
       //   کہیں پر ہم کلک نہیں کر سکتے یعنی سرچ میں کوئی چیز کاٹنی ہو یا
       //   کہیں کے اوپر کچھ چینجنگ کرنے کی کوشش کر رہے ہیں تو وہ نہیں کر سکتے"
       //
-      //   FIX: Mirror sales-view.tsx pattern exactly:
-      //     1. Close dialogs + remove Radix overlays IMMEDIATELY
-      //     2. Return the sale (await fetch)
-      //     3. Clear cart + reset body styles
-      //     4. setTimeout(300) → load items + setView("pos")
-      //     5. setTimeout(200) AFTER setView → second cleanup + focus search
+      // v2.10.142→143: Use the shared aggressiveRadixCleanup utility instead
+      //   of inline cleanup. This does immediate cleanup + periodic re-cleanup
+      //   at 50/100/200/500/1000/2000ms + a MutationObserver that catches any
+      //   late-appearing Radix overlays. Much more robust than the old approach.
+      //   User: "اکثر اسی طرح سیم پرانا مسئلہ بھی شو کر دیتا ہے"
       setDetailCard(null);
       setReceiptSale(null);
-      document.body.style.pointerEvents = "auto";
-      document.body.style.overflow = "auto";
-      document.body.removeAttribute("aria-hidden");
-      document.body.removeAttribute("data-scroll-locked");
-      document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
-      document.querySelectorAll("[data-radix-portal]").forEach(el => {
-        if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
-      });
+      aggressiveRadixCleanup();
 
       toast.info("Loading sale for editing...");
       // 1. Fetch full sale details
@@ -485,20 +477,11 @@ export function CardsView({ userRole }: CardsViewProps) {
         if (sale.customerPhone && cart.setCustomerPhone) cart.setCustomerPhone(sale.customerPhone);
         setView("pos");
 
-        // v2.10.142: AFTER setView("pos"), clean up Radix leftovers AGAIN.
-        //   When CardsView unmounts, Radix portals in document.body may
-        //   still be present. This delayed cleanup ensures they're gone
-        //   before user tries to click search bar. Also focus search bar
-        //   so user can immediately type to add more products.
+        // v2.10.143: Call aggressiveRadixCleanup again AFTER setView("pos").
+        //   This catches any Radix leftovers that appeared during the view
+        //   transition. Also focus the search bar so user can immediately type.
         setTimeout(() => {
-          document.body.style.pointerEvents = "auto";
-          document.body.style.overflow = "auto";
-          document.body.removeAttribute("aria-hidden");
-          document.body.removeAttribute("data-scroll-locked");
-          document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
-          document.querySelectorAll("[data-radix-portal]").forEach(el => {
-            if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) el.remove();
-          });
+          aggressiveRadixCleanup();
           // Try to focus search bar in POS view
           const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
           if (searchInput) {
@@ -1120,29 +1103,53 @@ export function CardsView({ userRole }: CardsViewProps) {
                               <TableHead className="text-xs">Date</TableHead>
                               <TableHead className="text-xs">Type</TableHead>
                               <TableHead className="text-xs text-right">Amount</TableHead>
+                              {/* v2.10.143: Running Balance column — khatta style.
+                                  Each row shows the balance AFTER that transaction.
+                                  User: "جس طرح ہاں عام ریڈسٹر پر عام کھاتے پر ہم
+                                  حساب کرتے ہیں مثلا جیسے ہم کھاتا لکھتے جاتے ہیں
+                                  اور اس کے سامنے ٹوٹل بھی بناتے جاتے ہیں" */}
+                              <TableHead className="text-xs text-right">Balance — بقایا</TableHead>
                               <TableHead className="text-xs">Description</TableHead>
-                              <TableHead className="text-xs">Operator</TableHead>
-                              {/* v2.10.115: Receipt button column — each
-                                  PURCHASE-type transaction has a saleId
-                                  linking back to the Sale record. Show a
-                                  "پرچی" button so user can view the receipt
-                                  for EVERY transaction, not just the latest.
-                                  User: "ٹرانزیکشن ہسٹری میں کہیں بھی پرچی
-                                  ساتھ نہیں ارہی خریداری کی تاریخ پرچیزر
-                                  ہسٹری کے اندر صرف ایک ہی پرچی رہتی ہے باقی
-                                  کھاریاں پرچیاں اٹومیٹکلی غائب ہوتی رہتی ہیں" */}
                               <TableHead className="text-xs text-right">Receipt</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {detailTransactions.map((tx) => {
+                            {(() => {
+                              // v2.10.143: Compute running balance for each transaction.
+                              // Work BACKWARDS from the card's current balance so the
+                              // last row's balance matches the card's actual balance.
+                              // This is more accurate than computing from 0 (which
+                              // would drift if any transaction was ever edited/deleted
+                              // outside this log).
+                              const sortedAsc = [...detailTransactions].sort((a, b) =>
+                                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                              );
+                              const balanceMap = new Map<string, number>();
+                              // Total net change = sum of all (credit - debit)
+                              let totalNet = 0;
+                              for (const tx of sortedAsc) {
+                                const isCredit = ["DEPOSIT", "CREDIT", "REFUND"].includes(tx.type);
+                                totalNet += isCredit ? tx.amount : -tx.amount;
+                              }
+                              // If card.balance exists, anchor to it. Otherwise use totalNet.
+                              // card.balance = totalNet (they should be equal).
+                              // Work backwards: last tx's balance = card.balance,
+                              // previous = last - (last tx amount), etc.
+                              let runningBalance = detailCard?.balance ?? totalNet;
+                              // Iterate newest-first, assigning balance to each
+                              for (let i = sortedAsc.length - 1; i >= 0; i--) {
+                                const tx = sortedAsc[i];
+                                balanceMap.set(tx.id, runningBalance);
+                                const isCredit = ["DEPOSIT", "CREDIT", "REFUND"].includes(tx.type);
+                                // BEFORE this transaction, balance was runningBalance ∓ amount
+                                runningBalance -= isCredit ? tx.amount : -tx.amount;
+                              }
+                              return detailTransactions.map((tx) => {
                               const txType = TRANSACTION_TYPES.find(t => t.value === tx.type);
                               const isCredit = ["DEPOSIT", "CREDIT", "REFUND"].includes(tx.type);
-                              // v2.10.115: PURCHASE transactions have a
-                              // saleId linking to the Sale record. Show the
-                              // پرچی button for these (so user can view the
-                              // receipt for EVERY transaction).
                               const hasReceipt = tx.type === "PURCHASE" && !!tx.saleId;
+                              const rowBalance = balanceMap.get(tx.id) ?? 0;
+                              const isBalanceNegative = rowBalance < 0;
                               return (
                                 <TableRow key={tx.id} className={isCredit ? "bg-emerald-50/40" : "bg-rose-50/40"}>
                                   <TableCell className="text-[10px] py-1.5">
@@ -1160,11 +1167,16 @@ export function CardsView({ userRole }: CardsViewProps) {
                                   }`}>
                                     {isCredit ? "+" : "-"}{formatMoney(tx.amount, currency)}
                                   </TableCell>
+                                  {/* v2.10.143: Running Balance — khatta style.
+                                      Red if customer owes money (negative = قایا),
+                                      green if advance (positive = ایڈوانس). */}
+                                  <TableCell className={`text-right font-bold py-1.5 text-xs font-mono ${
+                                    isBalanceNegative ? "text-rose-700" : "text-emerald-700"
+                                  }`}>
+                                    {formatMoney(rowBalance, currency)}
+                                  </TableCell>
                                   <TableCell className="text-[10px] text-muted-foreground py-1.5 max-w-[200px] truncate" title={tx.description || tx.note || ""}>
                                     {tx.description || tx.note || "-"}
-                                  </TableCell>
-                                  <TableCell className="text-[10px] py-1.5">
-                                    {tx.operatorName || "-"}
                                   </TableCell>
                                   <TableCell className="text-right py-1.5">
                                     {hasReceipt ? (
@@ -1187,7 +1199,9 @@ export function CardsView({ userRole }: CardsViewProps) {
                                   </TableCell>
                                 </TableRow>
                               );
-                            })}
+                            });
+                            })()
+                          }
                           </TableBody>
                         </Table>
                       </div>

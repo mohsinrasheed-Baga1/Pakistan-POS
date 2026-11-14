@@ -41,7 +41,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { useCartStore, useAppStore } from "@/stores/use-pos-store";
-import { formatMoney, unitLabel, isLooseUnit } from "@/lib/pos-utils";
+import { formatMoney, unitLabel, isLooseUnit, aggressiveRadixCleanup } from "@/lib/pos-utils";
 import type { Product, Category } from "@/types";
 import { Receipt } from "@/components/pos/receipt";
 
@@ -1178,15 +1178,11 @@ export function PosView({ settings }: PosViewProps) {
       setCashInDialogOpen(false);
       setBillPayDialogOpen(false);
 
-      // Force-restore pointer events IMMEDIATELY (before fetch)
-      document.body.style.pointerEvents = "auto";
-      document.body.style.overflow = "auto";
-      document.querySelectorAll('[data-radix-overlay], [role="dialog"]').forEach(el => {
-        const html = el as HTMLElement;
-        if (html.style.pointerEvents === "none") {
-          html.style.pointerEvents = "auto";
-        }
-      });
+      // v2.10.143: Use shared aggressiveRadixCleanup utility — does immediate
+      //   cleanup + periodic re-cleanup at 50/100/200/500/1000/2000ms + a
+      //   MutationObserver that catches late-appearing Radix overlays.
+      //   User: "اکثر اسی طرح سیم پرانا مسئلہ بھی شو کر دیتا ہے"
+      aggressiveRadixCleanup();
 
       toast.info("Loading items into cart for editing...");
 
@@ -1207,9 +1203,8 @@ export function PosView({ settings }: PosViewProps) {
       if (cart.setCustomerName) cart.setCustomerName("");
       if (cart.setCustomerPhone) cart.setCustomerPhone("");
 
-      // Force pointer events again after clear
-      document.body.style.pointerEvents = "auto";
-      document.body.style.overflow = "auto";
+      // v2.10.143: Re-run aggressive cleanup after cart clear
+      aggressiveRadixCleanup();
 
       const items = sale.items || [];
       // Use requestAnimationFrame for smoother UI update
@@ -1276,9 +1271,8 @@ export function PosView({ settings }: PosViewProps) {
 
         loadProducts();
 
-        // Final pointer-events cleanup
-        document.body.style.pointerEvents = "auto";
-        document.body.style.overflow = "auto";
+        // v2.10.143: Final aggressive cleanup
+        aggressiveRadixCleanup();
 
         toast.success(`Loaded ${items.length} item(s) into cart for editing.`);
 
@@ -1291,8 +1285,8 @@ export function PosView({ settings }: PosViewProps) {
             searchRef.current.focus();
             searchRef.current.select();
           }
-          document.body.style.pointerEvents = "auto";
-          document.body.style.overflow = "auto";
+          // v2.10.143: One more cleanup pass after focus
+          aggressiveRadixCleanup();
         });
       });
     } catch (e: any) {
@@ -1519,10 +1513,21 @@ export function PosView({ settings }: PosViewProps) {
       setCardSearch("");    // v2.10.98: Clear card search
       toast.success("Sale completed!");
       loadProducts();
-      // v2.10.20: Sync sale to shop's Supabase (for online portal)
+      // v2.10.143: CRITICAL PERF FIX — Supabase sync was BLOCKING the UI.
+      //   Previously: `await syncSale(...)` ran inside the checkout try block,
+      //   so `setSubmitting(false)` (in the `finally`) didn't fire until the
+      //   Supabase sync completed. If Supabase was slow or unreachable, the
+      //   user saw "Processing..." for 20+ seconds even though the sale was
+      //   already saved to the local DB.
+      //   User: "اکثر سلو ہو جاتا ہے پروسیسنگ کے اندر چلا جاتا ہے اور 20 20
+      //   سیکنڈ پروسیسنگ کے اندر ہی رہتا ہے"
+      //   FIX: Fire-and-forget — don't await syncSale. It runs in the
+      //   background; errors are silently swallowed. The UI immediately
+      //   releases the submitting lock so the user can continue.
       try {
         const { syncSale } = await import("@/lib/supabase-sync");
-        await syncSale({
+        // Fire-and-forget: NO await here
+        syncSale({
           invoiceNo: data.sale.invoiceNo,
           cardId: scannedCard?.id || null,
           cardNumber: scannedCard?.cardNumber || null,
@@ -1537,9 +1542,11 @@ export function PosView({ settings }: PosViewProps) {
           paymentMethod: data.sale.paymentMethod,
           saleType: cart.saleType,
           items: data.sale.items,
+        }).catch(() => {
+          // Silent — sync is best-effort, errors don't affect the sale
         });
       } catch {
-        // Silent — sync is best-effort
+        // Silent — dynamic import failed, not critical
       }
       // ─── Increment trial daily sale counter ─────────────────────────
       // Only increments if license is trial type. Auto-resets each day.
