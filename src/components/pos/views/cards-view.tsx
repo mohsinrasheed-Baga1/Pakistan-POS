@@ -1149,7 +1149,6 @@ export function CardsView({ userRole }: CardsViewProps) {
                               const isCredit = ["DEPOSIT", "CREDIT", "REFUND"].includes(tx.type);
                               const hasReceipt = tx.type === "PURCHASE" && !!tx.saleId;
                               const rowBalance = balanceMap.get(tx.id) ?? 0;
-                              const isBalanceNegative = rowBalance < 0;
                               return (
                                 <TableRow key={tx.id} className={isCredit ? "bg-emerald-50/40" : "bg-rose-50/40"}>
                                   <TableCell className="text-[10px] py-1.5">
@@ -1167,12 +1166,15 @@ export function CardsView({ userRole }: CardsViewProps) {
                                   }`}>
                                     {isCredit ? "+" : "-"}{formatMoney(tx.amount, currency)}
                                   </TableCell>
-                                  {/* v2.10.143: Running Balance — khatta style.
-                                      Red if customer owes money (negative = قایا),
-                                      green if advance (positive = ایڈوانس). */}
-                                  <TableCell className={`text-right font-bold py-1.5 text-xs font-mono ${
-                                    isBalanceNegative ? "text-rose-700" : "text-emerald-700"
-                                  }`}>
+                                  {/* v2.10.143→144: Running Balance — khatta style.
+                                      v2.10.144: Changed color to BLUE (was red/green) so it's
+                                      visually distinct from the Amount column (which is red
+                                      for debits, green for credits).
+                                      User: 'بیلنس کا کلر بلیو کر دو کیونکہ پہلا کلر جو
+                                      پرچیزنگ اماؤنٹ کا کلر ہے وہ پہلے ہی ریڈ ہے اور موجودہ
+                                      بیلنس کا کلر بھی اپ نے ریڈ رکھا ہے جس وجہ سے ڈفرنس
+                                      کرنا تھوڑا مشکل ہے' */}
+                                  <TableCell className="text-right font-bold py-1.5 text-xs font-mono text-blue-700">
                                     {formatMoney(rowBalance, currency)}
                                   </TableCell>
                                   <TableCell className="text-[10px] text-muted-foreground py-1.5 max-w-[200px] truncate" title={tx.description || tx.note || ""}>

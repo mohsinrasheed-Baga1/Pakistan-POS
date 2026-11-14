@@ -29,6 +29,62 @@ import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAppStore, type View } from "@/stores/use-pos-store";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v2.10.144: ViewErrorBoundary — catches render errors in any view so the
+//   whole Electron renderer doesn't crash to the Next.js "Application error"
+//   page. When a view crashes, this shows a friendly error message with a
+//   "Go to POS" button instead of taking down the entire app.
+//   User: "سیل ہسٹری کے اندر جا کر ہم ٹرانزیکشن کو ایڈیٹ کرتے ہیں تو وہ
+//   کریش کر دیتا ہے پیج"
+// ─────────────────────────────────────────────────────────────────────────────
+class ViewErrorBoundary extends React.Component<
+  { children: React.ReactNode; viewName: string },
+  { hasError: boolean; errorMessage: string }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, errorMessage: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, errorMessage: error?.message || String(error) };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error(`ViewErrorBoundary [${this.props.viewName}]:`, error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 max-w-lg mx-auto text-center space-y-3">
+          <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto">
+            <span className="text-2xl">⚠</span>
+          </div>
+          <h2 className="text-lg font-bold">View error — صفحہ میں مسئلہ</h2>
+          <p className="text-sm text-muted-foreground">
+            Something went wrong in the {this.props.viewName} view.
+            The rest of the app is still working — try going back to POS
+            or another page.
+          </p>
+          {this.state.errorMessage && (
+            <p className="text-[10px] text-red-600 font-mono break-all bg-muted p-2 rounded">
+              {this.state.errorMessage.slice(0, 300)}
+            </p>
+          )}
+          <Button
+            onClick={() => {
+              this.setState({ hasError: false, errorMessage: "" });
+              useAppStore.getState().setView("pos");
+            }}
+            className="mt-2"
+          >
+            Go to POS — پی او ایس
+          </Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { PosView } from "@/components/pos/views/pos-view";
 import { ProductsView } from "@/components/pos/views/products-view";
 // v2.10.111: Removed BillReceiveView + scanner nav items per user request.
@@ -150,33 +206,37 @@ export function AppShell({ user, settings }: AppShellProps) {
   function renderView() {
     switch (view) {
       case "pos":
-        return <PosView settings={settings} />;
+        return <ViewErrorBoundary viewName="POS"><PosView settings={settings} /></ViewErrorBoundary>;
       // v2.10.110/111: "scanner" view removed in v2.10.110, "billReceive"
       // removed in v2.10.111. Neither is reachable from the sidebar nav.
       case "products":
-        return <ProductsView userRole={user.role} />;
+        return <ViewErrorBoundary viewName="Products"><ProductsView userRole={user.role} /></ViewErrorBoundary>;
       case "cards":
-        return <CardsView userRole={user.role} />;
+        return <ViewErrorBoundary viewName="Shop Cards"><CardsView userRole={user.role} /></ViewErrorBoundary>;
       case "sales":
-        return <SalesView />;
+        return <ViewErrorBoundary viewName="Sales History"><SalesView /></ViewErrorBoundary>;
       case "reports":
-        return <ReportsView />;
+        return <ViewErrorBoundary viewName="Reports"><ReportsView /></ViewErrorBoundary>;
       case "dashboard":
-        return <DashboardView />;
+        return <ViewErrorBoundary viewName="Dashboard"><DashboardView /></ViewErrorBoundary>;
       case "store":
-        return <StoreView />;
+        return <ViewErrorBoundary viewName="Store"><StoreView /></ViewErrorBoundary>;
       case "vendors":
-        return <VendorsView userRole={user.role} />;
+        return <ViewErrorBoundary viewName="Vendors"><VendorsView userRole={user.role} /></ViewErrorBoundary>;
       case "expenses":
-        return <ExpensesView />;
+        return <ViewErrorBoundary viewName="Expenses"><ExpensesView /></ViewErrorBoundary>;
       case "loadbill":
-        return <LoadBillView userRole={user.role} />;
+        return <ViewErrorBoundary viewName="Load & Bill"><LoadBillView userRole={user.role} /></ViewErrorBoundary>;
       case "users":
-        return user.role === "ADMIN" ? <UsersView /> : <PosView settings={settings} />;
+        return user.role === "ADMIN"
+          ? <ViewErrorBoundary viewName="Users"><UsersView /></ViewErrorBoundary>
+          : <ViewErrorBoundary viewName="POS"><PosView settings={settings} /></ViewErrorBoundary>;
       case "settings":
-        return user.role === "ADMIN" ? <SettingsView /> : <PosView settings={settings} />;
+        return user.role === "ADMIN"
+          ? <ViewErrorBoundary viewName="Settings"><SettingsView /></ViewErrorBoundary>
+          : <ViewErrorBoundary viewName="POS"><PosView settings={settings} /></ViewErrorBoundary>;
       default:
-        return <DashboardView />;
+        return <ViewErrorBoundary viewName="Dashboard"><DashboardView /></ViewErrorBoundary>;
     }
   }
 

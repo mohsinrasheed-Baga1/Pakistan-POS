@@ -143,10 +143,15 @@ export function todayRange(): { start: Date; end: Date } {
 //
 // Usage: call this RIGHT BEFORE setView("pos") in any Edit Sale handler.
 export function aggressiveRadixCleanup(): void {
-  // 1. IMMEDIATE cleanup
+  // 1. IMMEDIATE cleanup — ONLY remove Radix-specific elements.
+  // v2.10.144: DON'T remove elements just because they have role="dialog" —
+  //   that was too broad and could catch legitimate non-Radix portals
+  //   (e.g. sonner toast portals), causing React errors and page crashes.
+  //   User: "سیل ہسٹری کے اندر جا کر ہم ٹرانزیکشن کو ایڈیٹ کرتے ہیں تو وہ
+  //   کریش کر دیتا ہے پیج"
   const cleanup = () => {
     try {
-      // Reset body
+      // Reset body styles (Radix sets these when a dialog opens)
       document.body.style.pointerEvents = "auto";
       document.body.style.overflow = "auto";
       document.body.removeAttribute("aria-hidden");
@@ -155,18 +160,13 @@ export function aggressiveRadixCleanup(): void {
       // Reset html element too (Radix sometimes locks this)
       document.documentElement.style.pointerEvents = "auto";
       document.documentElement.style.overflow = "auto";
-      // Remove Radix overlay + portal elements
+      // ONLY remove elements with Radix-specific attributes.
+      // DO NOT remove elements just because they have role="dialog".
       document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
       document.querySelectorAll("[data-radix-portal]").forEach(el => {
+        // Only remove if it contains a dialog or overlay (Radix portals
+        // are wrappers — only remove the ones that have dialog content).
         if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) {
-          el.remove();
-        }
-      });
-      // Also remove any leftover role="dialog" elements that aren't inside a portal
-      document.querySelectorAll('[role="dialog"]').forEach(el => {
-        // Only remove if it's orphaned (no visible parent)
-        const parent = el.parentElement;
-        if (!parent || parent.tagName === "BODY") {
           el.remove();
         }
       });
@@ -182,19 +182,20 @@ export function aggressiveRadixCleanup(): void {
     setTimeout(cleanup, ms);
   });
 
-  // 3. Mutation observer — catches late-appearing Radix elements
+  // 3. Mutation observer — catches late-appearing Radix elements.
+  // v2.10.144: Only remove elements with data-radix-overlay or data-radix-portal
+  //   attributes. DO NOT remove elements just because they have role="dialog".
   try {
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType !== Node.ELEMENT_NODE) continue;
           const el = node as HTMLElement;
+          // ONLY remove if it has Radix-specific attributes
           if (
             el.hasAttribute("data-radix-overlay") ||
-            el.hasAttribute("data-radix-portal") ||
-            el.getAttribute("role") === "dialog"
+            el.hasAttribute("data-radix-portal")
           ) {
-            // Remove it immediately
             el.remove();
           }
         }
@@ -204,7 +205,6 @@ export function aggressiveRadixCleanup(): void {
     // Stop observing after 2 seconds
     setTimeout(() => {
       observer.disconnect();
-      // Final cleanup
       cleanup();
     }, 2000);
   } catch (e) {
