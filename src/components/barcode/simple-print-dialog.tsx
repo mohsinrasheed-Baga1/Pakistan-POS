@@ -308,6 +308,17 @@ function SimplePrintDialogBody({ product, shopName, shopLogo, onClose }: SimpleP
     const stickerHtml = buildPrintStickerHtml();
     const perRow = effectiveStickersPerRow;
 
+    // v2.10.145: Debug toast — shows the user what stickersPerRow value is
+    //   actually being used for this print. Helps diagnose cases where the
+    //   saved setting isn't being applied.
+    //   User: "ایک لائن کے اندر تین پرنٹ نہیں ہو رہے سٹکر"
+    toast.info(
+      `Printing ${count} sticker(s) — ${perRow} per line` +
+      (perRow > 1 ? ` (${perRow === 2 ? "Double" : perRow === 3 ? "Triple" : perRow === 4 ? "Quad" : "Multi"})` : " (Single)") +
+      ` · page width ${widthMm * perRow}mm`,
+      { duration: 4000 }
+    );
+
     let stickersHtml: string;
     let pageStyle: string;
 

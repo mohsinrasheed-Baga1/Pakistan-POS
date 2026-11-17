@@ -642,6 +642,13 @@ export function PosView({ settings }: PosViewProps) {
   //   دباتے ہی بل پیمنٹ والا اپشن جمپ کرتا ہے سامنے ا جائے"
   React.useEffect(() => {
     async function handlePosKey(e: KeyboardEvent) {
+      // v2.10.145: Early return for ALL dialog states that have text inputs.
+      //   When a dialog with text inputs is open, the global keyboard handler
+      //   should NOT process space, +/-, arrows, etc. — those keys should be
+      //   typed into the dialog's inputs normally.
+      //   User: "جب ہم پرچیز کے اندر کلک کر کے پرچیز کی کوئی چیز ایٹم کی
+      //   پرائس لکھ کر باقی ڈیٹیل ڈالنی ہوتی ہے ... وہاں پر بھی سپیس کام
+      //   نہیں کرتی"
       if (returnOpen || calcOpen || receiptOpen) return;
 
       // ─── v2.10.115: Ctrl+B = Open Bill Payment dialog ────────────────
@@ -721,12 +728,39 @@ export function PosView({ settings }: PosViewProps) {
         return;
       }
 
+      // v2.10.145: Early return for text-input dialogs.
+      //   When these dialogs are open, the user needs to type text (with
+      //   spaces) into the dialog's inputs. The global keyboard handler
+      //   should NOT process +/-, space-as-checkout, arrows, etc.
+      //   Ctrl shortcuts (Ctrl+B, Ctrl+Z, Ctrl+H, Ctrl+Backspace) still
+      //   work because they're handled above.
+      //   User: "جب ہم پرچیز کے اندر کلک کر کے پرچیز کی کوئی چیز ایٹم کی
+      //   پرائس لکھ کر باقی ڈیٹیل ڈالنی ہوتی ہے ... وہاں پر بھی سپیس کام
+      //   نہیں کرتی"
+      if (purchaseDialogOpen || cashInDialogOpen || loadDialogOpen ||
+          walletDialogOpen || billPayDialogOpen) {
+        // Let all keys pass through normally to the dialog's inputs
+        return;
+      }
+
       // ─── After checkout: Space acts as Tab + Enter completes sale ─────
+      // v2.10.145: Don't intercept Space when the user is typing in a text
+      //   input/textarea inside the checkout dialog (e.g. customer name with
+      //   spaces). Only act as Tab when body/button is focused.
       if (checkoutOpen) {
         if (e.key === " " || e.code === "Space") {
-          // In checkout dialog, Space moves to next focusable element
-          // (acts like Tab). This lets the cashier navigate the checkout
-          // form with just the spacebar after pressing Alt to open it.
+          const activeEl = document.activeElement;
+          const isTypingInText = activeEl && (
+            activeEl.tagName === "INPUT" ||
+            activeEl.tagName === "TEXTAREA" ||
+            (activeEl as HTMLElement).isContentEditable
+          );
+          // If typing in a text field, let space be typed normally
+          if (isTypingInText) {
+            return; // Don't preventDefault — let the space character be typed
+          }
+          // In checkout dialog (non-text focus), Space moves to next focusable
+          // element (acts like Tab).
           e.preventDefault();
           const focusable = document.querySelectorAll<HTMLElement>(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -935,12 +969,28 @@ export function PosView({ settings }: PosViewProps) {
       // User requested: Space in search input should allow multi-word queries
       // (e.g. "lemon biscuit"). Only trigger checkout via Space when the
       // search is empty AND cart has items. Alt is the primary checkout key.
+      // v2.10.145: CRITICAL FIX — Space was being blocked in ALL input fields
+      //   except the main product search. When the user typed a space in the
+      //   card search field, purchase dialog inputs, or any other text input,
+      //   isSearchFocused was false, so the code fell through to preventDefault()
+      //   which blocked the space and triggered checkout instead.
+      //   User: "جب ہم شاپ کارڈ سرچ کرنے لگتے ہیں یا پرائس لکھتے ہیں جہاں پر
+      //   جہاں پر ہم شاپ کارڈ سرچ کرتے ہیں تو وہاں پر سپیس کام نہیں کرتے ...
+      //   کوک نیم لکھنا ہوتا ہے محمد عرفان ... جب ہم سپیس دبا کر سپیس دے کر
+      //   نام سے ہی سرچ کر سکیں اسپیس وہاں پر کام نہیں کرتا"
+      //   FIX: Check if ANY input/textarea is focused (not just the main search).
+      //   If so, let the space be typed normally.
       if (e.key === " " || e.code === "Space") {
-        if (isSearchFocused) {
-          // Let the space character be typed into the search input
-          // (don't preventDefault — allows "lemon biscuit" searches)
-          // But if search is empty and cart has items, trigger checkout
-          if (q.trim() === "" && cart.items.length > 0) {
+        const isAnyInputFocused = !!(active && (
+          active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          (active as HTMLElement).isContentEditable
+        ));
+        if (isAnyInputFocused) {
+          // User is typing in SOME input field — let the space be typed.
+          // Only trigger checkout if the MAIN search is focused AND empty
+          // AND cart has items (existing behavior for fast checkout).
+          if (isSearchFocused && q.trim() === "" && cart.items.length > 0) {
             e.preventDefault();
             if (scannedCard) {
               handleCheckout();
@@ -948,10 +998,10 @@ export function PosView({ settings }: PosViewProps) {
               setCheckoutOpen(true);
             }
           }
-          // Otherwise, let Space be typed normally
+          // Otherwise, let Space be typed normally (don't preventDefault)
           return;
         }
-        // Space when NOT in search input (e.g. body focused) = checkout
+        // Space when NOT in any input (e.g. body focused) = checkout
         e.preventDefault();
         if (cart.items.length > 0) {
           if (scannedCard) {
