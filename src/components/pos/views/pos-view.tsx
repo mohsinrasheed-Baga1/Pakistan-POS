@@ -41,7 +41,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { useCartStore, useAppStore } from "@/stores/use-pos-store";
-import { formatMoney, unitLabel, isLooseUnit, aggressiveRadixCleanup } from "@/lib/pos-utils";
+import { formatMoney, unitLabel, isLooseUnit, aggressiveRadixCleanup, calculateDenominationBreakdown } from "@/lib/pos-utils";
 import type { Product, Category } from "@/types";
 import { Receipt } from "@/components/pos/receipt";
 
@@ -2879,6 +2879,36 @@ export function PosView({ settings }: PosViewProps) {
                   </span>
                 </div>
               )}
+
+              {/* v2.10.146: Denomination breakdown — how to give back change
+                  in Pakistani notes and coins.
+                  User: "بقایا کون سا لوٹ کیسے دیں گے ... پاکستان میں پانچ ہزار
+                  ایک ہزار 500 50 20 10 اور پانچ تین دو اور ایک کے سکے موجود ہیں" */}
+              {Number(paidAmount) > 0 && change > 0 && (() => {
+                const breakdown = calculateDenominationBreakdown(change);
+                if (breakdown.length === 0) return null;
+                return (
+                  <div className="bg-blue-50 rounded-lg p-2 border border-blue-200">
+                    <div className="text-[10px] font-bold text-blue-800 mb-1.5 text-center">
+                      Change Breakdown — لوٹ کی تفصیل
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      {breakdown.map((d) => (
+                        <div key={d.value} className="flex justify-between items-center text-[10px] bg-white rounded px-1.5 py-1 border border-blue-100">
+                          <span className="text-muted-foreground">
+                            {d.label}
+                            <span className="text-[8px] ml-0.5">({d.type === "coin" ? "سکہ" : "نوٹ"})</span>
+                          </span>
+                          <span className="font-bold text-blue-700">× {d.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-[9px] text-blue-600 mt-1 text-center">
+                      Total: {breakdown.reduce((s, d) => s + d.value * d.count, 0).toLocaleString("en-PK")} Rs
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Quick amount buttons */}
               {!scannedCard && (

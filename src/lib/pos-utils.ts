@@ -112,6 +112,67 @@ export function unitLabel(unit: string): string {
   return map[unit] || unit;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// v2.10.146: Pakistani denomination breakdown.
+// ─────────────────────────────────────────────────────────────────────────────
+// Given an amount (the change to give back to the customer), calculate
+// how to break it down into Pakistani notes and coins.
+//
+// Notes: Rs 5000, 1000, 500, 100, 50, 20, 10
+// Coins: Rs 5, 2, 1
+//
+// Uses a greedy algorithm (largest denominations first) which always
+// produces the optimal (fewest notes) breakdown for these denominations.
+//
+// User: "پاکستان میں پانچ ہزار ایک ہزار 500 50 20 10 اور پانچ تین دو اور
+// ایک کے سکے موجود ہیں تو بقایا کون سا لوٹ کیسے دیں گے"
+
+export const PAKISTANI_DENOMINATIONS = [
+  { value: 5000, type: "note" as const, label: "Rs 5000", labelUr: "5000" },
+  { value: 1000, type: "note" as const, label: "Rs 1000", labelUr: "1000" },
+  { value: 500, type: "note" as const, label: "Rs 500", labelUr: "500" },
+  { value: 100, type: "note" as const, label: "Rs 100", labelUr: "100" },
+  { value: 50, type: "note" as const, label: "Rs 50", labelUr: "50" },
+  { value: 20, type: "note" as const, label: "Rs 20", labelUr: "20" },
+  { value: 10, type: "note" as const, label: "Rs 10", labelUr: "10" },
+  { value: 5, type: "coin" as const, label: "Rs 5", labelUr: "5" },
+  { value: 2, type: "coin" as const, label: "Rs 2", labelUr: "2" },
+  { value: 1, type: "coin" as const, label: "Rs 1", labelUr: "1" },
+];
+
+export function calculateDenominationBreakdown(amount: number): Array<{
+  value: number;
+  count: number;
+  type: "note" | "coin";
+  label: string;
+  labelUr: string;
+}> {
+  const result: Array<{
+    value: number;
+    count: number;
+    type: "note" | "coin";
+    label: string;
+    labelUr: string;
+  }> = [];
+  let remaining = Math.round(amount);
+  if (remaining <= 0) return result;
+  for (const denom of PAKISTANI_DENOMINATIONS) {
+    const count = Math.floor(remaining / denom.value);
+    if (count > 0) {
+      result.push({
+        value: denom.value,
+        count,
+        type: denom.type,
+        label: denom.label,
+        labelUr: denom.labelUr,
+      });
+      remaining -= count * denom.value;
+    }
+    if (remaining <= 0) break;
+  }
+  return result;
+}
+
 export function todayRange(): { start: Date; end: Date } {
   const now = new Date();
   const start = new Date(now);
@@ -143,71 +204,94 @@ export function todayRange(): { start: Date; end: Date } {
 //
 // Usage: call this RIGHT BEFORE setView("pos") in any Edit Sale handler.
 export function aggressiveRadixCleanup(): void {
-  // 1. IMMEDIATE cleanup — ONLY remove Radix-specific elements.
-  // v2.10.144: DON'T remove elements just because they have role="dialog" —
-  //   that was too broad and could catch legitimate non-Radix portals
-  //   (e.g. sonner toast portals), causing React errors and page crashes.
-  //   User: "سیل ہسٹری کے اندر جا کر ہم ٹرانزیکشن کو ایڈیٹ کرتے ہیں تو وہ
-  //   کریش کر دیتا ہے پیج"
-  const cleanup = () => {
+  // v2.10.146: COMPLETELY REWRITTEN with a polling approach.
+  //   The previous version used setTimeout at fixed intervals (50, 100, 200,
+  //   500, 1000, 2000ms) + a 2-second MutationObserver. But the Edit Sale
+  //   hang persisted across 10+ versions because Radix RE-APPLIES
+  //   pointer-events:none AFTER our cleanup runs.
+  //
+  //   NEW APPROACH: Poll every 50ms for 5 SECONDS. Each poll CHECKS if
+  //   body/html has pointer-events:none and resets it to "auto". Also
+  //   removes any Radix overlay/portal elements. This catches ANY point
+  //   where Radix re-locks the body, no matter when it happens.
+  //
+  //   User: "10 مرتبہ یہ چیز کو ختم کرنے کے لیے اپڈیٹ کر چکے ہیں لیکن
+  //   یہ مسئلہ حل نہیں ہوا"
+
+  const resetStyles = () => {
     try {
-      // Reset body styles (Radix sets these when a dialog opens)
-      document.body.style.pointerEvents = "auto";
-      document.body.style.overflow = "auto";
+      // Reset body
+      if (document.body.style.pointerEvents === "none") {
+        document.body.style.pointerEvents = "auto";
+      }
+      if (document.body.style.overflow === "hidden") {
+        document.body.style.overflow = "auto";
+      }
       document.body.removeAttribute("aria-hidden");
       document.body.removeAttribute("data-scroll-locked");
       document.body.removeAttribute("data-radix-scroll-locked");
-      // Reset html element too (Radix sometimes locks this)
-      document.documentElement.style.pointerEvents = "auto";
-      document.documentElement.style.overflow = "auto";
-      // ONLY remove elements with Radix-specific attributes.
-      // DO NOT remove elements just because they have role="dialog".
+      // Reset html element
+      if (document.documentElement.style.pointerEvents === "none") {
+        document.documentElement.style.pointerEvents = "auto";
+      }
+      if (document.documentElement.style.overflow === "hidden") {
+        document.documentElement.style.overflow = "auto";
+      }
+    } catch (e) {
+      console.warn("aggressiveRadixCleanup resetStyles error:", e);
+    }
+  };
+
+  const removeRadixElements = () => {
+    try {
       document.querySelectorAll("[data-radix-overlay]").forEach(el => el.remove());
       document.querySelectorAll("[data-radix-portal]").forEach(el => {
-        // Only remove if it contains a dialog or overlay (Radix portals
-        // are wrappers — only remove the ones that have dialog content).
         if ((el as HTMLElement).querySelector('[role="dialog"], [data-radix-overlay]')) {
           el.remove();
         }
       });
     } catch (e) {
-      console.warn("aggressiveRadixCleanup error:", e);
+      console.warn("aggressiveRadixCleanup removeRadixElements error:", e);
     }
   };
 
-  cleanup();
+  // Immediate cleanup
+  resetStyles();
+  removeRadixElements();
 
-  // 2. Periodic re-cleanup at escalating intervals
-  [50, 100, 200, 500, 1000, 2000].forEach(ms => {
-    setTimeout(cleanup, ms);
-  });
+  // v2.10.146: POLLING loop — check every 50ms for 5 seconds.
+  //   This catches Radix re-locking the body at ANY point during the
+  //   view transition. The previous fixed-interval approach missed
+  //   cases where Radix re-applied styles between intervals.
+  const startTime = Date.now();
+  const POLL_INTERVAL = 50; // ms
+  const POLL_DURATION = 5000; // 5 seconds
 
-  // 3. Mutation observer — catches late-appearing Radix elements.
-  // v2.10.144: Only remove elements with data-radix-overlay or data-radix-portal
-  //   attributes. DO NOT remove elements just because they have role="dialog".
-  try {
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          if (node.nodeType !== Node.ELEMENT_NODE) continue;
-          const el = node as HTMLElement;
-          // ONLY remove if it has Radix-specific attributes
-          if (
-            el.hasAttribute("data-radix-overlay") ||
-            el.hasAttribute("data-radix-portal")
-          ) {
-            el.remove();
-          }
-        }
+  const pollId = setInterval(() => {
+    resetStyles();
+    removeRadixElements();
+
+    // Also try to enable + focus the search bar in POS view
+    const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
+    if (searchInput) {
+      if (searchInput.disabled) searchInput.disabled = false;
+      if (searchInput.readOnly) searchInput.readOnly = false;
+      if (searchInput.style.pointerEvents === "none") {
+        searchInput.style.pointerEvents = "auto";
       }
-    });
-    observer.observe(document.body, { childList: true, subtree: false });
-    // Stop observing after 2 seconds
-    setTimeout(() => {
-      observer.disconnect();
-      cleanup();
-    }, 2000);
-  } catch (e) {
-    console.warn("aggressiveRadixCleanup observer error:", e);
-  }
+    }
+
+    // Stop polling after 5 seconds
+    if (Date.now() - startTime > POLL_DURATION) {
+      clearInterval(pollId);
+    }
+  }, POLL_INTERVAL);
+
+  // Also add a one-time focus after 500ms (when POS view should be mounted)
+  setTimeout(() => {
+    const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
+    if (searchInput) {
+      searchInput.focus();
+    }
+  }, 500);
 }
